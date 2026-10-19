@@ -59,6 +59,8 @@ async function dispatch(request: Request): Promise<unknown> {
   switch (request.method) {
     case "listProjects":
       return projects.list();
+    case "saveProjectDocuments":
+      return projects.saveDocuments(request.params);
     case "deleteProject":
       return projects.delete(
         request.params.projectId,

@@ -35,6 +35,11 @@ export const DocumentBindingSchema = z
     required: z.boolean(),
   })
   .strict();
+export const ProjectDocumentsUpdateSchema = z.object({
+  projectId: z.uuid(),
+  documents: z.array(DocumentBindingSchema).max(100),
+  expectedRevision: z.number().int().positive(),
+}).strict();
 export const IssueBindingSchema = z
   .object({
     id: z.string(),
@@ -52,7 +57,7 @@ export const ProjectDraftSchema = z
     name: z.string().trim().min(1).max(100),
     enabled: z.boolean(),
     repositories: z.array(RepositoryDraftSchema).min(1).max(20),
-    documents: z.array(DocumentBindingSchema).max(100),
+    documents: ProjectDocumentsUpdateSchema.shape.documents,
     issueBindings: z.array(IssueBindingSchema).max(20).refine((items) => items.filter((b) => b.platform !== "trinity").length <= 1, "每个本地项目仅可选择单个 Jira 项目"),
     aiProfileId: z.string().nullable(),
   })
@@ -304,6 +309,7 @@ export interface DesktopAPI {
     reportId: string,
   ): Promise<Result<string | null>>;
   listProjects(): Promise<Result<Project[]>>;
+  saveProjectDocuments(projectId: string, documents: Project["documents"], expectedRevision: number): Promise<Result<Project>>;
   saveProject(
     draft: ProjectDraft,
     expectedRevision?: number,

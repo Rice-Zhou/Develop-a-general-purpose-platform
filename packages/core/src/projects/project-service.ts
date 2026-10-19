@@ -4,6 +4,7 @@ import { normalize } from "node:path";
 import { AppError } from "../../../contracts/src/error";
 import {
   ProjectDraftSchema,
+  ProjectDocumentsUpdateSchema,
   type ProjectDraft,
   type Project,
 } from "../../../contracts/src/models";
@@ -27,6 +28,13 @@ export class ProjectService {
   }
   delete(id: string, expectedRevision: number): void {
     this.store.deleteProject(id, expectedRevision);
+  }
+  saveDocuments(input: { projectId: string; documents: Project["documents"]; expectedRevision: number }): Project {
+    const update = ProjectDocumentsUpdateSchema.parse(input);
+    const previous = this.store.getProject(update.projectId);
+    const project = { ...previous, documents: update.documents, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
+    this.store.saveProject(project, update.expectedRevision);
+    return project;
   }
   async save(input: ProjectDraft, expectedRevision?: number): Promise<Project> {
     const draft = ProjectDraftSchema.parse(input);

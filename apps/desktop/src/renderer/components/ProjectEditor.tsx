@@ -8,6 +8,7 @@ import type {
 import { message, unwrap } from "../api";
 import { RepositoryBranchField } from "./RepositoryBranchField";
 import { JiraProjectField } from "./JiraProjectField";
+import { DocumentBindingsEditor } from "./DocumentBindingsEditor";
 export function ProjectEditor({
   project,
   onClose,
@@ -281,138 +282,7 @@ export function ProjectEditor({
             <summary>
               关联需求文档 <span>{draft.documents.length} 份</span>
             </summary>
-            <p className="muted small">
-              本地 Word、PDF 将捕获为固定快照；飞书通过设置中的 CLI
-              只读获取。必需资料失败时任务会停止。
-            </p>
-            {draft.documents.map((doc, index) => (
-              <div className="binding-form" key={doc.id}>
-                <div className="form-row">
-                  <label>
-                    文档类型
-                    <select
-                      value={doc.kind}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          documents: draft.documents.map((item, i) =>
-                            i === index
-                              ? {
-                                  ...item,
-                                  kind: e.target.value as typeof doc.kind,
-                                }
-                              : item,
-                          ),
-                        })
-                      }
-                    >
-                      <option value="docx">Word .docx</option>
-                      <option value="pdf">PDF</option>
-                      <option value="feishu">飞书文档</option>
-                    </select>
-                  </label>
-                  <label className="grow">
-                    文档路径或链接
-                    <input
-                      required
-                      value={doc.locator}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          documents: draft.documents.map((item, i) =>
-                            i === index
-                              ? { ...item, locator: e.target.value }
-                              : item,
-                          ),
-                        })
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        documents: draft.documents.filter(
-                          (_, i) => i !== index,
-                        ),
-                      })
-                    }
-                  >
-                    移除
-                  </button>
-                </div>
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={doc.required}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        documents: draft.documents.map((item) =>
-                          item.id === doc.id
-                            ? { ...item, required: event.target.checked }
-                            : item,
-                        ),
-                      })
-                    }
-                  />
-                  必需文档（读取失败时停止分析）
-                </label>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  documents: [
-                    ...draft.documents,
-                    {
-                      id: crypto.randomUUID(),
-                      kind: "docx",
-                      locator: "",
-                      required: true,
-                    },
-                  ],
-                })
-              }
-            >
-              ＋ 关联文档
-            </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                void (async () => {
-                  try {
-                    const paths = unwrap(
-                      await window.platform.chooseDocumentFiles(),
-                    );
-                    setDraft((current) => ({
-                      ...current,
-                      documents: [
-                        ...current.documents,
-                        ...paths.map((locator) => ({
-                          id: crypto.randomUUID(),
-                          kind: locator.toLowerCase().endsWith(".pdf")
-                            ? ("pdf" as const)
-                            : ("docx" as const),
-                          locator,
-                          required: true,
-                        })),
-                      ],
-                    }));
-                  } catch (error) {
-                    setError(message(error));
-                  }
-                })()
-              }
-            >
-              从本机选择 Word / PDF
-            </button>
+            <DocumentBindingsEditor documents={draft.documents} onError={setError} disabled={busy} onChange={update => setDraft(current => ({ ...current, documents: typeof update === "function" ? update(current.documents) : update }))} />
           </details>
           <details className="config-details" open>
             <summary>

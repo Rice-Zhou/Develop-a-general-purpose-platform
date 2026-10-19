@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AppError } from "./error";
-import { ProjectDraftSchema } from "./models";
+import { ProjectDraftSchema, ProjectDocumentsUpdateSchema } from "./models";
 import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
 import { RequirementItemSchema } from "./requirements";
 import { IssueConnectionDraftSchema } from "./issues";
@@ -18,6 +18,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("saveProjectDocuments"), params: ProjectDocumentsUpdateSchema }).strict(),
   z.object({ method: z.literal("refreshBugWorkspace"), params: z.object({ projectId: id }).strict() }).strict(),
   ...(["getIssueMonitor", "checkIssueNotifications"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),
   z.object({ method: z.literal("saveIssueMonitor"), params: z.object({ configuration: IssueMonitorConfigurationSchema }).strict() }).strict(),

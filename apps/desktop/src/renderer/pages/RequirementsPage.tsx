@@ -12,6 +12,7 @@ import type {
 import { unwrap, message } from "../api";
 import { DocumentsPage } from "./DocumentsPage";
 import { ReportPage } from "./ReportPage";
+import { ProjectDocumentsDialog } from "../components/ProjectDocumentsDialog";
 type Workspace = Extract<
   Awaited<ReturnType<DesktopAPI["getWorkspace"]>>,
   { ok: true }
@@ -26,6 +27,7 @@ export function RequirementsPage({
   onChanged: () => Promise<void>;
 }) {
   const [projectId, setProjectId] = useState("");
+  const [managingDocuments, setManagingDocuments] = useState<Project | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [items, setItems] = useState<RequirementItem[]>([]);
   const [error, setError] = useState("");
@@ -52,6 +54,7 @@ export function RequirementsPage({
   }, [projects, projectId]);
   useEffect(() => {
     setWorkspace(null);
+    setManagingDocuments(null);
     setReportId(null);
     setItems([]);
     setError("");
@@ -176,6 +179,8 @@ export function RequirementsPage({
                 : "未关联 AI，可阅读原文并人工建立需求"}
             </p>
             <div className="row-actions">
+              <button className="secondary" disabled={busy} onClick={() => setManagingDocuments(project)}>管理需求文档</button>
+              <span className="tag">已关联 {project.documents.length} 份需求文档</span>
               <button
                 className="primary"
                 disabled={busy || !project.enabled}
@@ -251,6 +256,11 @@ export function RequirementsPage({
           </div>
         ))}
       </section>
+      {managingDocuments && <ProjectDocumentsDialog project={managingDocuments} onClose={() => setManagingDocuments(null)} onSaved={() => {
+        setManagingDocuments(null);
+        setNotice("需求文档配置已保存，请重新准备文档上下文。历史快照与报告保持不变。");
+        void onChanged().catch(error => setError(message(error)));
+      }} />}
       {workspace?.context && (
         <div className="requirements-layout">
           <DocumentsPage
