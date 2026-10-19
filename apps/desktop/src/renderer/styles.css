@@ -802,6 +802,39 @@ input[type="checkbox"] {
 .binding-form > label {
   margin-top: 11px;
 }
+.jira-project-picker {
+  position: relative;
+  margin-top: 11px;
+}
+.jira-project-options {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px;
+  border: 1px solid #dfe5ee;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 20px #24354f1a;
+}
+.jira-project-options li {
+  padding: 9px 11px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.jira-project-options li.is-active {
+  background: #edf1ff;
+}
+.jira-project-options li[aria-selected="true"] {
+  color: #4153ba;
+  font-weight: 600;
+}
 .binding-label {
   display: flex;
   align-items: center;
