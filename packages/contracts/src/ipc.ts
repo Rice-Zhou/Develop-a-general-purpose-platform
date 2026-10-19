@@ -216,6 +216,12 @@ const request = z.discriminatedUnion("method", [
     .strict(),
   z
     .object({
+      method: z.literal("readCurrentBranch"),
+      params: z.object({ path: z.string().trim().min(1).max(32768) }).strict(),
+    })
+    .strict(),
+  z
+    .object({
       method: z.literal("prepareContext"),
       params: z.object({ projectId: id }).strict(),
     })

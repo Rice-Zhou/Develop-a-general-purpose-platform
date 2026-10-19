@@ -76,6 +76,10 @@ export interface Project {
   aiProfileId: string | null;
   updatedAt: string;
 }
+export interface RepositoryBranch {
+  canonicalPath: string;
+  branch: string | null;
+}
 export interface RepositoryInspection {
   bindingId: string;
   branch: string;
@@ -290,6 +294,7 @@ export interface DesktopAPI {
   inspectRepository(
     binding: RepositoryBinding,
   ): Promise<Result<RepositoryInspection>>;
+  readCurrentBranch(path: string): Promise<Result<RepositoryBranch>>;
   prepareContext(projectId: string): Promise<Result<Task>>;
   listTasks(projectId?: string): Promise<Result<Task[]>>;
   getTaskEvents(taskId: string): Promise<Result<TaskEvent[]>>;

@@ -5,6 +5,7 @@ import { AppError } from "../../../contracts/src/error";
 import type {
   FileEntry,
   RepositoryBinding,
+  RepositoryBranch,
   RepositoryInspection,
   RepositorySnapshot,
 } from "../../../contracts/src/models";
@@ -23,11 +24,13 @@ export class GitRepositoryAdapter {
   ): Promise<string> {
     return (await runGit(path, args, signal)).stdout.toString("utf8").trim();
   }
-  async inspect(
-    binding: RepositoryBinding,
+  async readCurrentBranch(
+    directory: string,
     signal?: AbortSignal,
-  ): Promise<RepositoryInspection> {
-    const path = await realpath(binding.canonicalPath);
+  ): Promise<RepositoryBranch> {
+    if (!isAbsolute(directory))
+      throw new AppError("INVALID_DIRECTORY", "分析目录必须为绝对路径", "git");
+    const path = await realpath(directory);
     const root = await this.text(
       path,
       ["rev-parse", "--show-toplevel"],
@@ -43,6 +46,26 @@ export class GitRepositoryAdapter {
         "请选择独立 Git 工作树的根目录",
         "git",
       );
+    const branchResult = await runGit(
+      path,
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      signal,
+      [0, 1],
+    );
+    return {
+      canonicalPath: path,
+      branch:
+        branchResult.code === 1
+          ? null
+          : branchResult.stdout.toString("utf8").trim(),
+    };
+  }
+  async inspect(
+    binding: RepositoryBinding,
+    signal?: AbortSignal,
+  ): Promise<RepositoryInspection> {
+    const current = await this.readCurrentBranch(binding.canonicalPath, signal);
+    const path = current.canonicalPath;
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(binding.remoteName))
       throw new AppError("INVALID_REMOTE", "远端名称无效", "git");
     const validBranch = await runGit(
@@ -53,13 +76,7 @@ export class GitRepositoryAdapter {
     );
     if (validBranch.code !== 0 || binding.branch.startsWith("-"))
       throw new AppError("INVALID_BRANCH", "分支名称无效", "git");
-    const branchResult = await runGit(
-      path,
-      ["symbolic-ref", "--quiet", "--short", "HEAD"],
-      signal,
-      [0, 1],
-    );
-    const branch = branchResult.stdout.toString().trim();
+    const branch = current.branch ?? "";
     const head = await this.text(path, ["rev-parse", "HEAD"], signal);
     const tracking = await runGit(
       path,

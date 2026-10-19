@@ -65,6 +65,8 @@ async function dispatch(request: Request): Promise<unknown> {
       );
     case "inspectRepository":
       return git.inspect(request.params.binding);
+    case "readCurrentBranch":
+      return git.readCurrentBranch(request.params.path);
     case "prepareContext":
       return tasks.enqueue(request.params.projectId, "PREPARE_CONTEXT");
     case "listTasks":

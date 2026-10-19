@@ -38,6 +38,31 @@ async function setup() {
   return f;
 }
 const adapter = new GitRepositoryAdapter();
+describe("current branch discovery", () => {
+  it("reads a dirty repository without requiring a configured branch or changing files", async () => {
+    const f = await setup();
+    git(f.analysis, "switch", "-c", "analysis/custom");
+    await writeFile(join(f.analysis, "feature.txt"), "developer changes");
+    const before = git(f.analysis, "status", "--porcelain=v1");
+    const result = await adapter.readCurrentBranch(f.analysis);
+    expect(result.branch).toBe("analysis/custom");
+    expect(git(f.analysis, "status", "--porcelain=v1")).toBe(before);
+    expect(await readFile(join(f.analysis, "feature.txt"), "utf8")).toBe(
+      "developer changes",
+    );
+  });
+  it("distinguishes detached HEAD and rejects a child directory", async () => {
+    const f = await setup();
+    git(f.analysis, "switch", "--detach");
+    expect((await adapter.readCurrentBranch(f.analysis)).branch).toBeNull();
+    await expect(
+      adapter.readCurrentBranch(join(f.analysis, ".git")),
+    ).rejects.toThrow();
+    await expect(
+      adapter.readCurrentBranch("relative/path"),
+    ).rejects.toMatchObject({ code: "INVALID_DIRECTORY" });
+  });
+});
 describe("analysis repository synchronization", () => {
   it("fast-forwards a clean branch and pins subsequent reads to its commit", async () => {
     const f = await setup();

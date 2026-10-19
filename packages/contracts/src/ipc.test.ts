@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("accepts branch discovery without a previously configured branch and rejects command options", () => {
+    expect(
+      parseRequest({
+        method: "readCurrentBranch",
+        params: { path: "D:/analysis" },
+      }).method,
+    ).toBe("readCurrentBranch");
+    expect(() =>
+      parseRequest({
+        method: "readCurrentBranch",
+        params: { path: "D:/analysis", args: ["switch", "main"] },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseRequest({ method: "readCurrentBranch", params: { path: " " } }),
+    ).toThrow();
+  });
   it("accepts only scoped BUG methods without arbitrary command options", () => {
     const projectId = "11111111-1111-4111-8111-111111111111";
     const issueSnapshotId = "22222222-2222-4222-8222-222222222222";

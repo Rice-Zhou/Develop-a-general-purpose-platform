@@ -6,6 +6,7 @@ import type {
   ProjectDraft,
 } from "../../../../../packages/contracts/src/models";
 import { message, unwrap } from "../api";
+import { RepositoryBranchField } from "./RepositoryBranchField";
 export function ProjectEditor({
   project,
   onClose,
@@ -161,7 +162,7 @@ export function ProjectEditor({
             </button>
           </div>
           <p className="muted small">
-            请先自行下载代码并切换到目标分支。平台只做快进更新，不覆盖本地修改。
+            选择目录后读取当前分支，请确认采用或手动填写分析分支。保存不会切换分支；平台只做快进更新，不覆盖本地修改。
           </p>
           {draft.repositories.map((repo, index) => (
             <div className="binding-form" key={index}>
@@ -204,17 +205,12 @@ export function ProjectEditor({
                 </button>
               </div>
               <div className="form-row">
-                <label>
-                  分析分支
-                  <input
-                    required
-                    value={repo.branch}
-                    onChange={(e) =>
-                      updateRepository(index, { branch: e.target.value })
-                    }
-                    placeholder="例如：develop"
-                  />
-                </label>
+                <RepositoryBranchField
+                  id={`repo-branch-${index}`}
+                  path={repo.path}
+                  branch={repo.branch}
+                  onChange={(branch) => updateRepository(index, { branch })}
+                />
                 <label>
                   远端名称
                   <input

@@ -61,6 +61,7 @@ const api: DesktopAPI = {
   saveProject: (draft, expectedRevision) =>
     invoke("saveProject", { draft, expectedRevision }),
   inspectRepository: (binding) => invoke("inspectRepository", { binding }),
+  readCurrentBranch: (path) => invoke("readCurrentBranch", { path }),
   prepareContext: (projectId) => invoke("prepareContext", { projectId }),
   listTasks: (projectId) => invoke("listTasks", { projectId }),
   getTaskEvents: (taskId) => invoke("getTaskEvents", { taskId }),
