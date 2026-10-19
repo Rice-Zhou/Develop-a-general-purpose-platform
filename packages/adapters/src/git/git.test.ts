@@ -8,18 +8,29 @@ const fixtures: Awaited<ReturnType<typeof gitFixture>>[] = [];
 afterEach(async () => {
   for (const f of fixtures.splice(0)) await f.dispose();
 });
-it('retains evidence when unreachable commits are pruned from the analysis repository', async () => {
+it("retains evidence when unreachable commits are pruned from the analysis repository", async () => {
   const f = await setup();
-  const snapshot = await adapter.synchronize(f.binding, new AbortController().signal);
-  await writeFile(join(f.analysis, 'feature.txt'), 'replacement');
-  git(f.analysis, 'add', '.');
-  const tree = git(f.analysis, 'write-tree');
-  const orphan = git(f.analysis, 'commit-tree', tree, '-m', 'orphan replacement');
-  git(f.analysis, 'update-ref', 'refs/heads/main', orphan);
-  git(f.analysis, 'update-ref', '-d', 'refs/remotes/origin/main');
-  git(f.analysis, 'reflog', 'expire', '--expire=now', '--all');
-  git(f.analysis, 'gc', '--prune=now');
-  expect((await adapter.readFile(snapshot, 'feature.txt')).toString()).toBe('initial\n');
+  const snapshot = await adapter.synchronize(
+    f.binding,
+    new AbortController().signal,
+  );
+  await writeFile(join(f.analysis, "feature.txt"), "replacement");
+  git(f.analysis, "add", ".");
+  const tree = git(f.analysis, "write-tree");
+  const orphan = git(
+    f.analysis,
+    "commit-tree",
+    tree,
+    "-m",
+    "orphan replacement",
+  );
+  git(f.analysis, "update-ref", "refs/heads/main", orphan);
+  git(f.analysis, "update-ref", "-d", "refs/remotes/origin/main");
+  git(f.analysis, "reflog", "expire", "--expire=now", "--all");
+  git(f.analysis, "gc", "--prune=now");
+  expect((await adapter.readFile(snapshot, "feature.txt")).toString()).toBe(
+    "initial\n",
+  );
 });
 async function setup() {
   const f = await gitFixture();

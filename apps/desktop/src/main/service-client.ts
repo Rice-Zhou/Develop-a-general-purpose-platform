@@ -3,9 +3,13 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { AppError } from "../../../../packages/contracts/src/error";
 import type { Result } from "../../../../packages/contracts/src/models";
+import { WindowsJob } from "../../../../packages/adapters/src/windows/job";
+
 export class ServiceClient {
   private child: UtilityProcess | null = null;
   private ready: Promise<void> | null = null;
+  private cleanup: Promise<void> = Promise.resolve();
+  private fatalError: AppError | null = null;
   private stopping = false;
   private readonly pending = new Map<
     string,
@@ -22,23 +26,47 @@ export class ServiceClient {
   private ensureReady(): Promise<void> {
     if (this.stopping)
       return Promise.reject(new AppError("SERVICE_STOPPING", "应用正在退出"));
-    if (this.ready) return this.ready;
-    this.ready = new Promise((resolve, reject) => {
+    if (!this.ready) this.ready = this.start();
+    return this.ready;
+  }
+  private async start(): Promise<void> {
+    // Never initialize a replacement worker until the old job has no surviving processes.
+    await this.cleanup;
+    if (this.fatalError) throw this.fatalError;
+    return new Promise((resolve, reject) => {
+      const job = new WindowsJob();
       const child = utilityProcess.fork(join(__dirname, "service.cjs"), [], {
         serviceName: "本地研发服务",
         stdio: "pipe",
       });
       this.child = child;
-      const timer = setTimeout(
-        () =>
-          reject(
-            new AppError("SERVICE_TIMEOUT", "本地服务启动超时，请查看应用错误"),
-          ),
-        30000,
-      );
+      const timer = setTimeout(() => {
+        reject(new AppError("SERVICE_TIMEOUT", "本地服务启动超时"));
+        this.reclaim(job);
+      }, 30000);
       child.stderr?.on("data", (chunk) =>
         console.error("[service]", String(chunk)),
       );
+      child.once("spawn", () => {
+        try {
+          job.assign(child.pid!);
+          // The worker performs no repository operations before this message.
+          child.postMessage({
+            type: "init",
+            dataPath: this.dataPath,
+            version: this.version,
+          });
+        } catch (error) {
+          clearTimeout(timer);
+          this.fatalError =
+            error instanceof AppError
+              ? error
+              : new AppError("PROCESS_OWNERSHIP_FAILED", String(error));
+          reject(this.fatalError);
+          child.kill();
+          this.reclaim(job);
+        }
+      });
       child.on(
         "message",
         (message: { type?: string; id?: string; result?: Result<unknown> }) => {
@@ -57,6 +85,7 @@ export class ServiceClient {
                   : "服务初始化失败",
               ),
             );
+            this.reclaim(job);
             return;
           }
           if (!message.id || !message.result) return;
@@ -71,9 +100,10 @@ export class ServiceClient {
         clearTimeout(timer);
         this.child = null;
         this.ready = null;
+        this.reclaim(job);
         const error = new AppError(
           "SERVICE_EXITED",
-          `本地服务退出（${code}），下次请求将重新连接；中断任务可在历史中重试`,
+          `本地服务退出（${code}）。旧进程回收完成后重新连接，中断任务保留在历史中`,
         );
         reject(error);
         for (const pending of this.pending.values()) {
@@ -82,13 +112,16 @@ export class ServiceClient {
         }
         this.pending.clear();
       });
-      child.postMessage({
-        type: "init",
-        dataPath: this.dataPath,
-        version: this.version,
-      });
     });
-    return this.ready;
+  }
+  private reclaim(job: WindowsJob): void {
+    this.cleanup = job.terminateAndClose().catch((error) => {
+      this.fatalError =
+        error instanceof AppError
+          ? error
+          : new AppError("PROCESS_STOP_UNCONFIRMED", String(error));
+      console.error("[process ownership]", this.fatalError.message);
+    });
   }
   async request(request: unknown): Promise<Result<unknown>> {
     await this.ensureReady();
@@ -115,13 +148,20 @@ export class ServiceClient {
     });
   }
   async stop(): Promise<void> {
-    if (!this.child) {
+    if (this.child) {
+      await this.ready;
       this.stopping = true;
-      return;
+      const child = this.child;
+      const exited = new Promise<void>((resolve) =>
+        child.once("exit", () => resolve()),
+      );
+      const result = await this.send({ type: "shutdown" });
+      if (!result.ok)
+        throw new AppError(result.error.code, result.error.message);
+      await exited;
     }
-    await this.ready;
     this.stopping = true;
-    const result = await this.send({ type: "shutdown" });
-    if (!result.ok) throw new AppError(result.error.code, result.error.message);
+    await this.cleanup;
+    if (this.fatalError) throw this.fatalError;
   }
 }

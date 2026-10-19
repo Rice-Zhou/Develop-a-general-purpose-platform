@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { realpath, stat, readFile } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import { AppError } from "../../../contracts/src/error";
 import type {
@@ -68,6 +68,7 @@ export class GitRepositoryAdapter {
       [0, 128],
     );
     const trackingRef = tracking.stdout.toString().trim();
+    await this.assertNoEffectiveFilters(path, signal);
     const status = await this.text(
       path,
       ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
@@ -103,7 +104,9 @@ export class GitRepositoryAdapter {
         signal,
       );
       try {
-        await stat(join(path, operationPath));
+        await stat(
+          isAbsolute(operationPath) ? operationPath : join(path, operationPath),
+        );
         blockingReasons.push("GIT_OPERATION_PENDING");
         break;
       } catch (error) {
@@ -164,27 +167,6 @@ export class GitRepositoryAdapter {
   ): Promise<RepositorySnapshot> {
     const inspection = await this.inspect(binding, signal);
     this.assertReady(inspection);
-    const localAttributes = await this.text(
-      binding.canonicalPath,
-      ["rev-parse", "--git-path", "info/attributes"],
-      signal,
-    );
-    try {
-      const attributes = await readFile(
-        isAbsolute(localAttributes)
-          ? localAttributes
-          : join(binding.canonicalPath, localAttributes),
-        "utf8",
-      );
-      if (/\bfilter\s*=/.test(attributes))
-        throw new AppError(
-          "FILTER_UNSUPPORTED",
-          "仓库本地属性配置了检出过滤器，请先提供无过滤器的分析工作树",
-          "git",
-        );
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
     const before = await this.tree(
       binding.canonicalPath,
       inspection.head,
@@ -234,7 +216,7 @@ export class GitRepositoryAdapter {
     if (relation[1] > 0)
       await this.text(
         binding.canonicalPath,
-        ["merge", "--ff-only", "--no-edit", target],
+        ["merge", "--ff-only", "--no-edit", "--no-overwrite-ignore", target],
         signal,
       );
     const after = await this.inspect(binding, signal);
@@ -250,8 +232,12 @@ export class GitRepositoryAdapter {
         ["100644", "100755"].includes(file.mode) && readablePath(file.path),
     );
     // A private local ref keeps evidence reachable after force pushes and Git GC.
-    await this.text(binding.canonicalPath, ['update-ref', `refs/local-dev-platform/snapshots/${target}`, target], signal);
-    const includedPaths = new Set(files.map(file => file.path));
+    await this.text(
+      binding.canonicalPath,
+      ["update-ref", `refs/local-dev-platform/snapshots/${target}`, target],
+      signal,
+    );
+    const includedPaths = new Set(files.map((file) => file.path));
     return {
       bindingId: binding.id,
       canonicalPath: binding.canonicalPath,
@@ -265,6 +251,53 @@ export class GitRepositoryAdapter {
         .filter((file) => !includedPaths.has(file.path))
         .map((file) => file.path),
     };
+  }
+  private async assertNoEffectiveFilters(
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    // check-attr reads attributes without converting file contents; status can run clean/process drivers.
+    const paths = (await runGit(path, ["ls-files", "-z"], signal)).stdout;
+    if (paths.length === 0) return;
+    const response = (
+      await runGit(
+        path,
+        ["check-attr", "-z", "--stdin", "filter"],
+        signal,
+        [0],
+        { input: paths },
+      )
+    ).stdout
+      .toString("utf8")
+      .split("\0");
+    const keys = (
+      await runGit(
+        path,
+        [
+          "config",
+          "--name-only",
+          "--get-regexp",
+          "^filter\\..*\\.(clean|process)$",
+        ],
+        signal,
+        [0, 1],
+      )
+    ).stdout.toString("utf8");
+    const driverNames = new Set(
+      keys
+        .split(/\r?\n/)
+        .map((key) => key.match(/^filter\.(.*)\.(?:clean|process)$/)?.[1])
+        .filter(Boolean),
+    );
+    for (let index = 0; index + 2 < response.length; index += 3) {
+      const value = response[index + 2];
+      if (!["unset", "unspecified"].includes(value) || driverNames.has(value))
+        throw new AppError(
+          "FILTER_UNSUPPORTED",
+          "仓库有效属性配置了检出或内容过滤器，检查已在转换文件前停止",
+          "git",
+        );
+    }
   }
   private async validateCheckout(
     path: string,

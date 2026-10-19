@@ -187,7 +187,7 @@ export class TaskService {
         this.store.completeTask(this.get(task.id), context);
       } catch (error) {
         const data = errorData(error);
-        if (data.code === 'PROCESS_STOP_UNCONFIRMED') this.stopping = true;
+        if (data.code === "PROCESS_STOP_UNCONFIRMED") this.stopping = true;
         const current = this.get(task.id);
         const status: TaskStatus =
           data.code === "CANCELLED"

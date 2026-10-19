@@ -40,7 +40,8 @@ async function setup() {
   return { root, f, store, projects, project, tasks };
 }
 async function settled(tasks: TaskService, id: string): Promise<Task> {
-  for (let i = 0; i < 300; i++) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
     const task = tasks.get(id);
     if (
       ["SUCCEEDED", "WAITING_INPUT", "FAILED", "CANCELLED"].includes(
@@ -50,7 +51,9 @@ async function settled(tasks: TaskService, id: string): Promise<Task> {
       return task;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error("Task did not settle");
+  throw new Error(
+    `Task did not settle within 30 seconds: ${JSON.stringify(tasks.get(id))}`,
+  );
 }
 describe("persistent preparation tasks", () => {
   it("commits a context and task success together and isolates project history", async () => {

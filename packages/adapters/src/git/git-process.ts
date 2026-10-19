@@ -1,13 +1,14 @@
 import { spawn } from "node:child_process";
 import { devNull } from "node:os";
 import { AppError } from "../../../contracts/src/error";
-import { terminateProcessTree } from './process-tree';
+import { terminateProcessTree } from "./process-tree";
 const MAX_OUTPUT = 32 * 1024 * 1024;
 export async function runGit(
   cwd: string,
   args: string[],
   signal?: AbortSignal,
   allowed = [0],
+  options: { input?: Buffer; terminate?: typeof terminateProcessTree } = {},
 ): Promise<{ stdout: Buffer; code: number }> {
   if (signal?.aborted) throw new AppError("CANCELLED", "任务已取消", "git");
   return new Promise((resolve, reject) => {
@@ -27,7 +28,7 @@ export async function runGit(
       {
         cwd,
         windowsHide: true,
-        detached: process.platform !== 'win32',
+        detached: process.platform !== "win32",
         shell: false,
         env: {
           ...process.env,
@@ -35,7 +36,7 @@ export async function runGit(
           GCM_INTERACTIVE: "Never",
           GIT_ATTR_NOSYSTEM: "1",
         },
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       },
     );
     const output: Buffer[] = [];
@@ -46,8 +47,16 @@ export async function runGit(
     const stop = (reason: AppError) => {
       if (stopPromise || !child.pid) return;
       stopReason = reason;
-      stopPromise = terminateProcessTree(child.pid).catch((error: unknown) => {
-        stopReason = error instanceof AppError ? error : new AppError('PROCESS_STOP_UNCONFIRMED', String(error), 'git');
+      stopPromise = (options.terminate ?? terminateProcessTree)(
+        child.pid,
+      ).catch((error: unknown) => {
+        stopReason =
+          error instanceof AppError
+            ? error
+            : new AppError("PROCESS_STOP_UNCONFIRMED", String(error), "git");
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
+        reject(stopReason);
       });
     };
     const abort = () =>
@@ -65,6 +74,12 @@ export async function runGit(
         ),
       300000,
     );
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      // EPIPE means Git already closed its input; the exit handler reports its diagnostic.
+      if (error.code !== "EPIPE")
+        stop(new AppError("GIT_INPUT_FAILED", error.message, "git"));
+    });
+    child.stdin.end(options.input);
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_OUTPUT)
@@ -85,29 +100,31 @@ export async function runGit(
         ),
       );
     });
-    child.once("close", (code) => { void (async () => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abort);
-      await stopPromise;
-      if (stopReason) {
-        reject(stopReason);
-        return;
-      }
-      if (!allowed.includes(code ?? -1)) {
-        const safe = stderr
-          .replace(/https?:\/\/\S+/g, "[远程地址已隐藏]")
-          .replace(/(?:Bearer|token|password)[=: ]+\S+/gi, "[凭据已隐藏]");
-        reject(
-          new AppError(
-            "GIT_FAILED",
-            `Git ${args[0]} 失败（${code}）：${safe}`,
-            "git",
-            true,
-          ),
-        );
-        return;
-      }
-      resolve({ stdout: Buffer.concat(output), code: code ?? -1 });
-    })(); });
+    child.once("close", (code) => {
+      void (async () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
+        await stopPromise;
+        if (stopReason) {
+          reject(stopReason);
+          return;
+        }
+        if (!allowed.includes(code ?? -1)) {
+          const safe = stderr
+            .replace(/https?:\/\/\S+/g, "[远程地址已隐藏]")
+            .replace(/(?:Bearer|token|password)[=: ]+\S+/gi, "[凭据已隐藏]");
+          reject(
+            new AppError(
+              "GIT_FAILED",
+              `Git ${args[0]} 失败（${code}）：${safe}`,
+              "git",
+              true,
+            ),
+          );
+          return;
+        }
+        resolve({ stdout: Buffer.concat(output), code: code ?? -1 });
+      })();
+    });
   });
 }

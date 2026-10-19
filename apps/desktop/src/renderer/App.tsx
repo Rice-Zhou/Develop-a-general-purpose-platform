@@ -217,7 +217,9 @@ export function App() {
               className={`nav-item ${page === item.id ? "active" : ""}`}
               onClick={() => setPage(item.id)}
             >
-              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-icon" aria-hidden="true">
+                {item.icon}
+              </span>
               {item.label}
               {item.id === "tasks" && running.length > 0 && (
                 <span className="nav-count">{running.length}</span>
@@ -271,7 +273,7 @@ export function App() {
             </div>
             {(page === "overview" || page === "projects") && (
               <button className="primary" onClick={() => setEditor("new")}>
-                ＋ 添加项目
+                <span aria-hidden="true">＋ </span>添加项目
               </button>
             )}
           </div>
