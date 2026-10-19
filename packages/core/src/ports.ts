@@ -1,4 +1,12 @@
-import type { ContextSnapshot, Project, RepositoryBinding, RepositoryInspection, RepositorySnapshot, Task, TaskEvent } from '../../contracts/src/models';
+import type {
+  ContextSnapshot,
+  Project,
+  RepositoryBinding,
+  RepositoryInspection,
+  RepositorySnapshot,
+  Task,
+  TaskEvent,
+} from "../../contracts/src/models";
 export interface ProjectRepository {
   listProjects(): Project[];
   getProject(id: string): Project;
@@ -14,7 +22,13 @@ export interface TaskRepository {
   latestContext(projectId: string): ContextSnapshot | null;
 }
 export interface RepositoryAdapter {
-  inspect(binding: RepositoryBinding, signal?: AbortSignal): Promise<RepositoryInspection>;
+  inspect(
+    binding: RepositoryBinding,
+    signal?: AbortSignal,
+  ): Promise<RepositoryInspection>;
   assertReady(inspection: RepositoryInspection): void;
-  synchronize(binding: RepositoryBinding, signal: AbortSignal): Promise<RepositorySnapshot>;
+  synchronize(
+    binding: RepositoryBinding,
+    signal: AbortSignal,
+  ): Promise<RepositorySnapshot>;
 }
