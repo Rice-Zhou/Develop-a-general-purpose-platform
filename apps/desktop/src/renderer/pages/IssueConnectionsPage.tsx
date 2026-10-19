@@ -8,6 +8,7 @@ import { message, unwrap } from "../api";
 export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?: boolean; onSaved?: (connection: PublicIssueConnection) => void } = {}) {
   const formEdited = useRef(false);
   const [connections, setConnections] = useState<PublicIssueConnection[]>([]);
+  const [editingId, setEditingId] = useState<string>();
   const [platform, setPlatform] = useState<"jira" | "trinity">("jira");
   const [jiraMode, setJiraMode] = useState<"cli" | "account">("cli");
   const [local, setLocal] = useState<LocalJiraConfiguration | null>(null);
@@ -26,6 +27,31 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
   const [notice, setNotice] = useState("");
   async function reload() {
     setConnections(unwrap(await window.platform.getIssueConnections()));
+  }
+  function edit(connection: PublicIssueConnection) {
+    formEdited.current = true;
+    setEditingId(connection.id);
+    setName(connection.name);
+    setPlatform(connection.platform === "trinity" ? "trinity" : "jira");
+    setJiraMode(connection.kind === "jira-cli" ? "cli" : "account");
+    setUrl(connection.baseUrl);
+    setUsername("username" in connection ? connection.username ?? "" : "");
+    if (connection.platform !== "trinity") setDeployment(connection.platform);
+    if (connection.kind === "jira-cli") {
+      setExe(connection.executable);
+      setConfig(connection.configFile);
+    }
+    setPassword("");
+    setError("");
+    setNotice("");
+  }
+  function addNew() {
+    setEditingId(undefined);
+    setName(""); setPassword(""); setNotice(""); setError("");
+    setPlatform("jira"); setJiraMode(local?.available ? "cli" : "account");
+    setUrl(local?.baseUrl ?? ""); setUsername(local?.username ?? "");
+    setExe(local?.executable ?? ""); setConfig(local?.configFile ?? "");
+    setDeployment(local?.platform ?? "jira-dc");
   }
   useEffect(() => {
     let active = true;
@@ -98,12 +124,13 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
         await window.platform.saveIssueConnection(
           draft,
           draft.kind === "jira-cli" ? undefined : password,
+          editingId,
         ),
       );
       setPassword("");
       await reload();
       setNotice(
-        "平台连接已保存。请在项目配置中读取并选择 Jira 项目；Trinity 仍按已有范围配置。",
+        editingId ? "原连接已更新，项目关联保持不变。" : "平台连接已保存。请在项目配置中读取并选择 Jira 项目；Trinity 仍按已有范围配置。",
       );
       onSaved?.(saved);
     } catch (e) {
@@ -126,6 +153,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
+      {editingId && <p className="notice">正在编辑原连接。账号登录需重新输入密码；被项目使用的连接不能直接更换平台、实例地址或账号。</p>}
       <Container
         onSubmit={(e) => void save(e)}
         onChangeCapture={() => {
@@ -259,7 +287,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
             </label>
             <p className="muted small">
               {platform === "trinity"
-                ? "登录成功后仅加密保存会话 token，密码不保存。当前按 BUG 编号读取，项目列表接口仍待验证。"
+                ? "登录成功后仅加密保存会话 token，密码不保存。项目范围内的问题可在 BUG 工作台统一刷新。"
                 : "登录成功后在本机加密保存密码，不可读回；此方式用于支持账号密码认证的 Server / Data Center。Cloud 请使用本地 CLI 登录。"}
             </p>
           </>
@@ -267,10 +295,12 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
         <button type={embedded ? "button" : "submit"} onClick={embedded ? () => void save() : undefined} className="primary" disabled={busy || checking}>
           {busy
             ? "正在登录并保存…"
+            : editingId ? "保存连接修改"
             : platform === "jira" && jiraMode === "cli"
               ? "保存本地 Jira 连接"
               : "登录并保存平台连接"}
         </button>
+        {editingId && <button type="button" className="secondary" disabled={busy} onClick={addNew}>取消编辑 / 新增连接</button>}
       </Container>
       {!embedded && connections.map((c) => (
         <div className="report-list-item" key={c.id}>
@@ -285,6 +315,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
                   : "已有会话"}
             </p>
           </div>
+          <button className="secondary" disabled={busy || checking} onClick={() => edit(c)}>编辑 / 重新登录</button>
           <button
             disabled={busy}
             className="text-button danger-text"

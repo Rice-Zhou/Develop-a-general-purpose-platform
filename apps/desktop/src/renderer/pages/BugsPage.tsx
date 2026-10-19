@@ -251,6 +251,7 @@ export function BugsPage({
             {source.label} · {source.status === "success" ? `刷新成功：${source.count} 条问题` : source.status === "failed" ? "刷新失败；缓存仅代表上次读取的材料" : "此范围尚未刷新"}
             {source.lastSuccessAt && ` · 最近成功 ${new Date(source.lastSuccessAt).toLocaleString()}`}
             {source.error && <p>{source.error.code}：{source.error.message}</p>}
+            {project && source.error?.code === "ISSUE_NOT_CONFIGURED" && <button className="secondary" onClick={() => onEditProject(project)}>重新关联来源</button>}
           </div>
         ))}
         {!allRefreshed && !refreshFailed && <p className="muted">尚未刷新当前配置范围；缓存仅代表上次读取的材料。</p>}

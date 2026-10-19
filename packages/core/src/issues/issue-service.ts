@@ -18,6 +18,7 @@ import type { IssueWorkspace } from "../../../contracts/src/issue-monitor";
 import { issueWebUrl } from "./issue-link";
 interface IssueStore {
   getProject(id: string): Project;
+  listProjects(): Project[];
   getSetting<T>(key: string): T | null;
   setSetting(key: string, value: unknown): void;
   issues: {
@@ -49,7 +50,7 @@ export class IssueService {
     if (!c)
       throw new AppError(
         "ISSUE_NOT_CONFIGURED",
-        "BUG 来源连接不存在，请在设置配置并关联项目",
+        "项目关联的 BUG 来源连接已不存在，请编辑项目重新关联来源",
       );
     return c;
   }
@@ -91,6 +92,12 @@ export class IssueService {
       id: input.id,
       credentialRef: input.credentialRef,
     };
+    const previous = this.connections().find(c => c.id === input.id);
+    if (previous && (previous.kind !== connection.kind || previous.platform !== connection.platform ||
+      previous.baseUrl !== connection.baseUrl ||
+      ("username" in previous ? previous.username : undefined) !== ("username" in connection ? connection.username : undefined))) {
+      this.assertUnreferenced(input.id);
+    }
     this.store.setSetting("issue-connections", [
       ...this.connections().filter((c) => c.id !== input.id),
       connection,
@@ -100,10 +107,16 @@ export class IssueService {
   }
   deleteConnection(id: string): void {
     this.connection(id);
+    this.assertUnreferenced(id);
     this.store.setSetting(
       "issue-connections",
       this.connections().filter((c) => c.id !== id),
     );
+  }
+  private assertUnreferenced(id: string): void {
+    const projects = this.store.listProjects().filter(p => p.issueBindings.some(b => b.connectionId === id));
+    if (projects.length) throw new AppError("ISSUE_CONNECTION_IN_USE",
+      `连接仍被项目「${projects.map(p => p.name).join("、")}」使用，请先编辑项目解除或更换关联；重新登录请编辑原连接。`);
   }
   scope(projectId: string, bindingId: string): IssueScope {
     const project = this.store.getProject(projectId);

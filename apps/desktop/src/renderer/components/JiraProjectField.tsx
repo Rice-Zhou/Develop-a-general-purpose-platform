@@ -54,8 +54,10 @@ export function JiraProjectField({ binding, connections, onConnectionSaved, onCh
   return <div className="binding-form">
     <label>Jira 登录连接<select value={connectionId} onChange={(e) => { sequence.current++; setConnectionId(e.target.value); onReadinessChange(false); onChange(null); }}>
       <option value="">添加登录连接</option>
+      {connectionId && !connection && <option value={connectionId} disabled>原关联已失效，请重新选择</option>}
       {connections.filter((c) => c.platform !== "trinity").map((c) => <option key={c.id} value={c.id}>{c.name} · {c.kind === "jira-cli" ? "Jira CLI" : "账号登录"}</option>)}
     </select></label>
+    {connectionId && !connection && <div className="error-panel" role="alert">原 Jira 连接已不存在。请选择已有登录连接，或添加登录连接，然后重新选择 Jira 项目并保存。</div>}
     {!connectionId && <IssueConnectionsPage embedded onSaved={(saved) => { onConnectionSaved(saved); setConnectionId(saved.id); }} />}
     {connectionId && <>
       <button type="button" className="secondary" disabled={loading || !connection} onClick={() => void load()}>刷新 Jira 项目列表</button>

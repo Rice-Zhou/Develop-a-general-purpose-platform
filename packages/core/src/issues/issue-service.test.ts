@@ -59,6 +59,7 @@ it("publishes only whole valid batches and revalidates transfer and content befo
   const service = new IssueService(
     {
       getProject: () => project,
+      listProjects: () => [project],
       getSetting: <T>() => [connection] as T,
       setSetting: () => {},
       issues: {

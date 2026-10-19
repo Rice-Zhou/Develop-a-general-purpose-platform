@@ -9,6 +9,7 @@ it("validates selected project, owner and named type against current login and r
   const catalogue: JiraCatalogue = { owner: "alice", projects: [{ key: "A", name: "Alpha" }], issueTypes: [{ id: "1", name: "Bug" }], typeSource: "server" };
   const service = new IssueService({
     getProject: () => { throw new Error("discovery must not need an existing project"); },
+    listProjects: () => [],
     getSetting: <T>() => [connection] as T, setSetting: () => {},
     issues: { save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
   }, () => ({ get: async () => { throw new Error("unused"); }, list: async () => [], discover: async () => { if (change) connection = { ...connection, name: "changed" }; return catalogue; } }));

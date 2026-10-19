@@ -34,6 +34,7 @@ it("indexes only the three requested Jira statuses and rejects completed single 
   let publications = 0;
   const service = new IssueService({
     getProject: () => project,
+    listProjects: () => [project],
     getSetting: <T>() => [connection] as T,
     setSetting: () => {},
     issues: {
