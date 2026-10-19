@@ -31,6 +31,8 @@ import { EvidenceValidator } from "../../../../packages/core/src/analysis/eviden
 import { ChatCompletionsTransport } from "../../../../packages/adapters/src/ai/chat-completions";
 import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
 import { inspectLocalJira } from "../../../../packages/adapters/src/issues/jira-local";
+import { jiraIssueUrl } from "../../../../packages/adapters/src/issues/jira-format";
+import { ISSUE_REFRESH_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
 import { IssueService } from "../../../../packages/core/src/issues/issue-service";
@@ -273,6 +275,10 @@ export class Workbench implements TaskRuntime {
       jiraConfigFile: join(user, ".config/.jira/.config.yml"),
     };
   }
+  issueUrl(projectId: string, issueSnapshotId: string): string {
+    const issue = this.store.issues.get(projectId, issueSnapshotId);
+    return jiraIssueUrl(this.issues.scope(projectId, issue.bindingId), issue);
+  }
   async probe(id: string) {
     const profile = this.profile(id);
     const signal = AbortSignal.timeout(30000);
@@ -351,7 +357,7 @@ export class Workbench implements TaskRuntime {
           request.params.projectId,
           request.params.bindingId,
           undefined,
-          AbortSignal.timeout(5 * 60 * 1000),
+          AbortSignal.timeout(ISSUE_REFRESH_TIMEOUT_MS),
         );
       case "readIssueByKey":
         return this.issues.refresh(

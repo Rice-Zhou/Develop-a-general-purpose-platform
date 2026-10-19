@@ -75,6 +75,7 @@ export interface Project {
   issueBindings: z.infer<typeof IssueBindingSchema>[];
   aiProfileId: string | null;
   updatedAt: string;
+  deletedAt?: string;
 }
 export interface RepositoryBranch {
   canonicalPath: string;
@@ -129,6 +130,13 @@ export const TaskStatusSchema = z.enum([
   "INTERRUPTED",
 ]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = [
+  "QUEUED",
+  "PREPARING",
+  "RUNNING",
+  "VALIDATING",
+  "CANCELLING",
+];
 export interface ErrorData {
   code: string;
   stage: string;
@@ -294,6 +302,11 @@ export interface DesktopAPI {
     draft: ProjectDraft,
     expectedRevision?: number,
   ): Promise<Result<Project>>;
+  deleteProject(
+    projectId: string,
+    expectedRevision: number,
+  ): Promise<Result<void>>;
+  openIssue(projectId: string, issueSnapshotId: string): Promise<Result<void>>;
   inspectRepository(
     binding: RepositoryBinding,
   ): Promise<Result<RepositoryInspection>>;

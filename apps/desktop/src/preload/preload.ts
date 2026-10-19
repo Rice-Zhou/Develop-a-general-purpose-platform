@@ -59,6 +59,10 @@ const api: DesktopAPI = {
   exportReport: (projectId, reportId) =>
     invoke("exportReport", { projectId, reportId }),
   listProjects: () => invoke("listProjects"),
+  deleteProject: (projectId, expectedRevision) =>
+    invoke("deleteProject", { projectId, expectedRevision }),
+  openIssue: (projectId, issueSnapshotId) =>
+    invoke("openIssue", { projectId, issueSnapshotId }),
   saveProject: (draft, expectedRevision) =>
     invoke("saveProject", { draft, expectedRevision }),
   inspectRepository: (binding) => invoke("inspectRepository", { binding }),

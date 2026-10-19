@@ -14,6 +14,7 @@ export interface ProjectRepository {
   listProjects(): Project[];
   getProject(id: string): Project;
   saveProject(project: Project, expectedRevision?: number): void;
+  deleteProject(id: string, expectedRevision: number): void;
 }
 export interface TaskRepository {
   completeBug(task: Task, context: ContextSnapshot, report: BugReport): void;

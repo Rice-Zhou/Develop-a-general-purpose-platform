@@ -2,6 +2,28 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("accepts revision-bound project deletion and issue IDs without arbitrary URLs", () => {
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    expect(
+      parseRequest({
+        method: "deleteProject",
+        params: { projectId, expectedRevision: 1 },
+      }).method,
+    ).toBe("deleteProject");
+    expect(() =>
+      parseRequest({ method: "deleteProject", params: { projectId } }),
+    ).toThrow();
+    expect(() =>
+      parseRequest({
+        method: "openIssue",
+        params: {
+          projectId,
+          issueSnapshotId: projectId,
+          url: "https://evil.example",
+        },
+      }),
+    ).toThrow();
+  });
   it("accepts account login credentials only for explicitly selected account transports", () => {
     expect(
       parseRequest({

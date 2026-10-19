@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   Tray,
+  shell,
 } from "electron";
 import { join, resolve } from "node:path";
 import { writeFile } from "node:fs/promises";
@@ -89,6 +90,20 @@ else {
             event.senderFrame === window!.webContents.mainFrame,
           );
           const request = parseRequest(input);
+          if (request.method === "openIssue") {
+            const result = await service.control(
+              "get-issue-url",
+              request.params,
+            );
+            if (!result.ok) return result;
+            if (typeof result.value !== "string")
+              throw new AppError(
+                "ISSUE_LINK_INVALID",
+                "无法取得有效的问题单链接",
+              );
+            await shell.openExternal(result.value);
+            return { ok: true, value: undefined };
+          }
           if (request.method === "chooseDocumentFiles") {
             const selection = await dialog.showOpenDialog(window!, {
               title: "选择本地需求文档",

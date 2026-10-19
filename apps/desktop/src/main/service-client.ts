@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { AppError, errorData } from "../../../../packages/contracts/src/error";
 import type { FileCredentialStore } from "../../../../packages/storage/src/credential-store";
 import type { Result } from "../../../../packages/contracts/src/models";
+import type { Request } from "../../../../packages/contracts/src/ipc";
+import { ISSUE_REFRESH_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 import { WindowsJob } from "../../../../packages/adapters/src/windows/job";
 
 export class ServiceClient {
@@ -160,9 +162,14 @@ export class ServiceClient {
       console.error("[process ownership]", this.fatalError.message);
     });
   }
-  async request(request: unknown): Promise<Result<unknown>> {
+  async request(request: Request): Promise<Result<unknown>> {
     await this.ensureReady();
-    return this.send({ request });
+    return this.send(
+      { request },
+      request.method === "refreshIssues"
+        ? ISSUE_REFRESH_TIMEOUT_MS + 5000
+        : 30000,
+    );
   }
   async backup(destination: string): Promise<Result<unknown>> {
     await this.ensureReady();
@@ -177,13 +184,14 @@ export class ServiceClient {
       | "save-issue-connection"
       | "get-issue-connection"
       | "delete-issue-connection"
+      | "get-issue-url"
       | "export-bug-report",
     payload: unknown,
   ): Promise<Result<unknown>> {
     await this.ensureReady();
     return this.send({ type: "control", action, payload });
   }
-  private send(envelope: object): Promise<Result<unknown>> {
+  private send(envelope: object, timeoutMs = 30000): Promise<Result<unknown>> {
     return new Promise((resolve, reject) => {
       const id = randomUUID();
       const timer = setTimeout(() => {
@@ -194,7 +202,7 @@ export class ServiceClient {
             "本地请求超时，请查看任务历史确认执行状态",
           ),
         );
-      }, 30000);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.child!.postMessage({ ...envelope, id });
     });

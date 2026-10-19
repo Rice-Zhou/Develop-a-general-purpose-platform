@@ -10,6 +10,7 @@ import type {
   Task,
   TaskEvent,
 } from "../../contracts/src/models";
+import { ACTIVE_TASK_STATUSES } from "../../contracts/src/models";
 
 interface JsonRow {
   json: string;
@@ -44,13 +45,17 @@ export class DataStore extends AnalysisRepository {
   listProjects(): Project[] {
     return (
       this.db
-        .prepare("SELECT json FROM projects ORDER BY rowid")
+        .prepare(
+          "SELECT json FROM projects WHERE json_extract(json,'$.deletedAt') IS NULL ORDER BY rowid",
+        )
         .all() as JsonRow[]
     ).map((row) => JSON.parse(row.json) as Project);
   }
   getProject(id: string): Project {
     const row = this.db
-      .prepare("SELECT json FROM projects WHERE id = ?")
+      .prepare(
+        "SELECT json FROM projects WHERE id = ? AND json_extract(json,'$.deletedAt') IS NULL",
+      )
       .get(id) as JsonRow | undefined;
     if (!row) throw new AppError("PROJECT_NOT_FOUND", "项目不存在");
     return JSON.parse(row.json) as Project;
@@ -58,8 +63,14 @@ export class DataStore extends AnalysisRepository {
   saveProject(project: Project, expectedRevision?: number): void {
     this.db.transaction(() => {
       const existing = this.db
-        .prepare("SELECT revision FROM projects WHERE id = ?")
-        .get(project.id) as { revision: number } | undefined;
+        .prepare(
+          "SELECT revision,json_extract(json,'$.deletedAt') AS deletedAt FROM projects WHERE id = ?",
+        )
+        .get(project.id) as
+        | { revision: number; deletedAt: string | null }
+        | undefined;
+      if (existing?.deletedAt)
+        throw new AppError("PROJECT_NOT_FOUND", "项目不存在");
       if (existing && existing.revision !== expectedRevision)
         throw new AppError(
           "REVISION_CONFLICT",
@@ -98,20 +109,43 @@ export class DataStore extends AnalysisRepository {
       for (const key of keys) insert.run(key, project.id);
     })();
   }
+  deleteProject(id: string, expectedRevision: number): void {
+    this.db.transaction(() => {
+      const project = this.getProject(id);
+      if (project.revision !== expectedRevision)
+        throw new AppError(
+          "REVISION_CONFLICT",
+          "项目配置已变化，请刷新后重新删除",
+        );
+      const active = this.db
+        .prepare(
+          `SELECT 1 FROM tasks WHERE project_id=? AND status IN (${ACTIVE_TASK_STATUSES.map(() => "?").join(",")}) LIMIT 1`,
+        )
+        .get(id, ...ACTIVE_TASK_STATUSES);
+      if (active)
+        throw new AppError("PROJECT_BUSY", "请先取消或等待项目任务结束");
+      const deleted = {
+        ...project,
+        enabled: false,
+        deletedAt: new Date().toISOString(),
+        revision: project.revision + 1,
+      };
+      this.db
+        .prepare("UPDATE projects SET revision=?,json=? WHERE id=?")
+        .run(deleted.revision, JSON.stringify(deleted), id);
+      this.db
+        .prepare("DELETE FROM repository_paths WHERE project_id=?")
+        .run(id);
+    })();
+  }
   listTasks(projectId?: string): Task[] {
-    const rows = (
-      projectId
-        ? this.db
-            .prepare(
-              "SELECT json FROM tasks WHERE project_id = ? ORDER BY created_at DESC, rowid DESC",
-            )
-            .all(projectId)
-        : this.db
-            .prepare(
-              "SELECT json FROM tasks ORDER BY created_at DESC, rowid DESC",
-            )
-            .all()
-    ) as JsonRow[];
+    const query =
+      "SELECT t.json FROM tasks t JOIN projects p ON p.id=t.project_id WHERE json_extract(p.json,'$.deletedAt') IS NULL" +
+      (projectId ? " AND t.project_id=?" : "") +
+      " ORDER BY t.created_at DESC,t.rowid DESC";
+    const rows = this.db
+      .prepare(query)
+      .all(...(projectId ? [projectId] : [])) as JsonRow[];
     return rows.map((row) => JSON.parse(row.json) as Task);
   }
   getTask(id: string): Task {

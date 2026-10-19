@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EvidenceRefSchema, ExecutorIdentitySchema } from "./analysis";
 import type { Project } from "./models";
+export const ISSUE_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
 const atom = z.string().trim().min(1).max(2048);
 const base = {
   name: atom,

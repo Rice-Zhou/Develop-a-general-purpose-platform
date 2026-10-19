@@ -271,7 +271,9 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       .nth(1)
       .click();
     await expect(
-      page.getByRole("heading", { name: "T-1 · Trinity test bug" }),
+      page.getByRole("heading", {
+        name: "T-1 （问题链接不可用） · Trinity test bug",
+      }),
     ).toBeVisible();
     await page
       .getByRole("button", { name: "更新代码并预分析", exact: true })

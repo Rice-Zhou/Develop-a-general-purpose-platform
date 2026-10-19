@@ -6,6 +6,7 @@ import type {
   TaskStatus,
 } from "../../../../packages/contracts/src/models";
 import { message, unwrap } from "./api";
+import { ACTIVE_TASK_STATUSES } from "../../../../packages/contracts/src/models";
 import { ProjectEditor } from "./components/ProjectEditor";
 import { TaskDetails } from "./components/TaskDetails";
 import { RequirementsPage } from "./pages/RequirementsPage";
@@ -51,6 +52,9 @@ export function App() {
   const [focusAISettings, setFocusAISettings] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   useEffect(() => {
     if (page !== "settings" || !focusAISettings) return;
     const target = document.getElementById("ai-connections-settings");
@@ -126,9 +130,7 @@ export function App() {
     });
   }
   const running = tasks.filter((task) =>
-    ["QUEUED", "PREPARING", "RUNNING", "VALIDATING", "CANCELLING"].includes(
-      task.status,
-    ),
+    ACTIVE_TASK_STATUSES.includes(task.status),
   );
   const attention = tasks.filter((task) =>
     ["WAITING_INPUT", "FAILED", "INTERRUPTED"].includes(task.status),
@@ -482,6 +484,23 @@ export function App() {
                   </div>
                   <div className="project-footer">
                     <button
+                      className="text-button danger-text"
+                      disabled={running.some(
+                        (task) => task.projectId === project.id,
+                      )}
+                      title={
+                        running.some((task) => task.projectId === project.id)
+                          ? "请先取消或等待项目任务结束"
+                          : "从日常列表移除，保留历史及本地代码"
+                      }
+                      onClick={() => {
+                        setDeleteError("");
+                        setDeleteTarget(project);
+                      }}
+                    >
+                      删除项目
+                    </button>
+                    <button
                       className="secondary"
                       onClick={() => setEditor(project)}
                     >
@@ -616,6 +635,70 @@ export function App() {
             void act(reload);
           }}
         />
+      )}
+      {deleteTarget && (
+        <div className="modal-backdrop">
+          <section
+            className="editor modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+          >
+            <h2 id="delete-project-title">删除项目</h2>
+            <p>
+              确认移除项目“{deleteTarget.name}
+              ”？移除后保留历史分析记录，不删除本地代码或文档；该目录可重新关联其他项目。
+            </p>
+            {deleteError && (
+              <div className="error-panel" role="alert">
+                {deleteError}
+              </div>
+            )}
+            <div className="form-footer">
+              <button
+                className="secondary"
+                autoFocus
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                className="primary"
+                disabled={deleting}
+                onClick={() =>
+                  void (async () => {
+                    setDeleting(true);
+                    setDeleteError("");
+                    try {
+                      unwrap(
+                        await window.platform.deleteProject(
+                          deleteTarget.id,
+                          deleteTarget.revision,
+                        ),
+                      );
+                      if (projectFilter === deleteTarget.id)
+                        setProjectFilter("");
+                      if (activeTask?.projectId === deleteTarget.id)
+                        setSelectedTask(null);
+                      if (setupProject?.id === deleteTarget.id)
+                        setSetupProject(null);
+                      setDeleteTarget(null);
+                      await reload();
+                      setNotice("项目已移除，本地代码与历史分析数据已保留。");
+                    } catch (e) {
+                      setDeleteError(message(e));
+                    } finally {
+                      setDeleting(false);
+                    }
+                  })()
+                }
+              >
+                {deleting ? "正在删除…" : "确认删除"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       {setupProject && (
         <div className="modal-backdrop">

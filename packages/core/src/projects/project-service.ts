@@ -25,6 +25,9 @@ export class ProjectService {
   get(id: string): Project {
     return this.store.getProject(id);
   }
+  delete(id: string, expectedRevision: number): void {
+    this.store.deleteProject(id, expectedRevision);
+  }
   async save(input: ProjectDraft, expectedRevision?: number): Promise<Project> {
     const draft = ProjectDraftSchema.parse(input);
     const previous = draft.id ? this.store.getProject(draft.id) : undefined;

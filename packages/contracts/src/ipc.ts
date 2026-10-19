@@ -17,6 +17,23 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z
+    .object({
+      method: z.literal("deleteProject"),
+      params: z
+        .object({
+          projectId: id,
+          expectedRevision: z.number().int().positive(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("openIssue"),
+      params: z.object({ projectId: id, issueSnapshotId: id }).strict(),
+    })
+    .strict(),
   z.object({ method: z.literal("inspectLocalJira"), params: empty }).strict(),
   z
     .object({ method: z.literal("getIssueConnections"), params: empty })

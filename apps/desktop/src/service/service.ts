@@ -58,6 +58,11 @@ async function dispatch(request: Request): Promise<unknown> {
   switch (request.method) {
     case "listProjects":
       return projects.list();
+    case "deleteProject":
+      return projects.delete(
+        request.params.projectId,
+        request.params.expectedRevision,
+      );
     case "saveProject":
       return projects.save(
         request.params.draft,
@@ -200,6 +205,12 @@ parent.on("message", (event) => {
             z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
           );
           value = null;
+        } else if (envelope.action === "get-issue-url") {
+          const p = z
+            .object({ projectId: z.uuid(), issueSnapshotId: z.uuid() })
+            .strict()
+            .parse(envelope.payload);
+          value = workbench.issueUrl(p.projectId, p.issueSnapshotId);
         } else if (envelope.action === "export-bug-report") {
           const p = z
             .object({ projectId: z.uuid(), reportId: z.uuid() })
