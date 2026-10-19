@@ -5,7 +5,7 @@ const atom = z.string().trim().min(1).max(2048);
 const base = {
   name: atom,
   baseUrl: z.url(),
-  bypassProxy: z.boolean().default(false),
+  bypassProxy: z.boolean().default(true),
 };
 export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
   z
@@ -20,8 +20,17 @@ export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
   z
     .object({
       ...base,
+      kind: z.literal("jira-http"),
+      platform: z.literal("jira-dc"),
+      username: atom.refine((value) => !/[\r\n:]/.test(value), "账号格式无效"),
+    })
+    .strict(),
+  z
+    .object({
+      ...base,
       kind: z.literal("trinity"),
       platform: z.literal("trinity"),
+      username: atom.optional(),
     })
     .strict(),
 ]);
@@ -34,6 +43,15 @@ export type PublicIssueConnection = IssueConnectionDraft & {
   id: string;
   hasCredential: boolean;
 };
+export interface LocalJiraConfiguration {
+  available: boolean;
+  executable: string;
+  configFile: string;
+  baseUrl: string;
+  username: string;
+  platform: "jira-cloud" | "jira-dc" | null;
+  detail: string;
+}
 export const RemoteIssueSchema = z
   .object({
     remoteId: atom,

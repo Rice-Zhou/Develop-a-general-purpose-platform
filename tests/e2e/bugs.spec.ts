@@ -141,7 +141,12 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     const executablePath = process.env.PLATFORM_EXECUTABLE;
     app = await electron.launch({
       ...(executablePath ? { executablePath, args: [] } : { args: ["."] }),
-      env: { ...process.env, PLATFORM_DATA_DIR: join(data, "app") },
+      env: {
+        ...process.env,
+        USERPROFILE: data,
+        HOME: data,
+        PLATFORM_DATA_DIR: join(data, "app"),
+      },
     });
     const page = await app.firstWindow();
     await expect(

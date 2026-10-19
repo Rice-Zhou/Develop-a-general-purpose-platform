@@ -178,6 +178,9 @@ export interface AppInfo {
 }
 export interface DesktopAPI {
   getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
+  inspectLocalJira(): Promise<
+    Result<import("./issues").LocalJiraConfiguration>
+  >;
   saveIssueConnection(
     draft: IssueConnectionDraft,
     secret?: string,

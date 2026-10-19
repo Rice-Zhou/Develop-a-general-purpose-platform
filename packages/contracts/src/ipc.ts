@@ -17,6 +17,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("inspectLocalJira"), params: empty }).strict(),
   z
     .object({ method: z.literal("getIssueConnections"), params: empty })
     .strict(),
@@ -31,7 +32,7 @@ const request = z.discriminatedUnion("method", [
         })
         .strict()
         .refine(
-          (p) => p.draft.kind === "trinity" || !p.secret,
+          (p) => p.draft.kind !== "jira-cli" || !p.secret,
           "Jira 登录由 CLI 管理，不接受密钥",
         ),
     })

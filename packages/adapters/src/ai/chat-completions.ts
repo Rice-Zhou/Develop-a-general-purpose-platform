@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AIProfile } from "../../../contracts/src/analysis";
 import { AppError } from "../../../contracts/src/error";
 import { executorIdentity } from "./identity";
+import { fetchWithProxy } from "../network/policy";
 import type {
   ModelTransport,
   ModelMessage,
@@ -86,19 +87,23 @@ export class ChatCompletionsTransport implements ModelTransport {
     });
     if (body.length > 700000)
       throw new AppError("MODEL_INPUT_LIMIT", "模型请求超过 700,000 字符预算");
-    let result: Response;
+    let result: Awaited<ReturnType<typeof fetchWithProxy>>;
     this.assertCurrent?.();
     try {
-      result = await fetch(url, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          "Content-Type": "application/json",
-          ...(key ? { Authorization: `Bearer ${key}` } : {}),
+      result = await fetchWithProxy(
+        url,
+        {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "Content-Type": "application/json",
+            ...(key ? { Authorization: `Bearer ${key}` } : {}),
+          },
+          body,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
         },
-        body,
-        signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
-      });
+        this.profile.proxyUrl,
+      );
     } catch {
       if (signal.aborted) throw new AppError("CANCELLED", "模型请求已取消");
       throw new AppError(

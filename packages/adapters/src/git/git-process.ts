@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { devNull } from "node:os";
 import { AppError } from "../../../contracts/src/error";
 import { terminateProcessTree } from "./process-tree";
+import { gitEnvironment } from "../network/policy";
 const MAX_OUTPUT = 32 * 1024 * 1024;
 export async function runGit(
   cwd: string,
@@ -9,6 +10,41 @@ export async function runGit(
   signal?: AbortSignal,
   allowed = [0],
   options: { input?: Buffer; terminate?: typeof terminateProcessTree } = {},
+): Promise<{ stdout: Buffer; code: number }> {
+  // Command-scoped overrides also cover remote-specific and URL-specific Git proxies.
+  // Reading effective keys preserves user configuration and included config files.
+  const configured = await executeGit(
+    cwd,
+    [
+      "config",
+      "--name-only",
+      "--get-regexp",
+      "^(http(\\..*)?\\.proxy|remote\\..*\\.proxy)$",
+    ],
+    signal,
+    [0, 1],
+    { terminate: options.terminate },
+  );
+  const proxyKeys = new Set([
+    "http.proxy",
+    ...configured.stdout.toString("utf8").split(/\r?\n/).filter(Boolean),
+  ]);
+  return executeGit(
+    cwd,
+    args,
+    signal,
+    allowed,
+    options,
+    [...proxyKeys].flatMap((key) => ["-c", `${key}=`]),
+  );
+}
+async function executeGit(
+  cwd: string,
+  args: string[],
+  signal: AbortSignal | undefined,
+  allowed: number[],
+  options: { input?: Buffer; terminate?: typeof terminateProcessTree },
+  proxyOverrides: string[] = [],
 ): Promise<{ stdout: Buffer; code: number }> {
   if (signal?.aborted) throw new AppError("CANCELLED", "任务已取消", "git");
   return new Promise((resolve, reject) => {
@@ -23,6 +59,7 @@ export async function runGit(
         "core.fsmonitor=false",
         "-c",
         "submodule.recurse=false",
+        ...proxyOverrides,
         ...args,
       ],
       {
@@ -31,7 +68,7 @@ export async function runGit(
         detached: process.platform !== "win32",
         shell: false,
         env: {
-          ...process.env,
+          ...gitEnvironment(),
           GIT_TERMINAL_PROMPT: "0",
           GCM_INTERACTIVE: "Never",
           GIT_ATTR_NOSYSTEM: "1",

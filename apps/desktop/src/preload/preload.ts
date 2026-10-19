@@ -4,6 +4,7 @@ const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
   getIssueConnections: () => invoke("getIssueConnections"),
+  inspectLocalJira: () => invoke("inspectLocalJira"),
   saveIssueConnection: (draft, secret, id) =>
     invoke("saveIssueConnection", { draft, secret, id }),
   deleteIssueConnection: (id) => invoke("deleteIssueConnection", { id }),

@@ -12,7 +12,13 @@ test("branch detection requires confirmation and preserves manual configuration 
     const executablePath = process.env.PLATFORM_EXECUTABLE;
     app = await electron.launch({
       ...(executablePath ? { executablePath, args: [] } : { args: ["."] }),
-      env: { ...process.env, PLATFORM_DATA_DIR: data, PLATFORM_E2E: "1" },
+      env: {
+        ...process.env,
+        USERPROFILE: data,
+        HOME: data,
+        PLATFORM_DATA_DIR: data,
+        PLATFORM_E2E: "1",
+      },
     });
     const page = await app.firstWindow();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();
@@ -35,6 +41,7 @@ test("branch detection requires confirmation and preserves manual configuration 
     await expect(page.getByLabel("分析分支")).toHaveValue("main");
     await page.getByLabel("分析分支").fill("release/custom");
     await page.getByRole("button", { name: "保存项目", exact: true }).click();
+    await page.getByRole("button", { name: "暂时跳过", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "分支确认项目", exact: true }),
     ).toBeVisible();

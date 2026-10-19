@@ -29,6 +29,8 @@ import { RequirementService } from "../../../../packages/core/src/requirements/r
 import { AnalysisPipeline } from "../../../../packages/core/src/analysis/analysis-pipeline";
 import { EvidenceValidator } from "../../../../packages/core/src/analysis/evidence-validator";
 import { ChatCompletionsTransport } from "../../../../packages/adapters/src/ai/chat-completions";
+import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
+import { inspectLocalJira } from "../../../../packages/adapters/src/issues/jira-local";
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
 import { IssueService } from "../../../../packages/core/src/issues/issue-service";
@@ -60,14 +62,14 @@ export class Workbench implements TaskRuntime {
   ) {
     this.issues = new IssueService(store, (connection) => {
       if (connection.kind === "jira-cli") return new JiraCliAdapter(dataPath);
-      return new TrinityAdapter(() => {
+      const credential = () => {
         if (!connection.credentialRef)
-          throw new AppError(
-            "ISSUE_NOT_CONFIGURED",
-            "请在设置保存 Trinity token",
-          );
+          throw new AppError("ISSUE_NOT_CONFIGURED", "请在设置登录 BUG 平台");
         return this.resolveKey(connection.id, connection.credentialRef);
-      });
+      };
+      return connection.kind === "jira-http"
+        ? new JiraHttpAdapter(credential)
+        : new TrinityAdapter(credential);
     });
     this.content = new SnapshotStore(join(dataPath, "content"));
     this.search = new SearchService(store);
@@ -329,6 +331,14 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+      case "inspectLocalJira": {
+        const cli = this.cliConfiguration();
+        return inspectLocalJira(
+          cli.jiraExecutable,
+          cli.jiraConfigFile,
+          this.dataPath,
+        );
+      }
       case "getIssueConnections":
         return this.issues.publicConnections();
       case "getBugWorkspace":
@@ -360,6 +370,15 @@ export class Workbench implements TaskRuntime {
             scope,
             AbortSignal.timeout(30000),
           );
+        else if (scope.connection.kind === "jira-http")
+          await new JiraHttpAdapter(() => {
+            if (!scope.connection.credentialRef)
+              throw new AppError("ISSUE_LOGIN_REQUIRED", "请先登录 Jira");
+            return this.resolveKey(
+              scope.connection.id,
+              scope.connection.credentialRef,
+            );
+          }).probe(scope, AbortSignal.timeout(30000));
         else
           throw new AppError(
             "TRINITY_LIST_UNVERIFIED",
@@ -367,7 +386,7 @@ export class Workbench implements TaskRuntime {
           );
         return {
           available: true,
-          detail: "CLI 实例地址已验证；问题项目和负责人仍在每次读取时验证",
+          detail: "Jira 连接已验证；问题项目和负责人仍在每次读取时验证",
         };
       }
       case "analyzeBug": {

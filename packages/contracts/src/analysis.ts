@@ -1,9 +1,29 @@
 import { z } from "zod";
 import { WarningSchema } from "./documents";
+export const AIProxyUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        ["http:", "https:"].includes(url.protocol) &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        url.pathname === "/"
+      );
+    } catch {
+      return false;
+    }
+  }, "代理必须为不含账号、密码、查询参数的 HTTP(S) 地址");
 const common = {
   name: z.string().trim().min(1).max(100),
   model: z.string().max(200),
   outboundEnabled: z.boolean(),
+  proxyUrl: AIProxyUrlSchema.optional(),
 };
 export const AIProfileDraftSchema = z.discriminatedUnion("kind", [
   z

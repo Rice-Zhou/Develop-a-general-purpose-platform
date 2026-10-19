@@ -141,7 +141,8 @@ export function BugsPage({
         {project?.issueBindings.map((b) => (
           <article className="binding-form" key={b.id}>
             <strong>
-              {b.platform} · 项目 {b.projectKey} · 负责人 {b.owner}
+              {b.platform === "trinity" ? "Trinity" : "Jira"} · 项目{" "}
+              {b.projectKey} · 负责人 {b.owner}
             </strong>
             {!b.connectionId && (
               <p className="coverage-warning">

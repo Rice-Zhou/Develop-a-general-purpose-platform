@@ -2,6 +2,38 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("accepts account login credentials only for explicitly selected account transports", () => {
+    expect(
+      parseRequest({
+        method: "saveIssueConnection",
+        params: {
+          draft: {
+            kind: "jira-http",
+            platform: "jira-dc",
+            name: "Jira login",
+            baseUrl: "https://jira.example",
+            username: "alice",
+          },
+          secret: "not-persisted-in-draft",
+        },
+      }).method,
+    ).toBe("saveIssueConnection");
+    expect(
+      parseRequest({
+        method: "saveIssueConnection",
+        params: {
+          draft: {
+            kind: "trinity",
+            platform: "trinity",
+            name: "Trinity",
+            baseUrl: "https://trinity.example/trinity",
+            username: "alice",
+          },
+          secret: "password",
+        },
+      }).method,
+    ).toBe("saveIssueConnection");
+  });
   it("accepts branch discovery without a previously configured branch and rejects command options", () => {
     expect(
       parseRequest({

@@ -10,6 +10,7 @@ import type {
 } from "../../../core/src/analysis/ports";
 import { runProcess } from "../process/run-process";
 import { executorIdentity } from "./identity";
+import { aiEnvironment } from "../network/policy";
 const envelope = z
   .object({
     calls: z
@@ -115,7 +116,7 @@ export class SubscriptionTransport implements ModelTransport {
             '{"disableAllHooks":true}',
             ...(this.profile.model ? ["--model", this.profile.model] : []),
           ];
-    const env = { ...process.env };
+    const env = aiEnvironment(this.profile.proxyUrl);
     delete env.OPENAI_API_KEY;
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;

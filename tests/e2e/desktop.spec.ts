@@ -15,6 +15,8 @@ test("real desktop persists projects and prepares a pinned context without expos
       ...(executablePath ? { executablePath, args: [] } : { args: ["."] }),
       env: {
         ...process.env,
+        USERPROFILE: data,
+        HOME: data,
         PLATFORM_DATA_DIR: data,
         PLATFORM_E2E: "1",
         ELECTRON_ENABLE_LOGGING: "1",
@@ -36,14 +38,15 @@ test("real desktop persists projects and prepares a pinned context without expos
     await page.getByLabel("分析目录", { exact: true }).fill(fixture.analysis);
     await page.getByLabel("分析分支").fill("main");
     await page.getByRole("button", { name: "保存项目", exact: true }).click();
+    await page.getByRole("button", { name: "暂时跳过", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "A 项目", exact: true }),
     ).toBeVisible();
     await fixture.publish("updated for desktop test\n");
     await page.getByRole("button", { name: "更新并准备上下文" }).click();
-    await expect(
-      page.getByText("已完成", { exact: true }).first(),
-    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible(
+      { timeout: 30000 },
+    );
     await page.getByRole("button", { name: "查看详情" }).first().click();
     await expect(page.getByText("代码快照", { exact: true })).toBeVisible();
     await page.screenshot({ path: "test-results/desktop-context.png" });
@@ -54,6 +57,7 @@ test("real desktop persists projects and prepares a pinned context without expos
     await page.getByLabel("分析目录", { exact: true }).fill(second.analysis);
     await page.getByLabel("分析分支").fill("main");
     await page.getByRole("button", { name: "保存项目", exact: true }).click();
+    await page.getByRole("button", { name: "暂时跳过", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "B 项目", exact: true }),
     ).toBeVisible();
@@ -94,7 +98,13 @@ test("real desktop persists projects and prepares a pinned context without expos
     app = undefined;
     app = await electron.launch({
       ...(executablePath ? { executablePath, args: [] } : { args: ["."] }),
-      env: { ...process.env, PLATFORM_DATA_DIR: data, PLATFORM_E2E: "1" },
+      env: {
+        ...process.env,
+        USERPROFILE: data,
+        HOME: data,
+        PLATFORM_DATA_DIR: data,
+        PLATFORM_E2E: "1",
+      },
     });
     page = await app.firstWindow();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();

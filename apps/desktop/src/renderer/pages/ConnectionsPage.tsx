@@ -12,6 +12,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
   const [model, setModel] = useState("");
   const [executable, setExecutable] = useState("");
   const [key, setKey] = useState("");
+  const [proxyUrl, setProxyUrl] = useState("");
   const [outbound, setOutbound] = useState(false);
   const [lark, setLark] = useState("");
   const [identity, setIdentity] = useState<"user" | "bot">("user");
@@ -52,7 +53,12 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
   function save(event: FormEvent) {
     event.preventDefault();
     void act(async () => {
-      const base = { name, model, outboundEnabled: outbound };
+      const base = {
+        name,
+        model,
+        outboundEnabled: outbound,
+        ...(proxyUrl.trim() ? { proxyUrl: proxyUrl.trim() } : {}),
+      };
       const draft: AIProfileDraft =
         kind === "api"
           ? { ...base, kind, baseUrl: url }
@@ -60,6 +66,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
       unwrap(await window.platform.saveAIProfile(draft, key || undefined));
       setKey("");
       setName("");
+      setProxyUrl("");
       setProfiles(unwrap(await window.platform.getAIProfiles()));
       setNotice("连接已保存，请在项目配置中选择使用。");
     });
@@ -160,6 +167,21 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
               placeholder="使用服务或工具提供的准确模型名"
             />
           </label>
+          <label>
+            此 AI 连接的代理（可选）
+            <input
+              type="url"
+              value={proxyUrl}
+              onChange={(e) => setProxyUrl(e.target.value)}
+              placeholder="http://127.0.0.1:7890；留空直连"
+            />
+          </label>
+          <p className="muted small">
+            默认直连，不继承系统代理。仅支持无账号密码的 HTTP(S) 代理，仅用于此
+            AI 连接。
+            {kind !== "api" &&
+              "订阅 CLI 若通过自身配置覆盖环境代理，以工具实际行为为准；平台不会修改其登录或用户配置。"}
+          </p>
           <label className="check-label">
             <input
               type="checkbox"
@@ -188,6 +210,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                       : profile.executable}
                     <br />
                     {profile.model || "工具默认模型"} ·{" "}
+                    {profile.proxyUrl ? `代理：${profile.proxyUrl}` : "直连"} ·{" "}
                     {profile.outboundEnabled
                       ? "已允许材料发送"
                       : "尚未允许材料发送"}

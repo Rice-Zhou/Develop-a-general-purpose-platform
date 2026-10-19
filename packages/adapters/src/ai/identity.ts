@@ -14,7 +14,9 @@ export function executorIdentity(profile: AIProfile): ExecutorIdentity {
   return Object.freeze({
     ...identity,
     configurationHash: createHash("sha256")
-      .update(JSON.stringify(identity))
+      .update(
+        JSON.stringify({ ...identity, proxyUrl: profile.proxyUrl ?? null }),
+      )
       .digest("hex"),
   });
 }

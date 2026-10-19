@@ -10,6 +10,8 @@ import {
 import { join, resolve } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { loginTrinity } from "../../../../packages/adapters/src/issues/login";
+import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
 import { createCredentialStore } from "./credential-store";
 import type { AIProfile } from "../../../../packages/contracts/src/analysis";
 import type { IssueConnection } from "../../../../packages/contracts/src/issues";
@@ -17,7 +19,7 @@ import {
   assertTrustedSender,
   parseRequest,
 } from "../../../../packages/contracts/src/ipc";
-import { errorData } from "../../../../packages/contracts/src/error";
+import { AppError, errorData } from "../../../../packages/contracts/src/error";
 import { ServiceClient } from "./service-client";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 let window: BrowserWindow | null = null;
@@ -114,14 +116,58 @@ else {
               existing = result.value as AIProfile | IssueConnection;
             }
             const draft = request.params.draft;
+            let secret = request.params.secret;
+            if (
+              issueConnection &&
+              (draft.kind === "jira-http" ||
+                (draft.kind === "trinity" && draft.username)) &&
+              !secret
+            )
+              throw new AppError(
+                "ISSUE_LOGIN_REQUIRED",
+                "请填写账号密码后登录平台",
+              );
+            if (
+              issueConnection &&
+              "kind" in draft &&
+              draft.kind === "trinity" &&
+              draft.username &&
+              secret
+            )
+              secret = await loginTrinity(
+                draft.baseUrl,
+                draft.username,
+                secret,
+              );
+            if (issueConnection && draft.kind === "jira-http" && secret) {
+              await new JiraHttpAdapter(async () => secret!).probe(
+                {
+                  projectId: id,
+                  enabled: true,
+                  binding: {
+                    id,
+                    connectionId: id,
+                    platform: draft.platform,
+                    instanceUrl: draft.baseUrl,
+                    projectKey: "LOGIN",
+                    owner: draft.username,
+                  },
+                  connection: { ...draft, id, credentialRef: null },
+                },
+                AbortSignal.timeout(30000),
+              );
+            }
             const keep =
               existing &&
               "baseUrl" in existing &&
               "baseUrl" in draft &&
               existing.kind === draft.kind &&
-              existing.baseUrl === draft.baseUrl;
-            const credentialRef = request.params.secret
-              ? await credentials.save(id, request.params.secret)
+              existing.baseUrl === draft.baseUrl &&
+              (!("username" in draft) ||
+                ("username" in existing &&
+                  existing.username === draft.username));
+            const credentialRef = secret
+              ? await credentials.save(id, secret)
               : keep
                 ? existing!.credentialRef
                 : null;

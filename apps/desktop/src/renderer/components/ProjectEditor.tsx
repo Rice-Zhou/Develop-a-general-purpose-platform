@@ -14,7 +14,7 @@ export function ProjectEditor({
 }: {
   project: Project | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved: Project) => void;
 }) {
   const [draft, setDraft] = useState<ProjectDraft>(
     project
@@ -66,8 +66,10 @@ export function ProjectEditor({
     setBusy(true);
     setError("");
     try {
-      unwrap(await window.platform.saveProject(draft, project?.revision));
-      onSaved();
+      const saved = unwrap(
+        await window.platform.saveProject(draft, project?.revision),
+      );
+      onSaved(saved);
     } catch (err) {
       setError(message(err));
     } finally {
@@ -91,6 +93,22 @@ export function ProjectEditor({
       repositories: old.repositories.map((repo, i) =>
         i === index ? { ...repo, ...patch } : repo,
       ),
+    }));
+  }
+  function addIssueBinding(platform: "jira-dc" | "trinity") {
+    setDraft((current) => ({
+      ...current,
+      issueBindings: [
+        ...current.issueBindings,
+        {
+          id: crypto.randomUUID(),
+          platform,
+          instanceUrl: "",
+          projectKey: "",
+          owner: "",
+          issueTypeIds: platform === "trinity" ? ["BUG"] : undefined,
+        },
+      ],
     }));
   }
   return (
@@ -167,7 +185,7 @@ export function ProjectEditor({
           {draft.repositories.map((repo, index) => (
             <div className="binding-form" key={index}>
               <div className="binding-label">
-                <span>仓库 {String(index + 1).padStart(2, "0")}</span>
+                <span>{index === 0 ? "主仓库" : `关联仓库 ${index}`}</span>
                 {draft.repositories.length > 1 && (
                   <button
                     type="button"
@@ -391,20 +409,21 @@ export function ProjectEditor({
               从本机选择 Word / PDF
             </button>
           </details>
-          <details className="config-details">
+          <details className="config-details" open>
             <summary>
               BUG 项目范围 <span>{draft.issueBindings.length} 条</span>
             </summary>
             <p className="muted small">
-              按来源连接、远端项目、稳定负责人标识和 BUG 类型共同限制。Jira
-              Cloud 使用 accountId，Server/DC 使用登录名；Trinity 使用
-              assigneeId，类型填写 BUG。
+              先在设置页登录 Jira 或 Trinity，再选择已保存的平台连接。
+              这里填写此项目的项目 Key、负责人和缺陷类型；只分析同时匹配这三项的
+              BUG，可添加多个范围。
             </p>
             {draft.issueBindings.map((binding, index) => (
               <div className="binding-form" key={binding.id}>
                 <label>
-                  BUG 来源连接
+                  {binding.platform === "trinity" ? "Trinity" : "Jira"} 平台连接
                   <select
+                    required
                     value={binding.connectionId ?? ""}
                     onChange={(e) =>
                       setDraft({
@@ -435,20 +454,28 @@ export function ProjectEditor({
                     }
                   >
                     <option value="">请选择已保存连接</option>
-                    {issueConnections.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} · {c.platform}
-                      </option>
-                    ))}
+                    {issueConnections
+                      .filter((c) =>
+                        binding.platform === "trinity"
+                          ? c.platform === "trinity"
+                          : c.platform !== "trinity",
+                      )
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ·{" "}
+                          {c.platform === "trinity" ? "Trinity" : "Jira"}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <p className="muted small">
-                  {binding.platform} ·{" "}
+                  {binding.platform === "trinity" ? "Trinity" : "Jira"} ·{" "}
                   {binding.instanceUrl || "选择连接后确定实例"}
                 </p>
                 <label>
-                  BUG 类型 ID（逗号分隔）
+                  缺陷类型（逗号分隔）
                   <input
+                    required
                     value={binding.issueTypeIds?.join(",") ?? ""}
                     onChange={(e) =>
                       setDraft({
@@ -475,8 +502,8 @@ export function ProjectEditor({
                     {
                       {
                         instanceUrl: "实例地址",
-                        projectKey: "远端项目标识",
-                        owner: "负责人标识",
+                        projectKey: "项目 Key",
+                        owner: "负责人",
                       }[key]
                     }
                     <input
@@ -495,6 +522,13 @@ export function ProjectEditor({
                     />
                   </label>
                 ))}
+                <p className="muted small">
+                  {binding.platform === "trinity"
+                    ? "负责人填写 Trinity 的 assigneeId；缺陷类型填写 BUG。"
+                    : binding.platform === "jira-cloud"
+                      ? "负责人填写 Jira 的 accountId；缺陷类型填写类型 ID。"
+                      : "负责人填写 Jira 登录名；缺陷类型填写类型 ID。"}
+                </p>
                 <button
                   type="button"
                   className="text-button"
@@ -514,23 +548,16 @@ export function ProjectEditor({
             <button
               type="button"
               className="text-button"
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  issueBindings: [
-                    ...draft.issueBindings,
-                    {
-                      id: crypto.randomUUID(),
-                      platform: "jira-dc",
-                      instanceUrl: "",
-                      projectKey: "",
-                      owner: "",
-                    },
-                  ],
-                })
-              }
+              onClick={() => addIssueBinding("jira-dc")}
             >
-              ＋ 添加 BUG 项目范围
+              ＋ 添加 Jira 范围
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => addIssueBinding("trinity")}
+            >
+              ＋ 添加 Trinity 范围
             </button>
           </details>
           {error && (

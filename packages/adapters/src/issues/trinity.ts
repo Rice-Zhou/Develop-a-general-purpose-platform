@@ -10,6 +10,8 @@ import {
   instanceUrl,
 } from "../../../core/src/issues/scope-policy";
 import type { IssueAdapter } from "../../../core/src/issues/ports";
+import { readResponseText } from "../network/response";
+import { curlFetch } from "../network/curl-fetch";
 const id = z.union([z.string(), z.number()]).transform(String);
 const response = z.object({
   code: z.literal(200),
@@ -27,7 +29,7 @@ const response = z.object({
 export class TrinityAdapter implements IssueAdapter {
   constructor(
     private readonly resolveToken: () => Promise<string>,
-    private readonly request: typeof fetch = fetch,
+    private readonly request: typeof fetch = curlFetch as typeof fetch,
   ) {}
   async list(): Promise<RemoteIssue[]> {
     throw new AppError(
@@ -68,25 +70,8 @@ export class TrinityAdapter implements IssueAdapter {
         `Trinity HTTP ${result.status}，未保存错误正文`,
       );
     }
-    const reader = result.body?.getReader();
-    if (!reader)
-      throw new AppError("ISSUE_REMOTE_FAILED", "Trinity 响应没有正文");
-    let size = 0;
-    const chunks: Uint8Array[] = [];
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        size += chunk.value.length;
-        if (size > 8 * 1024 * 1024)
-          throw new AppError("ISSUE_OUTPUT_LIMIT", "Trinity 响应超过 8 MiB");
-        chunks.push(chunk.value);
-      }
-    } finally {
-      await reader.cancel();
-    }
     const parsed = response.safeParse(
-      JSON.parse(Buffer.concat(chunks).toString("utf8")),
+      JSON.parse(await readResponseText(result)),
     );
     if (!parsed.success)
       throw new AppError(

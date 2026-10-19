@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { AppError } from "../../../contracts/src/error";
 import { terminateProcessTree } from "../git/process-tree";
+import { directEnvironment } from "../network/policy";
 export interface ProcessOptions {
   cwd: string;
   input?: string;
@@ -41,7 +42,7 @@ export function runProcess(
       windowsHide: true,
       shell: false,
       detached: process.platform !== "win32",
-      env: options.env ?? process.env,
+      env: options.env ?? directEnvironment(),
       stdio: ["pipe", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];

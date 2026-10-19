@@ -47,8 +47,19 @@ export function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editor, setEditor] = useState<Project | "new" | null>(null);
+  const [setupProject, setSetupProject] = useState<Project | null>(null);
+  const [focusAISettings, setFocusAISettings] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
+  useEffect(() => {
+    if (page !== "settings" || !focusAISettings) return;
+    const target = document.getElementById("ai-connections-settings");
+    if (target) {
+      target.focus();
+      target.scrollIntoView({ block: "start" });
+      setFocusAISettings(false);
+    }
+  }, [page, focusAISettings]);
   const reload = useCallback(async () => {
     const [p, t] = await Promise.all([
       window.platform.listProjects(),
@@ -529,14 +540,16 @@ export function App() {
           {page === "settings" && (
             <>
               <IssueConnectionsPage />
-              <ConnectionsPage
-                onChanged={() =>
-                  void window.platform
-                    .getAppInfo()
-                    .then((value) => setInfo(unwrap(value)))
-                    .catch((error) => setError(message(error)))
-                }
-              />
+              <div id="ai-connections-settings" tabIndex={-1}>
+                <ConnectionsPage
+                  onChanged={() =>
+                    void window.platform
+                      .getAppInfo()
+                      .then((value) => setInfo(unwrap(value)))
+                      .catch((error) => setError(message(error)))
+                  }
+                />
+              </div>
               <section className="panel settings-panel">
                 <h2>本地环境</h2>
                 <dl>
@@ -597,11 +610,47 @@ export function App() {
         <ProjectEditor
           project={editor === "new" ? null : editor}
           onClose={() => setEditor(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
+            if (editor === "new") setSetupProject(saved);
             setEditor(null);
             void act(reload);
           }}
         />
+      )}
+      {setupProject && (
+        <div className="modal-backdrop">
+          <section
+            className="editor modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bug-ai-setup-title"
+          >
+            <h2 id="bug-ai-setup-title">配置 BUG AI 预分析</h2>
+            <p>
+              项目“{setupProject.name}”已保存。现在配置 AI
+              连接，之后可在项目中关联并手动发起 BUG 预分析。
+            </p>
+            <div className="form-footer">
+              <button
+                className="secondary"
+                autoFocus
+                onClick={() => setSetupProject(null)}
+              >
+                暂时跳过
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  setSetupProject(null);
+                  setPage("settings");
+                  setFocusAISettings(true);
+                }}
+              >
+                去配置
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       {activeTask && (
         <TaskDetails task={activeTask} onClose={() => setSelectedTask(null)} />
