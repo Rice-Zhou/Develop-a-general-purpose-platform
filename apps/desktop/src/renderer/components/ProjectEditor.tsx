@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
+import type { PublicAIProfile } from "../../../../../packages/contracts/src/analysis";
 import type {
   Project,
   ProjectDraft,
@@ -42,6 +43,13 @@ export function ProjectEditor({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
+  useEffect(() => {
+    void window.platform
+      .getAIProfiles()
+      .then((result) => setProfiles(unwrap(result)))
+      .catch((error) => setError(message(error)));
+  }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -219,12 +227,34 @@ export function ProjectEditor({
               </div>
             </div>
           ))}
+          <label>
+            AI 执行连接
+            <select
+              value={draft.aiProfileId ?? ""}
+              onChange={(e) =>
+                setDraft({ ...draft, aiProfileId: e.target.value || null })
+              }
+            >
+              <option value="">不关联（可使用本地文档和人工需求）</option>
+              {profiles.map((profile) => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.name} ·{" "}
+                  {profile.kind === "api"
+                    ? "模型 API"
+                    : profile.kind === "codex"
+                      ? "ChatGPT / Codex"
+                      : "Claude Code"}
+                </option>
+              ))}
+            </select>
+          </label>
           <details className="config-details">
             <summary>
               关联需求文档 <span>{draft.documents.length} 份</span>
             </summary>
             <p className="muted small">
-              可以先保存来源。Word、PDF 和飞书解析在第二阶段接入。
+              本地 Word、PDF 将捕获为固定快照；飞书通过设置中的 CLI
+              只读获取。必需资料失败时任务会停止。
             </p>
             {draft.documents.map((doc, index) => (
               <div className="binding-form" key={doc.id}>
@@ -284,6 +314,23 @@ export function ProjectEditor({
                     移除
                   </button>
                 </div>
+                <label className="check-label">
+                  <input
+                    type="checkbox"
+                    checked={doc.required}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        documents: draft.documents.map((item) =>
+                          item.id === doc.id
+                            ? { ...item, required: event.target.checked }
+                            : item,
+                        ),
+                      })
+                    }
+                  />
+                  必需文档（读取失败时停止分析）
+                </label>
               </div>
             ))}
             <button
@@ -305,6 +352,37 @@ export function ProjectEditor({
               }
             >
               ＋ 关联文档
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() =>
+                void (async () => {
+                  try {
+                    const paths = unwrap(
+                      await window.platform.chooseDocumentFiles(),
+                    );
+                    setDraft((current) => ({
+                      ...current,
+                      documents: [
+                        ...current.documents,
+                        ...paths.map((locator) => ({
+                          id: crypto.randomUUID(),
+                          kind: locator.toLowerCase().endsWith(".pdf")
+                            ? ("pdf" as const)
+                            : ("docx" as const),
+                          locator,
+                          required: true,
+                        })),
+                      ],
+                    }));
+                  } catch (error) {
+                    setError(message(error));
+                  }
+                })()
+              }
+            >
+              从本机选择 Word / PDF
             </button>
           </details>
           <details className="config-details">

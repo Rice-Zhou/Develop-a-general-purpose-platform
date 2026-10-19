@@ -7,6 +7,8 @@ import type {
   Task,
   TaskEvent,
 } from "../../contracts/src/models";
+import type { RequirementSet } from "../../contracts/src/requirements";
+import type { AnalysisReport } from "../../contracts/src/analysis";
 export interface ProjectRepository {
   listProjects(): Project[];
   getProject(id: string): Project;
@@ -20,6 +22,16 @@ export interface TaskRepository {
   taskEvents(id: string): TaskEvent[];
   completeTask(task: Task, context: ContextSnapshot): void;
   latestContext(projectId: string): ContextSnapshot | null;
+  completeExtraction(
+    task: Task,
+    context: ContextSnapshot,
+    set: RequirementSet,
+  ): void;
+  completeAnalysis(
+    task: Task,
+    context: ContextSnapshot,
+    report: AnalysisReport,
+  ): void;
 }
 export interface RepositoryAdapter {
   inspect(

@@ -24,18 +24,29 @@ export class FileCredentialStore {
         "系统凭据加密不可用，拒绝保存明文",
       );
   }
-  async save(_connectionId: string, secret: string): Promise<string> {
+  async save(connectionId: string, secret: string): Promise<string> {
     this.requireEncryption();
     const ref = randomUUID();
-    const encrypted = this.cipher.encrypt(secret);
+    const encrypted = this.cipher.encrypt(
+      JSON.stringify({ connectionId, secret }),
+    );
     await mkdir(this.directory, { recursive: true });
     await writeFile(this.file(ref), encrypted, { mode: 0o600, flag: "wx" });
     return ref;
   }
-  async resolve(ref: string): Promise<string> {
+  async resolve(ref: string, connectionId: string): Promise<string> {
     const file = this.file(ref);
     this.requireEncryption();
-    return this.cipher.decrypt(await readFile(file));
+    const value = JSON.parse(this.cipher.decrypt(await readFile(file))) as {
+      connectionId?: unknown;
+      secret?: unknown;
+    };
+    if (value.connectionId !== connectionId || typeof value.secret !== "string")
+      throw new AppError(
+        "CREDENTIAL_SCOPE_MISMATCH",
+        "凭据不属于此连接或格式已过期，请重新保存",
+      );
+    return value.secret;
   }
   async remove(ref: string): Promise<void> {
     await unlink(this.file(ref));

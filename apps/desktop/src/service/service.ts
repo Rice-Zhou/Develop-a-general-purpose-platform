@@ -1,4 +1,7 @@
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { Workbench } from "./workbench";
 import { DataStore } from "../../../../packages/storage/src/database";
 import { ProjectService } from "../../../../packages/core/src/projects/project-service";
 import { TaskService } from "../../../../packages/core/src/tasks/task-service";
@@ -22,6 +25,31 @@ const parent = (
 let store: DataStore | null = null;
 let projects: ProjectService;
 let tasks: TaskService;
+let workbench: Workbench;
+const credentials = new Map<
+  string,
+  {
+    resolve: (value: string) => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+  }
+>();
+function resolveCredential(profileId: string, ref: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const requestId = randomUUID();
+    const timer = setTimeout(() => {
+      credentials.delete(requestId);
+      reject(new AppError("CREDENTIAL_TIMEOUT", "凭据代理超时"));
+    }, 30000);
+    credentials.set(requestId, { resolve, reject, timer });
+    parent.postMessage({
+      type: "credential-request",
+      requestId,
+      profileId,
+      ref,
+    });
+  });
+}
 let dataPath = "";
 let version = "";
 const git = new GitRepositoryAdapter();
@@ -72,9 +100,10 @@ async function dispatch(request: Request): Promise<unknown> {
               "本地配置、分支检查、安全同步、固定提交和任务历史",
           },
           {
-            name: "需求文档与实现核对",
-            available: false,
-            reason: "第二阶段：Word、PDF、飞书和模型 API",
+            name: "本地文档与需求管理",
+            available: true,
+            reason:
+              "DOCX、文本 PDF、固定文档快照、检索与人工需求版本；飞书需保存 CLI 配置",
           },
           {
             name: "Jira 与 Trinity",
@@ -87,16 +116,17 @@ async function dispatch(request: Request): Promise<unknown> {
             reason: "第四阶段：在问题连接器验证后接入",
           },
           {
-            name: "本机 AI 编码工具",
-            available: false,
-            reason: "第五阶段：需要工具能力与只读验证",
+            name: "模型 API 与订阅工具",
+            available: workbench.profiles().some((p) => p.outboundEnabled),
+            reason:
+              "支持配置模型地址及模型名、Codex / Claude Code 工具；连接与实际账号能力需分别验证",
           },
         ],
       };
       return info;
     }
     default:
-      throw new AppError("HOST_ONLY", "该操作只能通过桌面系统能力执行");
+      return workbench.dispatch(request, tasks);
   }
 }
 parent.on("message", (event) => {
@@ -108,8 +138,32 @@ parent.on("message", (event) => {
       dataPath?: string;
       version?: string;
       destination?: string;
+      requestId?: string;
+      result?: {
+        ok: boolean;
+        value?: string;
+        error?: { code: string; message: string };
+      };
+      action?: string;
+      payload?: unknown;
     };
     try {
+      if (envelope.type === "credential-result") {
+        const pending = credentials.get(envelope.requestId ?? "");
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        credentials.delete(envelope.requestId!);
+        if (envelope.result?.ok && typeof envelope.result.value === "string")
+          pending.resolve(envelope.result.value);
+        else
+          pending.reject(
+            new AppError(
+              envelope.result?.error?.code ?? "CREDENTIAL_FAILED",
+              envelope.result?.error?.message ?? "凭据代理失败",
+            ),
+          );
+        return;
+      }
       if (envelope.type === "init") {
         if (store) throw new AppError("ALREADY_INITIALIZED", "服务已初始化");
         if (!envelope.dataPath || !envelope.version)
@@ -118,8 +172,39 @@ parent.on("message", (event) => {
         version = envelope.version;
         store = await DataStore.open(join(dataPath, "platform.db"));
         projects = new ProjectService(store);
-        tasks = new TaskService(store, projects, git);
+        workbench = new Workbench(
+          store,
+          git,
+          dataPath,
+          join(__dirname, "parser-worker.cjs"),
+          resolveCredential,
+        );
+        tasks = new TaskService(store, projects, git, workbench);
         parent.postMessage({ type: "ready" });
+        return;
+      }
+      if (envelope.type === "control") {
+        if (!store) throw new AppError("SERVICE_NOT_READY", "本地服务尚未就绪");
+        let value: unknown;
+        if (envelope.action === "save-profile")
+          value = workbench.saveProfile(envelope.payload);
+        else if (envelope.action === "get-profile")
+          value = workbench.profile(
+            z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
+          );
+        else if (envelope.action === "delete-profile") {
+          workbench.deleteProfile(
+            z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
+          );
+          value = null;
+        } else if (envelope.action === "export-report") {
+          const payload = z
+            .object({ projectId: z.uuid(), reportId: z.uuid() })
+            .strict()
+            .parse(envelope.payload);
+          value = workbench.exportMarkdown(payload.projectId, payload.reportId);
+        } else throw new AppError("CONTROL_INVALID", "未知内部操作");
+        parent.postMessage({ id: envelope.id, result: { ok: true, value } });
         return;
       }
       if (envelope.type === "shutdown") {

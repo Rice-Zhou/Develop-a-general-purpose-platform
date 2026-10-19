@@ -5,11 +5,27 @@ import type {
   RepositoryBinding,
   Task,
   TaskStatus,
+  Project,
 } from "../../../contracts/src/models";
+import type { ContextSnapshot as Snapshot } from "../../../contracts/src/models";
+import type {
+  DocumentSnapshotRef,
+  SourceGap,
+} from "../../../contracts/src/documents";
+import type { RequirementSet } from "../../../contracts/src/requirements";
+import type { AnalysisReport } from "../../../contracts/src/analysis";
 import type { TaskRepository, RepositoryAdapter } from "../ports";
 import type { ProjectService } from "../projects/project-service";
 
 const humanActionCodes = new Set([
+  "FEISHU_NOT_CONFIGURED",
+  "MODEL_NOT_CONFIGURED",
+  "MODEL_KEY_MISSING",
+  "OUTBOUND_NOT_APPROVED",
+  "DOCUMENT_CHANGED",
+  "REQUIREMENTS_STALE",
+  "DOCUMENT_REQUIRED",
+  "REQUIREMENTS_EMPTY",
   "WORKTREE_DIRTY",
   "BRANCH_MISMATCH",
   "TRACKING_MISSING",
@@ -22,6 +38,22 @@ const humanActionCodes = new Set([
   "PROJECT_DISABLED",
   "PROJECT_CHANGED",
 ]);
+export interface TaskRuntime {
+  captureDocuments(
+    project: Project,
+    signal: AbortSignal,
+  ): Promise<{ documents: DocumentSnapshotRef[]; sourceGaps: SourceGap[] }>;
+  indexContext(context: Snapshot, signal: AbortSignal): Promise<string[]>;
+  analyze(
+    task: Task,
+    context: Snapshot,
+    signal: AbortSignal,
+    progress: (message: string) => void,
+  ): Promise<
+    | { kind: "extraction"; set: RequirementSet }
+    | { kind: "report"; report: AnalysisReport }
+  >;
+}
 const retryableStatuses: TaskStatus[] = [
   "FAILED",
   "WAITING_INPUT",
@@ -37,9 +69,14 @@ export class TaskService {
     private readonly store: TaskRepository,
     private readonly projects: ProjectService,
     private readonly git: RepositoryAdapter,
+    private readonly runtime?: TaskRuntime,
   ) {
     for (const task of store.listTasks()) {
-      if (task.status === "PREPARING" || task.status === "CANCELLING")
+      if (
+        ["PREPARING", "RUNNING", "VALIDATING", "CANCELLING"].includes(
+          task.status,
+        )
+      )
         this.transition(
           task,
           "INTERRUPTED",
@@ -56,8 +93,9 @@ export class TaskService {
   }
   async enqueue(
     projectId: string,
-    kind: Task['kind'],
+    kind: Task["kind"],
     attempt = 1,
+    requirementSetId?: string,
   ): Promise<Task> {
     if (this.stopping)
       throw new AppError("SERVICE_STOPPING", "应用正在退出，请重新启动后操作");
@@ -71,6 +109,7 @@ export class TaskService {
       projectName: project.name,
       kind,
       attemptId: randomUUID(),
+      ...(requirementSetId ? { requirementSetId } : {}),
       status: "QUEUED",
       attempt,
       createdAt: now,
@@ -93,8 +132,11 @@ export class TaskService {
     const task = this.get(id);
     if (task.status === "QUEUED")
       return this.transition(task, "CANCELLED", "排队任务已取消");
-    if (task.status === "PREPARING" && this.activeTaskId === id) {
-      this.transition(task, "CANCELLING", "正在停止本任务的 Git 进程");
+    if (
+      ["PREPARING", "RUNNING", "VALIDATING"].includes(task.status) &&
+      this.activeTaskId === id
+    ) {
+      this.transition(task, "CANCELLING", "正在停止本任务的网络请求及后台进程");
       this.controller?.abort();
       return this.get(id);
     }
@@ -107,7 +149,12 @@ export class TaskService {
         "TASK_NOT_RETRYABLE",
         "只有失败、等待处理、中断或取消的任务可以重试",
       );
-    return this.enqueue(task.projectId, task.kind, task.attempt + 1);
+    return this.enqueue(
+      task.projectId,
+      task.kind,
+      task.attempt + 1,
+      task.requirementSetId,
+    );
   }
   private schedule(): void {
     if (this.running || this.stopping) return;
@@ -131,6 +178,7 @@ export class TaskService {
       this.activeTaskId = task.id;
       this.controller = new AbortController();
       this.transition(task, "PREPARING", "正在验证项目及全部仓库");
+      let analysisDeadline: AbortSignal | undefined;
       try {
         const project = this.projects.get(task.projectId);
         if (!project.enabled)
@@ -170,24 +218,91 @@ export class TaskService {
             "PROJECT_CHANGED",
             "准备过程中项目配置已改变，请重新运行",
           );
+        if (project.documents.length && !this.runtime)
+          throw new AppError(
+            "DOCUMENT_SERVICE_UNAVAILABLE",
+            "文档服务未装配，未发布不完整上下文",
+          );
+        if (this.runtime)
+          this.store.event(task.id, "DOCUMENTS", "正在捕获并解析关联需求文档");
+        const captured = this.runtime
+          ? await this.runtime.captureDocuments(project, this.controller.signal)
+          : { documents: [], sourceGaps: [] };
         const context: ContextSnapshot = {
           id: randomUUID(),
           projectId: project.id,
           configRevision: project.revision,
           repositories: snapshots,
-          documents: [],
+          documents: captured.documents,
+          sourceGaps: captured.sourceGaps,
           createdAt: new Date().toISOString(),
           limitations: [
-            "本阶段仅准备代码快照，未执行需求核对或 BUG 分析",
-            ...(project.documents.length
-              ? ["关联文档尚未解析，不包含在本次代码快照中"]
+            ...(task.kind === "PREPARE_CONTEXT"
+              ? ["本任务准备代码和文档快照，不代表完成需求核对或 BUG 分析"]
               : []),
             "子模块、Git LFS 和检出过滤器需要后续适配；敏感文件和符号链接不进入读取清单",
           ],
         };
-        this.store.completeTask(this.get(task.id), context);
+        if (this.runtime) {
+          this.store.event(task.id, "INDEXING", "正在建立固定快照检索索引");
+          context.limitations.push(
+            ...(await this.runtime.indexContext(
+              context,
+              this.controller.signal,
+            )),
+          );
+        }
+        let outcome: Awaited<ReturnType<TaskRuntime["analyze"]>> | undefined;
+        if (task.kind !== "PREPARE_CONTEXT") {
+          if (!this.runtime)
+            throw new AppError("ANALYSIS_UNAVAILABLE", "分析执行器未装配");
+          this.transition(
+            this.get(task.id),
+            "RUNNING",
+            "正在执行需求分析与取证",
+          );
+          analysisDeadline = AbortSignal.timeout(20 * 60 * 1000);
+          outcome = await this.runtime.analyze(
+            task,
+            context,
+            AbortSignal.any([this.controller.signal, analysisDeadline]),
+            (message) => this.store.event(task.id, "ANALYSIS", message),
+          );
+          this.transition(
+            this.get(task.id),
+            "VALIDATING",
+            "正在校验并保存分析结果",
+          );
+        }
+        if (this.controller.signal.aborted)
+          throw new AppError("CANCELLED", "任务已取消");
+        if (this.projects.get(project.id).revision !== project.revision)
+          throw new AppError(
+            "PROJECT_CHANGED",
+            "执行过程中项目配置已修改，请重新运行",
+          );
+        if (outcome?.kind === "extraction")
+          this.store.completeExtraction(
+            { ...this.get(task.id), resultId: outcome.set.id },
+            context,
+            outcome.set,
+          );
+        else if (outcome?.kind === "report")
+          this.store.completeAnalysis(
+            { ...this.get(task.id), resultId: outcome.report.id },
+            context,
+            outcome.report,
+          );
+        else this.store.completeTask(this.get(task.id), context);
       } catch (error) {
-        const data = errorData(error);
+        const data = errorData(
+          analysisDeadline?.aborted && !this.controller.signal.aborted
+            ? new AppError(
+                "ANALYSIS_TIMEOUT",
+                "分析超过 20 分钟上限，未提交成功结果",
+              )
+            : error,
+        );
         if (data.code === "PROCESS_STOP_UNCONFIRMED") this.stopping = true;
         const current = this.get(task.id);
         const status: TaskStatus =

@@ -46,7 +46,14 @@ export function TaskDetails({
         <div className="modal-heading">
           <div>
             <span className="eyebrow">TASK DETAILS</span>
-            <h2 id="task-title">{task.projectName} · 上下文准备</h2>
+            <h2 id="task-title">
+              {task.projectName} ·{" "}
+              {task.kind === "PREPARE_CONTEXT"
+                ? "上下文准备"
+                : task.kind === "EXTRACT_REQUIREMENTS"
+                  ? "需求提取"
+                  : "实现核对"}
+            </h2>
           </div>
           <button
             className="icon-button"
@@ -109,6 +116,18 @@ export function TaskDetails({
                 )}
               </div>
             ))}
+            {context.documents.length > 0 && (
+              <>
+                <h3>文档快照</h3>
+                {context.documents.map((document) => (
+                  <div className="snapshot-card" key={document.id}>
+                    <strong>{document.kind.toUpperCase()}</strong>
+                    <code className="commit">{document.contentHash}</code>
+                    <p className="small muted">{document.id}</p>
+                  </div>
+                ))}
+              </>
+            )}
             <div className="notice">
               <strong>本次准备范围</strong>
               {context.limitations.map((line) => (

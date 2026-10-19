@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AppError } from "./error";
 import { ProjectDraftSchema } from "./models";
+import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
+import { RequirementItemSchema } from "./requirements";
 const empty = z.object({}).strict();
 const id = z.uuid();
 const binding = z
@@ -14,6 +16,112 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z
+    .object({
+      method: z.literal("readDocumentBlock"),
+      params: z
+        .object({
+          projectId: id,
+          contextId: id,
+          documentSnapshotId: id,
+          blockId: z.string().min(1).max(2048),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("getWorkspace"),
+      params: z.object({ projectId: id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("saveRequirementRevision"),
+      params: z
+        .object({
+          projectId: id,
+          contextId: id,
+          items: z.array(RequirementItemSchema).max(500),
+          expectedRevision: z.number().int().nonnegative(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("extractRequirements"),
+      params: z.object({ projectId: id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("checkRequirements"),
+      params: z.object({ projectId: id, requirementSetId: id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("searchEvidence"),
+      params: z
+        .object({
+          projectId: id,
+          contextId: id,
+          query: z.string().trim().min(1).max(200),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("readEvidence"),
+      params: z
+        .object({ projectId: id, contextId: id, evidence: EvidenceRefSchema })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("saveAIProfile"),
+      params: z
+        .object({
+          draft: AIProfileDraftSchema,
+          secret: z.string().max(10000).optional(),
+          id: id.optional(),
+        })
+        .strict()
+        .refine(
+          (p) => p.draft.kind === "api" || !p.secret,
+          "订阅工具不接受 API 密钥",
+        ),
+    })
+    .strict(),
+  ...(["deleteAIProfile", "probeExecutor"] as const).map((method) =>
+    z
+      .object({ method: z.literal(method), params: z.object({ id }).strict() })
+      .strict(),
+  ),
+  z
+    .object({
+      method: z.literal("saveCliConfiguration"),
+      params: z
+        .object({
+          configuration: z
+            .object({
+              larkExecutable: z.string().max(2048),
+              identity: z.enum(["user", "bot"]),
+            })
+            .strict(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("exportReport"),
+      params: z.object({ projectId: id, reportId: id }).strict(),
+    })
+    .strict(),
   z.object({ method: z.literal("listProjects"), params: empty }).strict(),
   z
     .object({
@@ -59,7 +167,15 @@ const request = z.discriminatedUnion("method", [
     })
     .strict(),
   ...(
-    ["chooseRepositoryDirectory", "getAppInfo", "backupDatabase"] as const
+    [
+      "chooseRepositoryDirectory",
+      "getAppInfo",
+      "backupDatabase",
+      "getAIProfiles",
+      "getCliConfiguration",
+      "probeFeishu",
+      "chooseDocumentFiles",
+    ] as const
   ).map((method) =>
     z.object({ method: z.literal(method), params: empty }).strict(),
   ),

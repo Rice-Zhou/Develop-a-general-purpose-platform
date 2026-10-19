@@ -1,7 +1,8 @@
 import { utilityProcess, type UtilityProcess } from "electron";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { AppError } from "../../../../packages/contracts/src/error";
+import { AppError, errorData } from "../../../../packages/contracts/src/error";
+import type { FileCredentialStore } from "../../../../packages/storage/src/credential-store";
 import type { Result } from "../../../../packages/contracts/src/models";
 import { WindowsJob } from "../../../../packages/adapters/src/windows/job";
 
@@ -22,6 +23,7 @@ export class ServiceClient {
   constructor(
     private readonly dataPath: string,
     private readonly version: string,
+    private readonly credentials: FileCredentialStore,
   ) {}
   private ensureReady(): Promise<void> {
     if (this.stopping)
@@ -69,7 +71,42 @@ export class ServiceClient {
       });
       child.on(
         "message",
-        (message: { type?: string; id?: string; result?: Result<unknown> }) => {
+        (message: {
+          type?: string;
+          id?: string;
+          result?: Result<unknown>;
+          profileId?: string;
+          ref?: string;
+          requestId?: string;
+        }) => {
+          if (message.type === "credential-request") {
+            void (async () => {
+              let result: Result<string>;
+              try {
+                if (!message.ref || !message.profileId)
+                  throw new AppError(
+                    "CREDENTIAL_SCOPE_MISMATCH",
+                    "缺少凭据归属",
+                  );
+                result = {
+                  ok: true,
+                  value: await this.credentials.resolve(
+                    message.ref,
+                    message.profileId,
+                  ),
+                };
+              } catch (error) {
+                result = { ok: false, error: errorData(error) };
+              }
+              if (this.child === child)
+                child.postMessage({
+                  type: "credential-result",
+                  requestId: message.requestId,
+                  result,
+                });
+            })();
+            return;
+          }
           if (message.type === "ready") {
             clearTimeout(timer);
             resolve();
@@ -130,6 +167,13 @@ export class ServiceClient {
   async backup(destination: string): Promise<Result<unknown>> {
     await this.ensureReady();
     return this.send({ type: "backup", destination });
+  }
+  async control(
+    action: "save-profile" | "get-profile" | "delete-profile" | "export-report",
+    payload: unknown,
+  ): Promise<Result<unknown>> {
+    await this.ensureReady();
+    return this.send({ type: "control", action, payload });
   }
   private send(envelope: object): Promise<Result<unknown>> {
     return new Promise((resolve, reject) => {

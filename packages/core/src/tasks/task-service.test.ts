@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DataStore } from "../../../storage/src/database";
 import { ProjectService } from "../projects/project-service";
-import { TaskService } from "./task-service";
+import { TaskService, type TaskRuntime } from "./task-service";
 import { GitRepositoryAdapter } from "../../../adapters/src/git/repository";
 import { gitFixture, git } from "../../../testkit/src/git-fixture";
 import type { Task } from "../../../contracts/src/models";
@@ -12,7 +12,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
-async function setup() {
+async function setup(runtime?: TaskRuntime) {
   const root = await mkdtemp(join(tmpdir(), "local-platform-tasks-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const f = await gitFixture();
@@ -35,7 +35,12 @@ async function setup() {
     issueBindings: [],
     aiProfileId: null,
   });
-  const tasks = new TaskService(store, projects, new GitRepositoryAdapter());
+  const tasks = new TaskService(
+    store,
+    projects,
+    new GitRepositoryAdapter(),
+    runtime,
+  );
   cleanup.push(() => tasks.shutdown());
   return { root, f, store, projects, project, tasks };
 }
@@ -56,6 +61,33 @@ async function settled(tasks: TaskService, id: string): Promise<Task> {
   );
 }
 describe("persistent preparation tasks", () => {
+  it("publishes document captures and index coverage in the same context", async () => {
+    const f = await setup({
+      captureDocuments: async () => ({
+        documents: [
+          {
+            id: "doc",
+            bindingId: "d",
+            contentHash: "0".repeat(64),
+            kind: "pdf",
+          },
+        ],
+        sourceGaps: [],
+      }),
+      indexContext: async () => ["partial index"],
+      analyze: async () => {
+        throw new Error("not an analysis task");
+      },
+    });
+    const done = await settled(
+      f.tasks,
+      (await f.tasks.enqueue(f.project.id, "PREPARE_CONTEXT")).id,
+    );
+    expect(done.status).toBe("SUCCEEDED");
+    const context = f.store.getContext(done.contextSnapshotId!);
+    expect(context.documents).toHaveLength(1);
+    expect(context.limitations).toContain("partial index");
+  });
   it("commits a context and task success together and isolates project history", async () => {
     const { tasks, project, store } = await setup();
     const task = await tasks.enqueue(project.id, "PREPARE_CONTEXT");

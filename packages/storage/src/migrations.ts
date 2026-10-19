@@ -1,15 +1,26 @@
-import type Database from 'better-sqlite3';
-import { mkdir } from 'node:fs/promises';
-import { dirname,join,basename } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { AppError } from '../../contracts/src/error';
-export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void> {
-  const version=db.pragma('user_version',{simple:true}) as number;
-  if(version>2) throw new AppError('DATABASE_NEWER','数据库版本比当前应用新');
-  if(version===1){ await mkdir(backupDirectory,{recursive:true}); await db.backup(join(backupDirectory,`${basename(path)}.backup-v1-${randomUUID()}.db`)); }
-  if(version===2)return;
-  db.transaction(()=>{
-    if(version===0) db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
+import type Database from "better-sqlite3";
+import { mkdir } from "node:fs/promises";
+import { dirname, join, basename } from "node:path";
+import { randomUUID } from "node:crypto";
+import { AppError } from "../../contracts/src/error";
+export async function migrateDatabase(
+  db: Database.Database,
+  path: string,
+  backupDirectory = dirname(path),
+): Promise<void> {
+  const version = db.pragma("user_version", { simple: true }) as number;
+  if (version > 2)
+    throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
+  if (version === 1) {
+    await mkdir(backupDirectory, { recursive: true });
+    await db.backup(
+      join(backupDirectory, `${basename(path)}.backup-v1-${randomUUID()}.db`),
+    );
+  }
+  if (version === 2) return;
+  db.transaction(() => {
+    if (version === 0)
+      db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
       CREATE TABLE repository_paths(path_key TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id));
       CREATE TABLE tasks(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),status TEXT NOT NULL,created_at TEXT NOT NULL,json TEXT NOT NULL);
       CREATE TABLE contexts(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),json TEXT NOT NULL);

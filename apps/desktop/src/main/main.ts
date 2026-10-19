@@ -8,6 +8,10 @@ import {
   Tray,
 } from "electron";
 import { join, resolve } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { createCredentialStore } from "./credential-store";
+import type { AIProfile } from "../../../../packages/contracts/src/analysis";
 import {
   assertTrustedSender,
   parseRequest,
@@ -37,7 +41,12 @@ else {
   void app
     .whenReady()
     .then(async () => {
-      service = new ServiceClient(app.getPath("userData"), app.getVersion());
+      const credentials = createCredentialStore(app.getPath("userData"));
+      service = new ServiceClient(
+        app.getPath("userData"),
+        app.getVersion(),
+        credentials,
+      );
       window = new BrowserWindow({
         title: "本地研发辅助平台",
         width: 1360,
@@ -77,6 +86,81 @@ else {
             event.senderFrame === window!.webContents.mainFrame,
           );
           const request = parseRequest(input);
+          if (request.method === "chooseDocumentFiles") {
+            const selection = await dialog.showOpenDialog(window!, {
+              title: "选择本地需求文档",
+              properties: ["openFile", "multiSelections"],
+              filters: [{ name: "需求文档", extensions: ["docx", "pdf"] }],
+            });
+            return {
+              ok: true,
+              value: selection.canceled ? [] : selection.filePaths,
+            };
+          }
+          if (request.method === "saveAIProfile") {
+            const id = request.params.id ?? randomUUID();
+            let existing: AIProfile | undefined;
+            if (request.params.id) {
+              const result = await service.control("get-profile", { id });
+              if (!result.ok) return result;
+              existing = result.value as AIProfile;
+            }
+            const draft = request.params.draft;
+            const keep =
+              existing?.kind === "api" &&
+              draft.kind === "api" &&
+              existing.baseUrl === draft.baseUrl;
+            const credentialRef = request.params.secret
+              ? await credentials.save(id, request.params.secret)
+              : keep
+                ? existing!.credentialRef
+                : null;
+            const saved = await service.control("save-profile", {
+              id,
+              credentialRef,
+              draft,
+            });
+            if (!saved.ok) {
+              if (credentialRef && credentialRef !== existing?.credentialRef)
+                await credentials.remove(credentialRef);
+              return saved;
+            }
+            if (
+              existing?.credentialRef &&
+              existing.credentialRef !== credentialRef
+            )
+              await credentials.remove(existing.credentialRef);
+            return saved;
+          }
+          if (request.method === "deleteAIProfile") {
+            const prior = await service.control("get-profile", {
+              id: request.params.id,
+            });
+            if (!prior.ok) return prior;
+            const removed = await service.control("delete-profile", {
+              id: request.params.id,
+            });
+            if (!removed.ok) return removed;
+            const ref = (prior.value as AIProfile).credentialRef;
+            if (ref) await credentials.remove(ref);
+            return removed;
+          }
+          if (request.method === "exportReport") {
+            const content = await service.control(
+              "export-report",
+              request.params,
+            );
+            if (!content.ok) return content;
+            const selected = await dialog.showSaveDialog(window!, {
+              title: "导出需求核对报告",
+              defaultPath: `requirement-report-${request.params.reportId}.md`,
+              filters: [{ name: "Markdown", extensions: ["md"] }],
+            });
+            if (selected.canceled || !selected.filePath)
+              return { ok: true, value: null };
+            await writeFile(selected.filePath, String(content.value), "utf8");
+            return { ok: true, value: selected.filePath };
+          }
           if (request.method === "chooseRepositoryDirectory") {
             const result = await dialog.showOpenDialog(window!, {
               properties: ["openDirectory"],

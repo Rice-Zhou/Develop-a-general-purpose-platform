@@ -42,8 +42,10 @@ describe("credential boundary", () => {
         Buffer.from("private-token"),
       ),
     ).toBe(false);
-    expect(await vault.resolve(ref)).toBe("private-token");
-    await expect(vault.resolve("../other")).rejects.toMatchObject({
+    expect(await vault.resolve(ref, "connection-a")).toBe("private-token");
+    await expect(
+      vault.resolve("../other", "connection-a"),
+    ).rejects.toMatchObject({
       code: "INVALID_CREDENTIAL_REF",
     });
   });

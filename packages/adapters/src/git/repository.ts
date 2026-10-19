@@ -327,7 +327,11 @@ export class GitRepositoryAdapter {
         );
     }
   }
-  async readFile(snapshot: RepositorySnapshot, path: string, signal?:AbortSignal): Promise<Buffer> {
+  async readFile(
+    snapshot: RepositorySnapshot,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
     assertReadablePath(path);
     const entry = snapshot.files.find((file) => file.path === path);
     if (!entry || !["100644", "100755"].includes(entry.mode))
@@ -337,7 +341,11 @@ export class GitRepositoryAdapter {
         "context",
       );
     const size = Number(
-      await this.text(snapshot.canonicalPath, ["cat-file", "-s", entry.blob],signal),
+      await this.text(
+        snapshot.canonicalPath,
+        ["cat-file", "-s", entry.blob],
+        signal,
+      ),
     );
     if (size > 4 * 1024 * 1024)
       throw new AppError(
@@ -346,7 +354,11 @@ export class GitRepositoryAdapter {
         "context",
       );
     return (
-      await runGit(snapshot.canonicalPath, ["cat-file", "blob", entry.blob],signal)
+      await runGit(
+        snapshot.canonicalPath,
+        ["cat-file", "blob", entry.blob],
+        signal,
+      )
     ).stdout;
   }
   async listFiles(snapshot: RepositorySnapshot): Promise<FileEntry[]> {

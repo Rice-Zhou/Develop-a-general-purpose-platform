@@ -15,15 +15,28 @@ interface JsonRow {
   json: string;
 }
 export class DataStore extends AnalysisRepository {
-  private constructor(readonly path: string, db: Database.Database) { super(db); }
-  static async open(path: string, options: { backupDirectory?: string } = {}): Promise<DataStore> {
+  private constructor(
+    readonly path: string,
+    db: Database.Database,
+  ) {
+    super(db);
+  }
+  static async open(
+    path: string,
+    options: { backupDirectory?: string } = {},
+  ): Promise<DataStore> {
     mkdirSync(dirname(path), { recursive: true });
     const db = new Database(path);
     try {
-      db.pragma("journal_mode = WAL"); db.pragma("foreign_keys = ON"); db.pragma("busy_timeout = 5000");
-      await migrateDatabase(db,path,options.backupDirectory);
-      return new DataStore(path,db);
-    } catch(error) { db.close(); throw error; }
+      db.pragma("journal_mode = WAL");
+      db.pragma("foreign_keys = ON");
+      db.pragma("busy_timeout = 5000");
+      await migrateDatabase(db, path, options.backupDirectory);
+      return new DataStore(path, db);
+    } catch (error) {
+      db.close();
+      throw error;
+    }
   }
   close(): void {
     if (this.db.open) this.db.close();

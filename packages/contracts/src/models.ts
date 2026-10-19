@@ -1,5 +1,16 @@
 import { z } from "zod";
-import type { DocumentSnapshotRef, SourceGap } from './documents';
+import type { DocumentSnapshotRef, SourceGap } from "./documents";
+import type { DocumentSnapshot } from "./documents";
+import type { RequirementSet, RequirementItem } from "./requirements";
+import type {
+  AnalysisReport,
+  AIProfileDraft,
+  PublicAIProfile,
+  CliConfiguration,
+  EvidenceRef,
+  ExecutorDiagnostic,
+  SearchResult,
+} from "./analysis";
 const text = z.string().trim().min(1).max(2048);
 export const RepositoryDraftSchema = z
   .object({
@@ -95,6 +106,8 @@ export interface ContextSnapshot {
 export const TaskStatusSchema = z.enum([
   "QUEUED",
   "PREPARING",
+  "RUNNING",
+  "VALIDATING",
   "SUCCEEDED",
   "WAITING_INPUT",
   "FAILED",
@@ -144,6 +157,68 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  readDocumentBlock(
+    projectId: string,
+    contextId: string,
+    documentSnapshotId: string,
+    blockId: string,
+  ): Promise<
+    Result<{
+      text: string;
+      evidence: Extract<EvidenceRef, { kind: "document" }>;
+    }>
+  >;
+  getWorkspace(projectId: string): Promise<
+    Result<{
+      context: ContextSnapshot | null;
+      documents: DocumentSnapshot[];
+      requirements: RequirementSet | null;
+      reports: AnalysisReport[];
+    }>
+  >;
+  saveRequirementRevision(
+    projectId: string,
+    contextId: string,
+    items: RequirementItem[],
+    expectedRevision: number,
+  ): Promise<Result<RequirementSet>>;
+  extractRequirements(projectId: string): Promise<Result<Task>>;
+  checkRequirements(
+    projectId: string,
+    requirementSetId: string,
+  ): Promise<Result<Task>>;
+  searchEvidence(
+    projectId: string,
+    contextId: string,
+    query: string,
+  ): Promise<Result<SearchResult>>;
+  readEvidence(
+    projectId: string,
+    contextId: string,
+    evidence: EvidenceRef,
+  ): Promise<Result<{ text: string; evidence: EvidenceRef }>>;
+  getAIProfiles(): Promise<Result<PublicAIProfile[]>>;
+  saveAIProfile(
+    draft: AIProfileDraft,
+    secret?: string,
+    id?: string,
+  ): Promise<Result<PublicAIProfile>>;
+  deleteAIProfile(id: string): Promise<Result<null>>;
+  getCliConfiguration(): Promise<
+    Result<
+      CliConfiguration & { codexExecutable: string; claudeExecutable: string }
+    >
+  >;
+  saveCliConfiguration(
+    configuration: CliConfiguration,
+  ): Promise<Result<CliConfiguration>>;
+  probeExecutor(id: string): Promise<Result<ExecutorDiagnostic>>;
+  probeFeishu(): Promise<Result<ExecutorDiagnostic>>;
+  chooseDocumentFiles(): Promise<Result<string[]>>;
+  exportReport(
+    projectId: string,
+    reportId: string,
+  ): Promise<Result<string | null>>;
   listProjects(): Promise<Result<Project[]>>;
   saveProject(
     draft: ProjectDraft,

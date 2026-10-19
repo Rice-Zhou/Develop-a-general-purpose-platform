@@ -8,9 +8,13 @@ import type {
 import { message, unwrap } from "./api";
 import { ProjectEditor } from "./components/ProjectEditor";
 import { TaskDetails } from "./components/TaskDetails";
+import { RequirementsPage } from "./pages/RequirementsPage";
+import { ConnectionsPage } from "./pages/ConnectionsPage";
 const statusLabels: Record<TaskStatus, string> = {
   QUEUED: "排队中",
   PREPARING: "准备中",
+  RUNNING: "分析中",
+  VALIDATING: "校验中",
   SUCCEEDED: "准备成功",
   WAITING_INPUT: "等待处理",
   FAILED: "执行失败",
@@ -109,7 +113,9 @@ export function App() {
     });
   }
   const running = tasks.filter((task) =>
-    ["QUEUED", "PREPARING", "CANCELLING"].includes(task.status),
+    ["QUEUED", "PREPARING", "RUNNING", "VALIDATING", "CANCELLING"].includes(
+      task.status,
+    ),
   );
   const attention = tasks.filter((task) =>
     ["WAITING_INPUT", "FAILED", "INTERRUPTED"].includes(task.status),
@@ -136,7 +142,12 @@ export function App() {
                 <td>
                   <strong>{task.projectName}</strong>
                   <span className="table-sub">
-                    代码上下文准备 · 尝试 {task.attempt}
+                    {task.kind === "PREPARE_CONTEXT"
+                      ? "上下文准备"
+                      : task.kind === "EXTRACT_REQUIREMENTS"
+                        ? "需求提取"
+                        : "实现核对"}{" "}
+                    · 尝试 {task.attempt}
                   </span>
                 </td>
                 <td>
@@ -157,7 +168,9 @@ export function App() {
                     >
                       查看详情
                     </button>
-                    {["QUEUED", "PREPARING"].includes(task.status) && (
+                    {["QUEUED", "PREPARING", "RUNNING", "VALIDATING"].includes(
+                      task.status,
+                    ) && (
                       <button
                         className="text-button danger-text"
                         onClick={() =>
@@ -501,19 +514,21 @@ export function App() {
               {taskTable(displayedTasks)}
             </section>
           )}
-          {(page === "requirements" || page === "bugs") && (
+          {page === "requirements" && (
+            <RequirementsPage
+              projects={projects}
+              tasks={tasks}
+              onChanged={reload}
+            />
+          )}
+          {page === "bugs" && (
             <section className="empty-card capability-page">
-              <div className="code-symbol">
-                {page === "requirements" ? "≡" : "◇"}
-              </div>
+              <div className="code-symbol">◇</div>
               <span className="tag">尚未接入</span>
-              <h2>
-                {page === "requirements" ? "需求实现核对" : "BUG 监控与预分析"}
-              </h2>
+              <h2>BUG 监控与预分析</h2>
               <p>
-                {page === "requirements"
-                  ? "后续将关联 Word、PDF、飞书文档与固定代码快照，输出实现项、缺失项和原文依据。"
-                  : "后续将按项目与任务归属接入 Jira、Trinity，先更新代码，再生成问题预分析报告。"}
+                后续将按项目与任务归属接入
+                Jira、Trinity，先更新代码，再生成问题预分析报告。
               </p>
               <button className="secondary" onClick={() => setPage("projects")}>
                 先配置项目资料
@@ -522,6 +537,14 @@ export function App() {
           )}
           {page === "settings" && (
             <>
+              <ConnectionsPage
+                onChanged={() =>
+                  void window.platform
+                    .getAppInfo()
+                    .then((value) => setInfo(unwrap(value)))
+                    .catch((error) => setError(message(error)))
+                }
+              />
               <section className="panel settings-panel">
                 <h2>本地环境</h2>
                 <dl>

@@ -4,7 +4,9 @@ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-nati
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 const config: ForgeConfig = {
+  outDir: process.env.PLATFORM_BUILD_DIR || "out",
   packagerConfig: {
+    electronZipDir: process.env.ELECTRON_ZIP_DIR || undefined,
     asar: true,
     executableName: "LocalDevPlatform",
     appBundleId: "local.dev.platform",
@@ -28,7 +30,11 @@ const config: ForgeConfig = {
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
-        { entry: 'packages/adapters/src/documents/parser-worker.ts', config: 'vite.parser.config.ts', target: 'main' },
+        {
+          entry: "packages/adapters/src/documents/parser-worker.ts",
+          config: "vite.parser.config.ts",
+          target: "main",
+        },
         {
           entry: "apps/desktop/src/main/main.ts",
           config: "vite.main.config.ts",
