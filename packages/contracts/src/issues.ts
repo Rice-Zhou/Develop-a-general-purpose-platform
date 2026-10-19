@@ -2,6 +2,13 @@ import { z } from "zod";
 import { EvidenceRefSchema, ExecutorIdentitySchema } from "./analysis";
 import type { Project } from "./models";
 export const ISSUE_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
+export const JIRA_DISCOVERY_TIMEOUT_MS = 120000;
+export interface JiraCatalogue {
+  owner: string;
+  projects: { key: string; name: string }[];
+  issueTypes: { id: string; name: string }[];
+  typeSource: "server" | "cli-config";
+}
 const atom = z.string().trim().min(1).max(2048);
 const base = {
   name: atom,

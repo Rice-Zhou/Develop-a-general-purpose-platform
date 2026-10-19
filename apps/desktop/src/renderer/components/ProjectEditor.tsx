@@ -7,6 +7,7 @@ import type {
 } from "../../../../../packages/contracts/src/models";
 import { message, unwrap } from "../api";
 import { RepositoryBranchField } from "./RepositoryBranchField";
+import { JiraProjectField } from "./JiraProjectField";
 export function ProjectEditor({
   project,
   onClose,
@@ -45,6 +46,9 @@ export function ProjectEditor({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [jiraEnabled, setJiraEnabled] = useState(Boolean(project?.issueBindings.some((b) => b.platform !== "trinity")));
+  const [jiraReady, setJiraReady] = useState(false);
+  const jiraBindings = draft.issueBindings.filter((b) => b.platform !== "trinity");
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
   const [issueConnections, setIssueConnections] = useState<
     PublicIssueConnection[]
@@ -66,6 +70,7 @@ export function ProjectEditor({
     setBusy(true);
     setError("");
     try {
+      if (jiraEnabled && (!jiraReady || !draft.issueBindings.some((b) => b.platform !== "trinity"))) throw new Error("请先读取 Jira 项目列表并选择一个项目及缺陷类型");
       const saved = unwrap(
         await window.platform.saveProject(draft, project?.revision),
       );
@@ -95,18 +100,18 @@ export function ProjectEditor({
       ),
     }));
   }
-  function addIssueBinding(platform: "jira-dc" | "trinity") {
+  function addTrinityBinding() {
     setDraft((current) => ({
       ...current,
       issueBindings: [
         ...current.issueBindings,
         {
           id: crypto.randomUUID(),
-          platform,
+          platform: "trinity",
           instanceUrl: "",
           projectKey: "",
           owner: "",
-          issueTypeIds: platform === "trinity" ? ["BUG"] : undefined,
+          issueTypeIds: ["BUG"],
         },
       ],
     }));
@@ -414,14 +419,23 @@ export function ProjectEditor({
               BUG 项目范围 <span>{draft.issueBindings.length} 条</span>
             </summary>
             <p className="muted small">
-              先在设置页登录 Jira 或 Trinity，再选择已保存的平台连接。
-              这里填写此项目的项目 Key、负责人和缺陷类型；只分析同时匹配这三项的
-              BUG，可添加多个范围。
+              Jira 可直接选择 CLI 或账号登录，读取项目列表后单选一个项目；负责人取自登录信息。Trinity 使用已保存连接及范围。
             </p>
-            {draft.issueBindings.map((binding, index) => (
+            {jiraBindings.length > 1 && <p className="coverage-warning">旧配置包含多个 Jira 范围，请从列表重新选择一个 Jira 项目后保存。</p>}
+            {jiraEnabled && <>
+              <JiraProjectField
+                binding={jiraBindings.length === 1 ? jiraBindings[0] : undefined}
+                connections={issueConnections}
+                onReadinessChange={setJiraReady}
+                onConnectionSaved={(connection) => setIssueConnections((previous) => [...previous.filter((c) => c.id !== connection.id), connection])}
+                onChange={(binding) => setDraft((previous) => ({ ...previous, issueBindings: [...previous.issueBindings.filter((b) => b.platform === "trinity"), ...(binding ? [binding] : [])] }))}
+              />
+              <button type="button" className="text-button" onClick={() => { setJiraEnabled(false); setJiraReady(false); setDraft((previous) => ({ ...previous, issueBindings: previous.issueBindings.filter((b) => b.platform === "trinity") })); }}>移除 Jira 关联</button>
+            </>}
+            {draft.issueBindings.map((binding, index) => binding.platform === "trinity" && (
               <div className="binding-form" key={binding.id}>
                 <label>
-                  {binding.platform === "trinity" ? "Trinity" : "Jira"} 平台连接
+                  Trinity 平台连接
                   <select
                     required
                     value={binding.connectionId ?? ""}
@@ -441,12 +455,7 @@ export function ProjectEditor({
                                   issueConnections.find(
                                     (c) => c.id === e.target.value,
                                   )?.baseUrl ?? item.instanceUrl,
-                                issueTypeIds:
-                                  issueConnections.find(
-                                    (c) => c.id === e.target.value,
-                                  )?.kind === "trinity"
-                                    ? ["BUG"]
-                                    : undefined,
+                                issueTypeIds: ["BUG"],
                               }
                             : item,
                         ),
@@ -455,21 +464,16 @@ export function ProjectEditor({
                   >
                     <option value="">请选择已保存连接</option>
                     {issueConnections
-                      .filter((c) =>
-                        binding.platform === "trinity"
-                          ? c.platform === "trinity"
-                          : c.platform !== "trinity",
-                      )
+                      .filter((c) => c.platform === "trinity")
                       .map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ·{" "}
-                          {c.platform === "trinity" ? "Trinity" : "Jira"}
+                          {c.name} · Trinity
                         </option>
                       ))}
                   </select>
                 </label>
                 <p className="muted small">
-                  {binding.platform === "trinity" ? "Trinity" : "Jira"} ·{" "}
+                  Trinity ·{" "}
                   {binding.instanceUrl || "选择连接后确定实例"}
                 </p>
                 <label>
@@ -523,11 +527,7 @@ export function ProjectEditor({
                   </label>
                 ))}
                 <p className="muted small">
-                  {binding.platform === "trinity"
-                    ? "负责人填写 Trinity 的 assigneeId；缺陷类型填写 BUG。"
-                    : binding.platform === "jira-cloud"
-                      ? "负责人填写 Jira 的 accountId；缺陷类型填写类型 ID。"
-                      : "负责人填写 Jira 登录名；缺陷类型填写类型 ID。"}
+                  负责人填写 Trinity 的 assigneeId；缺陷类型填写 BUG。
                 </p>
                 <button
                   type="button"
@@ -548,14 +548,15 @@ export function ProjectEditor({
             <button
               type="button"
               className="text-button"
-              onClick={() => addIssueBinding("jira-dc")}
+              disabled={jiraEnabled}
+              onClick={() => setJiraEnabled(true)}
             >
               ＋ 添加 Jira 范围
             </button>
             <button
               type="button"
               className="text-button"
-              onClick={() => addIssueBinding("trinity")}
+              onClick={addTrinityBinding}
             >
               ＋ 添加 Trinity 范围
             </button>

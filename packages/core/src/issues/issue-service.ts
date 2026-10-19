@@ -10,6 +10,7 @@ import {
   type IssueSnapshot,
   type RemoteIssue,
   type PublicIssueConnection,
+  type JiraCatalogue,
 } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
 interface IssueStore {
@@ -54,6 +55,24 @@ export class IssueService {
       ...c,
       hasCredential: Boolean(credentialRef),
     }));
+  }
+  async catalogue(connectionId: string, signal: AbortSignal): Promise<JiraCatalogue> {
+    const connection = this.connection(connectionId);
+    const source = this.adapter(connection);
+    if (!source.discover) throw new AppError("ISSUE_DISCOVERY_UNAVAILABLE", "此来源不支持 Jira 项目发现");
+    const result = await source.discover(connection, signal);
+    if (signal.aborted) throw new AppError("CANCELLED", "Jira 项目读取已取消");
+    if (fingerprint(connection) !== fingerprint(this.connection(connectionId))) throw new AppError("PROJECT_CHANGED", "Jira 连接已变化，请重新读取项目");
+    return result;
+  }
+  async validateBindings(bindings: Project["issueBindings"], signal: AbortSignal): Promise<void> {
+    for (const binding of bindings.filter((b) => b.platform !== "trinity")) {
+      if (!binding.connectionId) throw new AppError("ISSUE_NOT_CONFIGURED", "请登录 Jira 并选择项目");
+      const catalogue = await this.catalogue(binding.connectionId, signal);
+      ScopePolicy.validate({ projectId: "configuration", enabled: true, binding, connection: this.connection(binding.connectionId) });
+      if (binding.owner !== catalogue.owner || !catalogue.projects.some((p) => p.key === binding.projectKey) || !binding.issueTypeIds?.length || binding.issueTypeIds.some((id) => !catalogue.issueTypes.some((t) => t.id === id)))
+        throw new AppError("JIRA_SELECTION_INVALID", "Jira 项目、负责人或缺陷类型与当前登录信息不符，请重新读取并选择");
+    }
   }
   saveConnection(value: unknown): PublicIssueConnection {
     const input = z

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { IssueAdapter } from "../../../core/src/issues/ports";
-import type { IssueScope, RemoteIssue } from "../../../contracts/src/issues";
+import type { IssueConnection, IssueScope, RemoteIssue, JiraCatalogue } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
 import {
   instanceUrl,
@@ -20,9 +20,12 @@ export class JiraHttpAdapter implements IssueAdapter {
     signal: AbortSignal,
   ): Promise<unknown> {
     ScopePolicy.validate(scope);
-    if (scope.connection.kind !== "jira-http")
+    return this.connectionJson(scope.connection, path, signal);
+  }
+  private async connectionJson(connection: IssueConnection, path: string, signal: AbortSignal): Promise<unknown> {
+    if (connection.kind !== "jira-http")
       throw new AppError("ISSUE_CONNECTION_INVALID", "不是 Jira 账号连接");
-    const url = instanceUrl(scope.connection.baseUrl) + path;
+    const url = instanceUrl(connection.baseUrl) + path;
     const response = await this.request(url, {
       redirect: "error",
       signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
@@ -31,7 +34,7 @@ export class JiraHttpAdapter implements IssueAdapter {
         Authorization:
           "Basic " +
           Buffer.from(
-            scope.connection.username + ":" + (await this.password()),
+            connection.username + ":" + (await this.password()),
           ).toString("base64"),
       },
     });
@@ -51,6 +54,14 @@ export class JiraHttpAdapter implements IssueAdapter {
         "Jira 响应不是有效 JSON，未保存正文",
       );
     }
+  }
+  async discover(connection: IssueConnection, signal: AbortSignal): Promise<JiraCatalogue> {
+    const identity = z.object({ name: z.string().trim().min(1) }).parse(await this.connectionJson(connection, "/rest/api/2/myself", signal));
+    if (connection.kind !== "jira-http" || identity.name !== connection.username)
+      throw new AppError("ISSUE_LOGIN_FAILED", "Jira 登录身份不匹配");
+    const projects = z.array(z.object({ key: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/), name: z.string().min(1) })).max(10000).parse(await this.connectionJson(connection, "/rest/api/2/project", signal));
+    const issueTypes = z.array(z.object({ id: z.string().min(1), name: z.string().min(1) })).max(1000).parse(await this.connectionJson(connection, "/rest/api/2/issuetype", signal));
+    return { owner: identity.name, projects, issueTypes, typeSource: "server" };
   }
   async probe(scope: IssueScope, signal: AbortSignal): Promise<void> {
     const identity = z

@@ -5,7 +5,7 @@ import type {
   LocalJiraConfiguration,
 } from "../../../../../packages/contracts/src/issues";
 import { message, unwrap } from "../api";
-export function IssueConnectionsPage() {
+export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?: boolean; onSaved?: (connection: PublicIssueConnection) => void } = {}) {
   const formEdited = useRef(false);
   const [connections, setConnections] = useState<PublicIssueConnection[]>([]);
   const [platform, setPlatform] = useState<"jira" | "trinity">("jira");
@@ -58,8 +58,9 @@ export function IssueConnectionsPage() {
       active = false;
     };
   }, []);
-  async function save(event: FormEvent) {
-    event.preventDefault();
+  const Container = embedded ? "div" : "form";
+  async function save(event?: FormEvent) {
+    event?.preventDefault();
     setBusy(true);
     setError("");
     setNotice("");
@@ -92,7 +93,8 @@ export function IssueConnectionsPage() {
                 username,
                 bypassProxy: true,
               };
-      unwrap(
+      if (draft.kind !== "jira-cli" && !password) throw new Error("请输入登录密码");
+      const saved = unwrap(
         await window.platform.saveIssueConnection(
           draft,
           draft.kind === "jira-cli" ? undefined : password,
@@ -101,8 +103,9 @@ export function IssueConnectionsPage() {
       setPassword("");
       await reload();
       setNotice(
-        "平台连接已保存。请在项目的 BUG 项目范围中选择该连接，并填写项目 Key、负责人和缺陷类型。",
+        "平台连接已保存。请在项目配置中读取并选择 Jira 项目；Trinity 仍按已有范围配置。",
       );
+      onSaved?.(saved);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -111,8 +114,8 @@ export function IssueConnectionsPage() {
   }
   return (
     <section className="panel work-panel">
-      <span className="eyebrow">BUG PLATFORM LOGIN</span>
-      <h2>Jira 与 Trinity 登录</h2>
+      {!embedded && <><span className="eyebrow">BUG PLATFORM LOGIN</span>
+      <h2>Jira 与 Trinity 登录</h2></>}
       <p className="muted">
         先登录平台，再到项目配置选择接收哪些 BUG。所有 BUG
         平台连接均使用本地网络直连。
@@ -123,7 +126,7 @@ export function IssueConnectionsPage() {
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
-      <form
+      <Container
         onSubmit={(e) => void save(e)}
         onChangeCapture={() => {
           formEdited.current = true;
@@ -131,7 +134,7 @@ export function IssueConnectionsPage() {
         className="connection-form"
       >
         <div className="form-row">
-          <label>
+          {!embedded && <label>
             BUG 平台
             <select
               value={platform}
@@ -150,7 +153,7 @@ export function IssueConnectionsPage() {
               <option value="jira">Jira</option>
               <option value="trinity">Trinity</option>
             </select>
-          </label>
+          </label>}
           <label className="grow">
             连接名称
             <input
@@ -167,7 +170,7 @@ export function IssueConnectionsPage() {
             </p>
             {local?.available && (
               <p className="notice">
-                本地已登录：{local.username} · {local.baseUrl}
+                本地配置账号：{local.username} · {local.baseUrl}
               </p>
             )}
             <label>
@@ -261,15 +264,15 @@ export function IssueConnectionsPage() {
             </p>
           </>
         )}
-        <button className="primary" disabled={busy || checking}>
+        <button type={embedded ? "button" : "submit"} onClick={embedded ? () => void save() : undefined} className="primary" disabled={busy || checking}>
           {busy
             ? "正在登录并保存…"
             : platform === "jira" && jiraMode === "cli"
               ? "保存本地 Jira 连接"
               : "登录并保存平台连接"}
         </button>
-      </form>
-      {connections.map((c) => (
+      </Container>
+      {!embedded && connections.map((c) => (
         <div className="report-list-item" key={c.id}>
           <div>
             <strong>{c.name}</strong>

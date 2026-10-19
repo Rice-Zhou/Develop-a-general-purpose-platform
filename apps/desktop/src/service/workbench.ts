@@ -32,7 +32,7 @@ import { ChatCompletionsTransport } from "../../../../packages/adapters/src/ai/c
 import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
 import { inspectLocalJira } from "../../../../packages/adapters/src/issues/jira-local";
 import { jiraIssueUrl } from "../../../../packages/adapters/src/issues/jira-format";
-import { ISSUE_REFRESH_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
+import { ISSUE_REFRESH_TIMEOUT_MS, JIRA_DISCOVERY_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
 import { IssueService } from "../../../../packages/core/src/issues/issue-service";
@@ -337,6 +337,8 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+      case "getJiraCatalogue":
+        return this.issues.catalogue(request.params.connectionId, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
       case "inspectLocalJira": {
         const cli = this.cliConfiguration();
         return inspectLocalJira(

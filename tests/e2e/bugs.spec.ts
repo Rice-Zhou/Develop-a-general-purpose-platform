@@ -116,7 +116,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     await writeFile(join(data, "host.txt"), base);
     await writeFile(
       join(data, "jira.yml"),
-      `server: ${base}\ninstallation: Local\nlogin: alice\n`,
+      `server: ${base}\ninstallation: Local\nlogin: alice\nissue:\n  types:\n    - id: "1"\n      name: Bug\n`,
     );
     await writeFile(
       join(data, "issue.json"),

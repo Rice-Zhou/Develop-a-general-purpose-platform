@@ -52,7 +52,7 @@ export const ProjectDraftSchema = z
     enabled: z.boolean(),
     repositories: z.array(RepositoryDraftSchema).min(1).max(20),
     documents: z.array(DocumentBindingSchema).max(100),
-    issueBindings: z.array(IssueBindingSchema).max(20),
+    issueBindings: z.array(IssueBindingSchema).max(20).refine((items) => items.filter((b) => b.platform !== "trinity").length <= 1, "每个本地项目仅可选择单个 Jira 项目"),
     aiProfileId: z.string().nullable(),
   })
   .strict();
@@ -185,6 +185,7 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  getJiraCatalogue(connectionId: string): Promise<Result<import("./issues").JiraCatalogue>>;
   getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
   inspectLocalJira(): Promise<
     Result<import("./issues").LocalJiraConfiguration>

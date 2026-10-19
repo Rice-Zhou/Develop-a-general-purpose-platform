@@ -5,11 +5,13 @@ import { instanceUrl } from "../../../core/src/issues/scope-policy";
 import {
   type IssueScope,
   type RemoteIssue,
+  type IssueConnection,
+  type JiraCatalogue,
 } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
 import { runProcess, ProcessExitError } from "../process/run-process";
-import { readJiraServer } from "./jira-config";
-import { normalizeJira, jiraQuery, assertJiraKey } from "./jira-format";
+import { readJiraServer, readJiraTypes } from "./jira-config";
+import { normalizeJira, jiraQuery, assertJiraKey, quoteJql } from "./jira-format";
 import { directEnvironment } from "../network/policy";
 export class JiraCliAdapter implements IssueAdapter {
   constructor(
@@ -17,8 +19,7 @@ export class JiraCliAdapter implements IssueAdapter {
     private readonly run: typeof runProcess = runProcess,
     private readonly readServer: typeof readJiraServer = readJiraServer,
   ) {}
-  private args(scope: IssueScope): string[] {
-    const c = scope.connection;
+  private args(c: IssueConnection, projectKey?: string): string[] {
     if (
       c.kind !== "jira-cli" ||
       !isAbsolute(c.executable) ||
@@ -29,7 +30,7 @@ export class JiraCliAdapter implements IssueAdapter {
         "ISSUE_CONNECTION_INVALID",
         "请选择 Jira 实际 exe 和独立 CLI 配置文件绝对路径",
       );
-    return ["--config", c.configFile, "--project", scope.binding.projectKey];
+    return ["--config", c.configFile, ...(projectKey ? ["--project", projectKey] : [])];
   }
   private async page(
     scope: IssueScope,
@@ -62,12 +63,15 @@ export class JiraCliAdapter implements IssueAdapter {
     args: string[],
     signal: AbortSignal,
   ): Promise<string> {
-    if (scope.connection.kind !== "jira-cli")
+    return this.command(scope.connection, args, signal, scope.binding.projectKey);
+  }
+  private async command(connection: IssueConnection, args: string[], signal: AbortSignal, projectKey?: string): Promise<string> {
+    if (connection.kind !== "jira-cli")
       throw new AppError("ISSUE_CONNECTION_INVALID", "不是 Jira CLI 连接");
-    const configArgs = this.args(scope);
+    const configArgs = this.args(connection, projectKey);
     if (
-      instanceUrl(await this.readServer(scope.connection.configFile)) !==
-      instanceUrl(scope.connection.baseUrl)
+      instanceUrl(await this.readServer(connection.configFile)) !==
+      instanceUrl(connection.baseUrl)
     )
       throw new AppError(
         "CLI_INSTANCE_MISMATCH",
@@ -81,13 +85,66 @@ export class JiraCliAdapter implements IssueAdapter {
     delete env.JIRA_SERVER;
     delete env.JIRA_SERVER_URL;
     delete env.JIRA_CONFIG_FILE;
-    return this.run(scope.connection.executable, [...args, ...configArgs], {
+    return this.run(connection.executable, [...args, ...configArgs], {
       cwd: this.cwd,
       signal,
       env,
       timeoutMs: 30000,
       maxOutput: 8 * 1024 * 1024,
     });
+  }
+  async discover(connection: IssueConnection, signal: AbortSignal): Promise<JiraCatalogue> {
+    if (connection.kind !== "jira-cli") throw new AppError("ISSUE_CONNECTION_INVALID", "不是 Jira CLI 连接");
+    if (connection.platform === "jira-cloud") throw new AppError("CLI_IDENTITY_UNSUPPORTED", "当前 Jira CLI 不能可靠读取 Cloud accountId；自动项目选择暂仅支持 Server / Data Center。");
+    const projects = await this.accessibleProjects(connection, signal);
+    const owner = projects.length ? await this.authenticatedOwner(connection, signal, projects[0].key) : "";
+    return { owner, projects, issueTypes: await readJiraTypes(connection.configFile), typeSource: "cli-config" };
+  }
+  private async authenticatedOwner(connection: IssueConnection, signal: AbortSignal, projectKey: string): Promise<string> {
+    const currentUserQuery = "project IS NOT EMPTY AND assignee = currentUser()";
+    const key = await this.identitySample(connection, currentUserQuery, signal, projectKey);
+    const raw = JSON.parse(await this.command(connection, ["issue", "view", key, "--raw", "--comments", "1"], signal, key.slice(0, key.lastIndexOf("-"))));
+    const detail = z.object({ key: z.literal(key), fields: z.object({ assignee: z.object({ name: z.string().trim().min(1).max(2048) }) }) }).safeParse(raw);
+    if (!detail.success) throw new AppError("CLI_IDENTITY_UNVERIFIED", "Jira CLI 未返回可验证的登录身份，请使用账号密码登录。");
+    const owner = detail.data.fields.assignee.name;
+    // Confirm the canonical assignee still equals the authenticated user after
+    // the detail read, including when an issue is transferred during discovery.
+    await this.identitySample(connection, `${currentUserQuery} AND assignee = ${quoteJql(owner)}`, signal, projectKey);
+    return owner;
+  }
+  private async identitySample(connection: IssueConnection, jql: string, signal: AbortSignal, projectKey: string): Promise<string> {
+    let output: string;
+    try {
+      output = await this.command(connection, ["issue", "list", "--raw", "--jql", jql, "--paginate", "0:1"], signal, projectKey);
+    } catch (error) {
+      if (error instanceof ProcessExitError && error.exitCode === 1 && error.diagnostic.startsWith("✗ No result found for given query in project "))
+        throw new AppError("CLI_IDENTITY_UNVERIFIED", "Jira CLI 未找到可用于确认真实登录身份的问题，请使用账号密码登录；不会采用配置文件中的用户名。");
+      throw error;
+    }
+    const parsed = z.array(z.object({ key: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*-\d+$/) })).min(1).max(1).safeParse(JSON.parse(output));
+    if (!parsed.success) throw new AppError("CLI_IDENTITY_UNVERIFIED", "Jira CLI 未返回可验证的登录身份，请使用账号密码登录。");
+    return parsed.data[0].key;
+  }
+  private async accessibleProjects(connection: IssueConnection, signal: AbortSignal): Promise<JiraCatalogue["projects"]> {
+    let output: string;
+    try { output = await this.command(connection, ["project", "list"], signal); }
+    catch (error) {
+      // Jira CLI 1.7.0 reports a successful empty project list with exit 1.
+      if (error instanceof ProcessExitError && error.exitCode === 1 && error.diagnostic === "✗ No projects found.") return [];
+      throw error;
+    }
+    const lines = output.trim().split(/\r?\n/);
+    const header = lines.shift()?.trim();
+    if (!/^KEY\t+NAME\t+TYPE\t+LEAD$/.test(header ?? ""))
+      throw new AppError("CLI_PROJECT_FORMAT", "Jira CLI 项目列表格式无法识别，未发布部分列表");
+    const projects = lines.filter((line) => line.trim()).map((line) => {
+      const row = line.split(/\t+/).map((value) => value.trim());
+      if (row.length < 2 || row.length > 5 || !/^[A-Za-z][A-Za-z0-9_]*$/.test(row[0]) || !row[1])
+        throw new AppError("CLI_PROJECT_FORMAT", "Jira CLI 项目列表行无法识别，未发布部分列表");
+      return { key: row[0], name: row[1] };
+    });
+    if (new Set(projects.map((p) => p.key)).size !== projects.length) throw new AppError("CLI_PROJECT_FORMAT", "Jira CLI 返回重复项目");
+    return projects;
   }
   async probe(scope: IssueScope, signal: AbortSignal): Promise<void> {
     const output = await this.execute(scope, ["serverinfo"], signal);

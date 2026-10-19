@@ -60,7 +60,7 @@ export async function inspectLocalJira(
     )
       throw new AppError("ISSUE_LOGIN_FAILED", "本地 CLI 未返回有效登录账号");
     result.available = true;
-    result.detail = "已验证本地 Jira CLI 登录，可直接复用。";
+    result.detail = "已读取本地 Jira CLI 配置，选择项目时将验证真实登录身份。";
   } catch (error) {
     result.available = false;
     result.username = "";

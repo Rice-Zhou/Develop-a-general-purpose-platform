@@ -13,6 +13,7 @@ import {
 } from "../../../../packages/contracts/src/ipc";
 import { AppError, errorData } from "../../../../packages/contracts/src/error";
 import type { AppInfo } from "../../../../packages/contracts/src/models";
+import { JIRA_DISCOVERY_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 
 const parent = (
   process as NodeJS.Process & {
@@ -64,6 +65,7 @@ async function dispatch(request: Request): Promise<unknown> {
         request.params.expectedRevision,
       );
     case "saveProject":
+      await workbench.issues.validateBindings(request.params.draft.issueBindings, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
       return projects.save(
         request.params.draft,
         request.params.expectedRevision,

@@ -17,6 +17,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("getJiraCatalogue"), params: z.object({ connectionId: id }).strict() }).strict(),
   z
     .object({
       method: z.literal("deleteProject"),

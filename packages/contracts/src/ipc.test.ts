@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("accepts connection-only Jira discovery and rejects multiple Jira selections", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(parseRequest({ method: "getJiraCatalogue", params: { connectionId: id } }).method).toBe("getJiraCatalogue");
+    const binding = { id: "b", platform: "jira-dc", instanceUrl: "https://jira.example", projectKey: "A", owner: "alice", connectionId: id, issueTypeIds: ["1"] };
+    expect(() => parseRequest({ method: "saveProject", params: { draft: { name: "P", enabled: true, repositories: [{ path: "D:/repo", branch: "main", remoteName: "origin" }], documents: [], aiProfileId: null, issueBindings: [binding, { ...binding, id: "b2", projectKey: "B" }] } } })).toThrow(/单个 Jira 项目/);
+  });
   it("accepts revision-bound project deletion and issue IDs without arbitrary URLs", () => {
     const projectId = "11111111-1111-4111-8111-111111111111";
     expect(

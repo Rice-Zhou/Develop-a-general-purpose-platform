@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gitFixture } from "../../packages/testkit/src/git-fixture";
 
-test("refreshes every configured Jira scope, distinguishes empty and failed refresh, and links issue keys", async () => {
+test("refreshes selected Jira project, distinguishes empty and failed refresh, and links issue keys", async () => {
   const data = await mkdtemp(join(tmpdir(), "bug-refresh-"));
   const fixture = await gitFixture();
   let mode: "issues" | "empty" | "failure" = "issues";
@@ -18,6 +18,8 @@ test("refreshes every configured Jira scope, distinguishes empty and failed refr
       res.end(JSON.stringify({ name: "alice" }));
       return;
     }
+    if (url.pathname === "/rest/api/2/project") { res.end(JSON.stringify([{ key: "A", name: "Project A" }])); return; }
+    if (url.pathname === "/rest/api/2/issuetype") { res.end(JSON.stringify([{ id: "1", name: "Bug" }])); return; }
     if (url.pathname !== "/rest/api/2/search") {
       res.writeHead(404).end("{}");
       return;
@@ -104,7 +106,7 @@ test("refreshes every configured Jira scope, distinguishes empty and failed refr
             ],
             documents: [],
             aiProfileId: null,
-            issueBindings: ["A", "B"].map((key) => ({
+            issueBindings: ["A"].map((key) => ({
               id: crypto.randomUUID(),
               platform: "jira-dc" as const,
               instanceUrl: base,
@@ -176,9 +178,7 @@ test("refreshes every configured Jira scope, distinguishes empty and failed refr
     await expect(
       page.getByRole("link", { name: "A-1", exact: true }),
     ).toHaveAttribute("href", base + "/browse/A-1");
-    await expect(
-      page.getByRole("link", { name: "B-1", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "B-1", exact: true })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "查看 BUG 报告", exact: true }),
     ).toBeVisible();
@@ -205,9 +205,10 @@ test("refreshes every configured Jira scope, distinguishes empty and failed refr
       );
     });
     expect(denied.ok).toBe(false);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(1);
     for (const query of queries) {
       expect(query).toContain('assignee = "alice"');
+      expect(query).toContain('project = "A"');
       expect(query).toContain('issuetype in ("1")');
     }
     mode = "empty";

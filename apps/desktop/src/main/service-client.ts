@@ -5,7 +5,7 @@ import { AppError, errorData } from "../../../../packages/contracts/src/error";
 import type { FileCredentialStore } from "../../../../packages/storage/src/credential-store";
 import type { Result } from "../../../../packages/contracts/src/models";
 import type { Request } from "../../../../packages/contracts/src/ipc";
-import { ISSUE_REFRESH_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
+import { ISSUE_REFRESH_TIMEOUT_MS, JIRA_DISCOVERY_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 import { WindowsJob } from "../../../../packages/adapters/src/windows/job";
 
 export class ServiceClient {
@@ -168,6 +168,8 @@ export class ServiceClient {
       { request },
       request.method === "refreshIssues"
         ? ISSUE_REFRESH_TIMEOUT_MS + 5000
+        : request.method === "getJiraCatalogue" || request.method === "saveProject"
+          ? JIRA_DISCOVERY_TIMEOUT_MS + 5000
         : 30000,
     );
   }

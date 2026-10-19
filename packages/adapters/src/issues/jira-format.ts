@@ -106,12 +106,12 @@ export function normalizeJira(scope: IssueScope, input: unknown): RemoteIssue {
   return issue;
 }
 
-export function jiraQuery(scope: IssueScope): string {
-  const quote = (s: string) =>
+export const quoteJql = (s: string) =>
     '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+export function jiraQuery(scope: IssueScope): string {
   if (!scope.binding.issueTypeIds?.length)
     throw new AppError("ISSUE_NOT_CONFIGURED", "请配置 BUG 类型 ID");
-  return `project = ${quote(scope.binding.projectKey)} AND assignee = ${quote(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quote).join(",")})`;
+  return `project = ${quoteJql(scope.binding.projectKey)} AND assignee = ${quoteJql(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quoteJql).join(",")})`;
 }
 export function assertJiraKey(scope: IssueScope, key: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(key))
