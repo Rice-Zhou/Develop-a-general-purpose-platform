@@ -36,6 +36,7 @@ import { ISSUE_REFRESH_TIMEOUT_MS, JIRA_DISCOVERY_TIMEOUT_MS } from "../../../..
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
 import { IssueService } from "../../../../packages/core/src/issues/issue-service";
+import { ScopePolicy } from "../../../../packages/core/src/issues/scope-policy";
 import { JiraCliAdapter } from "../../../../packages/adapters/src/issues/jira-cli";
 import { TrinityAdapter } from "../../../../packages/adapters/src/issues/trinity";
 import type {
@@ -402,7 +403,9 @@ export class Workbench implements TaskRuntime {
           request.params.projectId,
           request.params.issueSnapshotId,
         );
-        this.issues.scope(request.params.projectId, issue.bindingId);
+        const scope = this.issues.scope(request.params.projectId, issue.bindingId);
+        ScopePolicy.assert(scope, issue);
+        ScopePolicy.assertActiveStatus(scope, issue.status);
         return tasks.enqueue(
           request.params.projectId,
           "ANALYZE_BUG",

@@ -11,6 +11,7 @@ import {
   type RemoteIssue,
   type PublicIssueConnection,
   type JiraCatalogue,
+  isIssueStatusIndexed,
 } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
 interface IssueStore {
@@ -133,7 +134,7 @@ export class IssueService {
         projectId,
         b.id,
         bindingFingerprint(scope),
-      );
+      ).filter((issue) => isIssueStatusIndexed(scope.connection.platform, issue.status));
     });
   }
   private snapshot(scope: IssueScope, issue: RemoteIssue): IssueSnapshot {
@@ -162,15 +163,17 @@ export class IssueService {
       ? [await source.get(scope, key, signal)]
       : await source.list(scope, signal);
     const snapshots = records.map((r) => this.snapshot(scope, r));
+    if (key && snapshots.length) ScopePolicy.assertActiveStatus(scope, snapshots[0].status);
+    const indexed = snapshots.filter((issue) => isIssueStatusIndexed(scope.connection.platform, issue.status));
     if (signal.aborted) throw new AppError("CANCELLED", "问题读取已取消");
     this.assertCurrent(scope);
     this.store.issues.replaceBatch(
       projectId,
       bindingId,
       bindingFingerprint(scope),
-      snapshots,
+      indexed,
     );
-    return snapshots;
+    return indexed;
   }
   private assertCurrent(scope: IssueScope): void {
     if (
@@ -202,6 +205,7 @@ export class IssueService {
     );
     this.assertCurrent(scope);
     const snapshot = this.snapshot(scope, latest);
+    ScopePolicy.assertActiveStatus(scope, snapshot.status);
     this.store.issues.save(snapshot);
     return snapshot.id;
   }
@@ -218,6 +222,7 @@ export class IssueService {
       signal,
     );
     ScopePolicy.assert(scope, current);
+    ScopePolicy.assertActiveStatus(scope, current.status);
     this.assertCurrent(scope);
     if (fingerprint(current) !== issue.contentHash)
       throw new AppError(

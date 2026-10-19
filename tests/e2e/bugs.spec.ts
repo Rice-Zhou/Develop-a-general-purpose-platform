@@ -130,7 +130,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
           issuetype: { id: "1" },
           summary: "Jira test bug",
           description: "Empty password accepted",
-          status: { name: "Open" },
+          status: { name: "分析中" },
           updated: "2026-10-19",
           versions: [{ name: "old-build" }],
           comment: { total: 0, comments: [] },

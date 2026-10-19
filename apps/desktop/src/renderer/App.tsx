@@ -554,7 +554,16 @@ export function App() {
             />
           )}
           {page === "bugs" && (
-            <BugsPage projects={projects} tasks={tasks} onChanged={reload} />
+            <BugsPage
+              projects={projects}
+              tasks={tasks}
+              onChanged={reload}
+              onConfigureAI={() => {
+                setPage("settings");
+                setFocusAISettings(true);
+              }}
+              onEditProject={setEditor}
+            />
           )}
           {page === "settings" && (
             <>

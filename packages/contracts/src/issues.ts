@@ -2,6 +2,10 @@ import { z } from "zod";
 import { EvidenceRefSchema, ExecutorIdentitySchema } from "./analysis";
 import type { Project } from "./models";
 export const ISSUE_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
+export const JIRA_INDEXED_STATUSES = ["修复中", "分析中", "分配中"] as const;
+export function isIssueStatusIndexed(platform: IssueConnectionDraft["platform"], status: string): boolean {
+  return platform === "trinity" || JIRA_INDEXED_STATUSES.some((allowed) => allowed === status);
+}
 export const JIRA_DISCOVERY_TIMEOUT_MS = 120000;
 export interface JiraCatalogue {
   owner: string;

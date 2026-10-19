@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { AppError } from "../../../contracts/src/error";
 import type { IssueScope, RemoteIssue } from "../../../contracts/src/issues";
+import { isIssueStatusIndexed, JIRA_INDEXED_STATUSES } from "../../../contracts/src/issues";
 export const fingerprint = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function instanceUrl(value: string): string {
@@ -30,6 +31,10 @@ export function bindingFingerprint(scope: IssueScope): string {
   });
 }
 export class ScopePolicy {
+  static assertActiveStatus(scope: IssueScope, status: string): void {
+    if (!isIssueStatusIndexed(scope.connection.platform, status))
+      throw new AppError("ISSUE_STATUS_INACTIVE", `Jira 当前状态为“${status}”，仅 ${JIRA_INDEXED_STATUSES.join("、")} 的问题可读取和预分析，请刷新问题列表。`);
+  }
   static validate(scope: IssueScope): void {
     if (!scope.enabled) throw new AppError("PROJECT_DISABLED", "项目已停用");
     if (

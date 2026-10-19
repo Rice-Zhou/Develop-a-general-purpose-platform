@@ -45,7 +45,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
                 issuetype: { id: "1" },
                 summary: project + " scoped bug",
                 description: "fixture",
-                status: { name: "Open" },
+                status: { name: "分析中" },
                 updated: "2026-10-19",
                 versions: [],
                 comment: { total: 0, comments: [] },
@@ -53,6 +53,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
               },
             },
           ];
+    if (issues.length) issues.push({ ...issues[0], id: "completed", key: project + "-2", fields: { ...issues[0].fields, status: { name: "已完成" } } });
     res.end(JSON.stringify({ startAt: 0, total: issues.length, issues }));
   });
   server.listen(0, "127.0.0.1");
@@ -179,6 +180,11 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       page.getByRole("link", { name: "A-1", exact: true }),
     ).toHaveAttribute("href", base + "/browse/A-1");
     await expect(page.getByRole("link", { name: "B-1", exact: true })).toHaveCount(0);
+    const analyze = page.getByRole("button", { name: "更新代码并预分析", exact: true });
+    await expect(analyze).toBeDisabled();
+    await expect(analyze).toHaveAttribute("title", "预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。");
+    await expect(page.getByText("预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "A-2", exact: true })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "查看 BUG 报告", exact: true }),
     ).toBeVisible();
@@ -210,6 +216,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       expect(query).toContain('assignee = "alice"');
       expect(query).toContain('project = "A"');
       expect(query).toContain('issuetype in ("1")');
+      expect(query).toContain('status in ("修复中","分析中","分配中")');
     }
     mode = "empty";
     await refresh.click();
@@ -226,6 +233,13 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       page.getByText("当前配置项目及负责人范围内无任何问题", { exact: true }),
     ).toHaveCount(0);
     await expect(page.getByText(/刷新失败；.*缓存/).first()).toBeVisible();
+    await page.getByRole("button", { name: "关联 AI 连接", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "编辑项目", exact: true });
+    await expect(editor.getByLabel("AI 执行连接")).toBeVisible();
+    await editor.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: "配置 AI 连接", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "模型 API 与账号订阅工具" })).toBeInViewport();
+    await expect(page.locator("#ai-connections-settings")).toBeFocused();
   } finally {
     await app?.close();
     server.closeAllConnections();

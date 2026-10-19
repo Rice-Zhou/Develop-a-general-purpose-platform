@@ -148,7 +148,8 @@ it.runIf(Boolean(process.env.PLATFORM_TEST_JIRA_CLI)).each([0, 1, 100, 200])(
       expect(
         queries.every(
           (q) =>
-            q.includes('project = "A"') && q.includes('assignee = "alice"'),
+            q.includes('project = "A"') && q.includes('assignee = "alice"') &&
+            q.includes('status in ("修复中","分析中","分配中")'),
         ),
       ).toBe(true);
       if (size === 1) {

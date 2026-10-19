@@ -64,4 +64,5 @@ it("scopes password-auth Jira reads and rejects foreign keys before sending cred
   );
   const query = new URL(calls.at(-1)!).searchParams.get("jql");
   expect(query).toContain('project = "A" AND assignee = "alice"');
+  expect(query).toContain('status in ("修复中","分析中","分配中")');
 });

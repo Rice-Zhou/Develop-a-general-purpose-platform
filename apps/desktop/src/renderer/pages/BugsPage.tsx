@@ -47,10 +47,14 @@ export function BugsPage({
   projects,
   tasks,
   onChanged,
+  onConfigureAI,
+  onEditProject,
 }: {
   projects: Project[];
   tasks: Task[];
   onChanged: () => Promise<void>;
+  onConfigureAI: () => void;
+  onEditProject: (project: Project) => void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [workspace, setWorkspace] = useState<{
@@ -148,6 +152,15 @@ export function BugsPage({
       ),
   );
   const busy = loading || active;
+  const analysisUnavailable = !project?.enabled
+    ? "预分析不可用：项目已停用，请在项目配置中启用。"
+    : active
+      ? "预分析不可用：当前项目有任务执行中，请等待完成或到任务历史取消。"
+      : loading
+        ? "预分析不可用：正在读取或提交请求，请稍候。"
+        : !project.aiProfileId
+          ? "预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。"
+          : "";
   const latest = tasks.find(
     (t) => t.projectId === projectId && t.kind === "ANALYZE_BUG",
   );
@@ -268,6 +281,7 @@ export function BugsPage({
         <p className="muted">
           只读操作，始终限制项目与负责人。分析前重新读取
           BUG、安全更新配置分支并固定代码；定时监控尚未开启。
+          Jira 仅索引修复中、分析中、分配中的问题。
         </p>
         {error && (
           <div className="error-panel" role="alert">
@@ -283,6 +297,15 @@ export function BugsPage({
         {active && (
           <div className="notice">
             任务正在队列中执行，可在任务历史取消或查看步骤。
+          </div>
+        )}
+        {project && !project.aiProfileId && (
+          <div className="notice">
+            <p>当前项目未关联 AI 执行连接。请先在设置创建连接，再在项目配置中选择。</p>
+            <div className="row-actions">
+              <button className="secondary" onClick={onConfigureAI}>配置 AI 连接</button>
+              <button className="secondary" onClick={() => onEditProject(project)}>关联 AI 连接</button>
+            </div>
           </div>
         )}
         {!project?.issueBindings.length && (
@@ -440,7 +463,9 @@ export function BugsPage({
             </details>
             <button
               className="primary"
-              disabled={busy || !project?.enabled || !project?.aiProfileId}
+              disabled={!!analysisUnavailable}
+              title={analysisUnavailable || undefined}
+              aria-describedby={analysisUnavailable ? `analysis-reason-${issue.id}` : undefined}
               onClick={() =>
                 void act(async () => {
                   unwrap(await window.platform.analyzeBug(projectId, issue.id));
@@ -449,6 +474,9 @@ export function BugsPage({
             >
               更新代码并预分析
             </button>
+            {analysisUnavailable && (
+              <p id={`analysis-reason-${issue.id}`} className="coverage-warning">{analysisUnavailable}</p>
+            )}
           </article>
         ))}
       </section>
