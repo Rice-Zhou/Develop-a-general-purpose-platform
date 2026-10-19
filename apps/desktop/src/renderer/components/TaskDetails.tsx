@@ -52,7 +52,9 @@ export function TaskDetails({
                 ? "上下文准备"
                 : task.kind === "EXTRACT_REQUIREMENTS"
                   ? "需求提取"
-                  : "实现核对"}
+                  : task.kind === "ANALYZE_BUG"
+                    ? "BUG 预分析"
+                    : "实现核对"}
             </h2>
           </div>
           <button

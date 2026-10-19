@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from "react";
 import type { PublicAIProfile } from "../../../../../packages/contracts/src/analysis";
+import type { PublicIssueConnection } from "../../../../../packages/contracts/src/issues";
 import type {
   Project,
   ProjectDraft,
@@ -44,6 +45,15 @@ export function ProjectEditor({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
+  const [issueConnections, setIssueConnections] = useState<
+    PublicIssueConnection[]
+  >([]);
+  useEffect(() => {
+    void window.platform
+      .getIssueConnections()
+      .then((r) => setIssueConnections(unwrap(r)))
+      .catch((e) => setError(message(e)));
+  }, []);
   useEffect(() => {
     void window.platform
       .getAIProfiles()
@@ -390,14 +400,16 @@ export function ProjectEditor({
               BUG 项目范围 <span>{draft.issueBindings.length} 条</span>
             </summary>
             <p className="muted small">
-              先保存项目与负责人范围；当前版本不请求平台，也不启动监控。
+              按来源连接、远端项目、稳定负责人标识和 BUG 类型共同限制。Jira
+              Cloud 使用 accountId，Server/DC 使用登录名；Trinity 使用
+              assigneeId，类型填写 BUG。
             </p>
             {draft.issueBindings.map((binding, index) => (
               <div className="binding-form" key={binding.id}>
                 <label>
-                  平台
+                  BUG 来源连接
                   <select
-                    value={binding.platform}
+                    value={binding.connectionId ?? ""}
                     onChange={(e) =>
                       setDraft({
                         ...draft,
@@ -405,46 +417,88 @@ export function ProjectEditor({
                           i === index
                             ? {
                                 ...item,
-                                platform: e.target
-                                  .value as typeof binding.platform,
+                                connectionId: e.target.value || undefined,
+                                platform:
+                                  issueConnections.find(
+                                    (c) => c.id === e.target.value,
+                                  )?.platform ?? item.platform,
+                                instanceUrl:
+                                  issueConnections.find(
+                                    (c) => c.id === e.target.value,
+                                  )?.baseUrl ?? item.instanceUrl,
+                                issueTypeIds:
+                                  issueConnections.find(
+                                    (c) => c.id === e.target.value,
+                                  )?.kind === "trinity"
+                                    ? ["BUG"]
+                                    : undefined,
                               }
                             : item,
                         ),
                       })
                     }
                   >
-                    <option value="jira-cloud">Jira Cloud</option>
-                    <option value="jira-dc">Jira Data Center</option>
-                    <option value="trinity">Trinity</option>
+                    <option value="">请选择已保存连接</option>
+                    {issueConnections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} · {c.platform}
+                      </option>
+                    ))}
                   </select>
                 </label>
-                {(["instanceUrl", "projectKey", "owner"] as const).map(
-                  (key) => (
-                    <label key={key}>
+                <p className="muted small">
+                  {binding.platform} ·{" "}
+                  {binding.instanceUrl || "选择连接后确定实例"}
+                </p>
+                <label>
+                  BUG 类型 ID（逗号分隔）
+                  <input
+                    value={binding.issueTypeIds?.join(",") ?? ""}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        issueBindings: draft.issueBindings.map((b, i) =>
+                          i === index
+                            ? {
+                                ...b,
+                                issueTypeIds: e.target.value
+                                  ? e.target.value
+                                      .split(",")
+                                      .map((s) => s.trim())
+                                      .filter(Boolean)
+                                  : undefined,
+                              }
+                            : b,
+                        ),
+                      })
+                    }
+                  />
+                </label>
+                {(["projectKey", "owner"] as const).map((key) => (
+                  <label key={key}>
+                    {
                       {
-                        {
-                          instanceUrl: "实例地址",
-                          projectKey: "远端项目标识",
-                          owner: "负责人标识",
-                        }[key]
+                        instanceUrl: "实例地址",
+                        projectKey: "远端项目标识",
+                        owner: "负责人标识",
+                      }[key]
+                    }
+                    <input
+                      required
+                      value={binding[key]}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          issueBindings: draft.issueBindings.map((item, i) =>
+                            i === index
+                              ? { ...item, [key]: e.target.value }
+                              : item,
+                          ),
+                        })
                       }
-                      <input
-                        required
-                        value={binding[key]}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            issueBindings: draft.issueBindings.map((item, i) =>
-                              i === index
-                                ? { ...item, [key]: e.target.value }
-                                : item,
-                            ),
-                          })
-                        }
-                      />
-                    </label>
-                  ),
-                )}
+                    />
+                  </label>
+                ))}
                 <button
                   type="button"
                   className="text-button"

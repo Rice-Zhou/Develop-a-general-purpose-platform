@@ -14,10 +14,17 @@ import type {
 } from "../../../contracts/src/documents";
 import type { RequirementSet } from "../../../contracts/src/requirements";
 import type { AnalysisReport } from "../../../contracts/src/analysis";
+import type { BugReport } from "../../../contracts/src/issues";
 import type { TaskRepository, RepositoryAdapter } from "../ports";
 import type { ProjectService } from "../projects/project-service";
 
 const humanActionCodes = new Set([
+  "ISSUE_NOT_CONFIGURED",
+  "ISSUE_OUT_OF_SCOPE",
+  "ISSUE_CHANGED",
+  "ISSUE_NOT_FOUND",
+  "CLI_INSTANCE_MISMATCH",
+  "TRINITY_LIST_UNVERIFIED",
   "FEISHU_NOT_CONFIGURED",
   "MODEL_NOT_CONFIGURED",
   "MODEL_KEY_MISSING",
@@ -39,7 +46,8 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
-  configurationHash(project: Project): string;
+  configurationHash(project: Project, kind?: Task["kind"]): string;
+  prepareIssue?(task: Task, signal: AbortSignal): Promise<string>;
   captureDocuments(
     project: Project,
     signal: AbortSignal,
@@ -53,6 +61,7 @@ export interface TaskRuntime {
   ): Promise<
     | { kind: "extraction"; set: RequirementSet }
     | { kind: "report"; report: AnalysisReport }
+    | { kind: "bug"; report: BugReport }
   >;
 }
 const retryableStatuses: TaskStatus[] = [
@@ -97,6 +106,7 @@ export class TaskService {
     kind: Task["kind"],
     attempt = 1,
     requirementSetId?: string,
+    issueSnapshotId?: string,
   ): Promise<Task> {
     if (this.stopping)
       throw new AppError("SERVICE_STOPPING", "应用正在退出，请重新启动后操作");
@@ -110,11 +120,17 @@ export class TaskService {
       projectName: project.name,
       projectRevision: project.revision,
       ...(kind !== "PREPARE_CONTEXT" && this.runtime
-        ? { executionConfigurationHash: this.runtime.configurationHash(project) }
+        ? {
+            executionConfigurationHash: this.runtime.configurationHash(
+              project,
+              kind,
+            ),
+          }
         : {}),
       kind,
       attemptId: randomUUID(),
       ...(requirementSetId ? { requirementSetId } : {}),
+      ...(issueSnapshotId ? { issueSnapshotId } : {}),
       status: "QUEUED",
       attempt,
       createdAt: now,
@@ -134,11 +150,18 @@ export class TaskService {
     return next;
   }
   private assertConfiguration(task: Task, project: Project): void {
-    if (task.projectRevision !== project.revision ||
+    if (
+      task.projectRevision !== project.revision ||
       this.projects.get(project.id).revision !== project.revision ||
-      (task.kind !== "PREPARE_CONTEXT" && this.runtime &&
-        task.executionConfigurationHash !== this.runtime.configurationHash(project)))
-      throw new AppError("PROJECT_CHANGED", "项目或 AI 连接配置已改变，请重新运行");
+      (task.kind !== "PREPARE_CONTEXT" &&
+        this.runtime &&
+        task.executionConfigurationHash !==
+          this.runtime.configurationHash(project, task.kind))
+    )
+      throw new AppError(
+        "PROJECT_CHANGED",
+        "项目或 AI 连接配置已改变，请重新运行",
+      );
   }
   async cancel(id: string): Promise<Task> {
     const task = this.get(id);
@@ -166,6 +189,7 @@ export class TaskService {
       task.kind,
       task.attempt + 1,
       task.requirementSetId,
+      task.issueSnapshotId,
     );
   }
   private schedule(): void {
@@ -196,6 +220,20 @@ export class TaskService {
         if (!project.enabled)
           throw new AppError("PROJECT_DISABLED", "项目已停用");
         this.assertConfiguration(task, project);
+        let issueSnapshotId: string | undefined;
+        if (task.kind === "ANALYZE_BUG") {
+          if (!this.runtime?.prepareIssue)
+            throw new AppError("ANALYSIS_UNAVAILABLE", "BUG 分析服务未装配");
+          this.store.event(
+            task.id,
+            "ISSUE_REFRESH",
+            "正在重新读取 BUG 并验证项目与负责人",
+          );
+          issueSnapshotId = await this.runtime.prepareIssue(
+            task,
+            this.controller.signal,
+          );
+        }
         const previous = this.store.latestContext(project.id);
         const bindings: RepositoryBinding[] = project.repositories.map(
           (binding) => ({
@@ -241,6 +279,7 @@ export class TaskService {
           id: randomUUID(),
           projectId: project.id,
           configRevision: project.revision,
+          ...(issueSnapshotId ? { issueSnapshotId } : {}),
           repositories: snapshots,
           documents: captured.documents,
           sourceGaps: captured.sourceGaps,
@@ -266,11 +305,7 @@ export class TaskService {
         if (task.kind !== "PREPARE_CONTEXT") {
           if (!this.runtime)
             throw new AppError("ANALYSIS_UNAVAILABLE", "分析执行器未装配");
-          this.transition(
-            this.get(task.id),
-            "RUNNING",
-            "正在执行需求分析与取证",
-          );
+          this.transition(this.get(task.id), "RUNNING", "正在执行分析与取证");
           analysisDeadline = AbortSignal.timeout(20 * 60 * 1000);
           outcome = await this.runtime.analyze(
             task,
@@ -295,6 +330,12 @@ export class TaskService {
           );
         else if (outcome?.kind === "report")
           this.store.completeAnalysis(
+            { ...this.get(task.id), resultId: outcome.report.id },
+            context,
+            outcome.report,
+          );
+        else if (outcome?.kind === "bug")
+          this.store.completeBug(
             { ...this.get(task.id), resultId: outcome.report.id },
             context,
             outcome.report,

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -31,6 +31,9 @@ import { EvidenceValidator } from "../../../../packages/core/src/analysis/eviden
 import { ChatCompletionsTransport } from "../../../../packages/adapters/src/ai/chat-completions";
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
+import { IssueService } from "../../../../packages/core/src/issues/issue-service";
+import { JiraCliAdapter } from "../../../../packages/adapters/src/issues/jira-cli";
+import { TrinityAdapter } from "../../../../packages/adapters/src/issues/trinity";
 import type {
   TaskRuntime,
   TaskService,
@@ -40,6 +43,7 @@ const publicProfile = (profile: AIProfile): PublicAIProfile => {
   return { ...draft, hasCredential: Boolean(credentialRef) };
 };
 export class Workbench implements TaskRuntime {
+  readonly issues: IssueService;
   readonly content: SnapshotStore;
   readonly search: SearchService;
   readonly requirements: RequirementService;
@@ -54,6 +58,17 @@ export class Workbench implements TaskRuntime {
       ref: string,
     ) => Promise<string>,
   ) {
+    this.issues = new IssueService(store, (connection) => {
+      if (connection.kind === "jira-cli") return new JiraCliAdapter(dataPath);
+      return new TrinityAdapter(() => {
+        if (!connection.credentialRef)
+          throw new AppError(
+            "ISSUE_NOT_CONFIGURED",
+            "请在设置保存 Trinity token",
+          );
+        return this.resolveKey(connection.id, connection.credentialRef);
+      });
+    });
     this.content = new SnapshotStore(join(dataPath, "content"));
     this.search = new SearchService(store);
     this.requirements = new RequirementService(store);
@@ -127,16 +142,34 @@ export class Workbench implements TaskRuntime {
       this.profiles().filter((p) => p.id !== id),
     );
   }
-  configurationHash(project: Project): string {
-    if (!project.aiProfileId) throw new AppError("MODEL_NOT_CONFIGURED", "请在项目配置选择模型 API 或订阅工具连接");
-    return createHash("sha256").update(JSON.stringify(this.profile(project.aiProfileId))).digest("hex");
+  configurationHash(project: Project, kind?: Task["kind"]): string {
+    if (!project.aiProfileId)
+      throw new AppError(
+        "MODEL_NOT_CONFIGURED",
+        "请在项目配置选择模型 API 或订阅工具连接",
+      );
+    return createHash("sha256")
+      .update(
+        JSON.stringify({
+          model: this.profile(project.aiProfileId),
+          ...(kind === "ANALYZE_BUG"
+            ? { issues: this.issues.connections() }
+            : {}),
+        }),
+      )
+      .digest("hex");
+  }
+  prepareIssue(task: Task, signal: AbortSignal) {
+    return this.issues.prepare(task, signal);
   }
   private async transport(profile: AIProfile, assertCurrent?: () => void) {
     if (profile.kind === "api")
-      return new ChatCompletionsTransport(profile, () =>
-        profile.credentialRef
-          ? this.resolveKey(profile.id, profile.credentialRef)
-          : Promise.resolve(null),
+      return new ChatCompletionsTransport(
+        profile,
+        () =>
+          profile.credentialRef
+            ? this.resolveKey(profile.id, profile.credentialRef)
+            : Promise.resolve(null),
         assertCurrent,
       );
     const cwd = join(this.dataPath, "subscription-workspace");
@@ -152,10 +185,17 @@ export class Workbench implements TaskRuntime {
     const project = this.store.getProject(task.projectId);
     const assertCurrent = () => {
       const current = this.store.getProject(task.projectId);
-      if (!current.enabled || current.revision !== task.projectRevision ||
+      if (
+        !current.enabled ||
+        current.revision !== task.projectRevision ||
         current.revision !== context.configRevision ||
-        this.configurationHash(current) !== task.executionConfigurationHash)
-        throw new AppError("PROJECT_CHANGED", "项目或 AI 连接配置已改变，未继续发送材料，请重新运行");
+        this.configurationHash(current, task.kind) !==
+          task.executionConfigurationHash
+      )
+        throw new AppError(
+          "PROJECT_CHANGED",
+          "项目或 AI 连接配置已改变，未继续发送材料，请重新运行",
+        );
     };
     assertCurrent();
     if (!project.aiProfileId)
@@ -163,7 +203,10 @@ export class Workbench implements TaskRuntime {
         "MODEL_NOT_CONFIGURED",
         "请在项目配置选择模型 API 或订阅工具连接",
       );
-    const model = await this.transport(this.profile(project.aiProfileId), assertCurrent);
+    const model = await this.transport(
+      this.profile(project.aiProfileId),
+      assertCurrent,
+    );
     const pipeline = new AnalysisPipeline(
       this.bound(context),
       this.search,
@@ -171,6 +214,18 @@ export class Workbench implements TaskRuntime {
       model,
       progress,
     );
+    if (task.kind === "ANALYZE_BUG") {
+      if (!context.issueSnapshotId)
+        throw new AppError("ISSUE_NOT_FOUND", "缺少本次 BUG 快照");
+      const issue = this.store.issues.get(
+        task.projectId,
+        context.issueSnapshotId,
+      );
+      await this.issues.validateFresh(issue, signal);
+      const report = await pipeline.preanalyze(task, issue, signal);
+      await this.issues.validateFresh(issue, signal);
+      return { kind: "bug" as const, report };
+    }
     if (task.kind === "EXTRACT_REQUIREMENTS")
       return {
         kind: "extraction" as const,
@@ -208,6 +263,12 @@ export class Workbench implements TaskRuntime {
       ...this.store.getSetting<CliConfiguration>("cli"),
       codexExecutable: existsSync(codex) ? codex : "",
       claudeExecutable: existsSync(claude) ? claude : "",
+      jiraExecutable:
+        (process.env.PATH ?? "")
+          .split(delimiter)
+          .map((p) => join(p, "jira.exe"))
+          .find((p) => existsSync(p)) ?? "",
+      jiraConfigFile: join(user, ".config/.jira/.config.yml"),
     };
   }
   async probe(id: string) {
@@ -268,10 +329,80 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+      case "getIssueConnections":
+        return this.issues.publicConnections();
+      case "getBugWorkspace":
+        return {
+          issues: this.issues.visible(request.params.projectId),
+          reports: this.store.issues.reports(request.params.projectId),
+        };
+      case "refreshIssues":
+        return this.issues.refresh(
+          request.params.projectId,
+          request.params.bindingId,
+          undefined,
+          AbortSignal.timeout(5 * 60 * 1000),
+        );
+      case "readIssueByKey":
+        return this.issues.refresh(
+          request.params.projectId,
+          request.params.bindingId,
+          request.params.key,
+          AbortSignal.timeout(30000),
+        );
+      case "probeIssueConnection": {
+        const scope = this.issues.scope(
+          request.params.projectId,
+          request.params.bindingId,
+        );
+        if (scope.connection.kind === "jira-cli")
+          await new JiraCliAdapter(this.dataPath).probe(
+            scope,
+            AbortSignal.timeout(30000),
+          );
+        else
+          throw new AppError(
+            "TRINITY_LIST_UNVERIFIED",
+            "Trinity 请按编号读取验证 detail 契约，不进行全账户探测",
+          );
+        return {
+          available: true,
+          detail: "CLI 实例地址已验证；问题项目和负责人仍在每次读取时验证",
+        };
+      }
+      case "analyzeBug": {
+        const issue = this.store.issues.get(
+          request.params.projectId,
+          request.params.issueSnapshotId,
+        );
+        this.issues.scope(request.params.projectId, issue.bindingId);
+        return tasks.enqueue(
+          request.params.projectId,
+          "ANALYZE_BUG",
+          1,
+          undefined,
+          issue.id,
+        );
+      }
+      case "getBugReport": {
+        const { projectId, reportId } = request.params;
+        const report = this.store.issues.report(projectId, reportId);
+        return {
+          report,
+          issue: this.store.issues.get(projectId, report.issueSnapshotId),
+          context: this.store.getContext(report.contextSnapshotId),
+        };
+      }
       case "getReport": {
-        const {projectId, reportId} = request.params;
+        const { projectId, reportId } = request.params;
         const report = this.store.getReport(projectId, reportId);
-        return {report, requirements: this.store.getRequirementSet(projectId, report.requirementSetId)};
+        return {
+          report,
+          requirements: this.store.getRequirementSet(
+            projectId,
+            report.requirementSetId,
+          ),
+        };
       }
       case "readDocumentBlock": {
         const p = request.params;
@@ -368,6 +499,41 @@ export class Workbench implements TaskRuntime {
       default:
         throw new AppError("HOST_ONLY", "该操作只能通过桌面系统能力执行");
     }
+  }
+  exportBugMarkdown(projectId: string, id: string): string {
+    const r = this.store.issues.report(projectId, id);
+    const issue = this.store.issues.get(projectId, r.issueSnapshotId);
+    const context = this.store.getContext(r.contextSnapshotId);
+    const esc = (s: string) => s.replace(/[\\`*_[\]<>!|#]/g, "\\$&");
+    return [
+      `# BUG 预分析：${esc(issue.key)} ${esc(issue.title)}`,
+      "静态预分析，未运行验证，候选原因未确认为根因。",
+      `问题快照：${issue.id} / ${issue.contentHash}`,
+      `问题版本：${issue.versions.map(esc).join("、") || "未提供"}`,
+      `代码：${context.repositories.map((repo) => `${esc(repo.branch)} @ ${repo.commit}`).join("；")}`,
+      `执行器：${esc(r.executorConfiguration.name)} / ${esc(r.executorConfiguration.configuredModel ?? "CLI 默认模型")}`,
+      "## 复现条件",
+      ...r.reproduction.map((s) => "- " + esc(s)),
+      "## 代码事实",
+      ...r.facts.map(
+        (f) => `- ${esc(f.text)}（${f.evidenceIds.map(esc).join("、")}）`,
+      ),
+      "## 候选原因",
+      ...r.hypotheses.flatMap((h) => [
+        `### ${esc(h.text)}`,
+        `支持：${h.supportEvidenceIds.map(esc).join("、")}`,
+        `反对：${h.counterEvidenceIds.map(esc).join("、") || "尚未取得，不代表无反例"}`,
+        ...h.nextSteps.map((s) => "- " + esc(s)),
+      ]),
+      "## 缺失信息",
+      ...r.missingInformation.map((s) => "- " + esc(s)),
+      "## 证据",
+      ...r.evidenceRefs.map((e) => "- " + esc(JSON.stringify(e))),
+      "## 检查范围",
+      ...r.checkedScope.map((s) => "- " + esc(s)),
+      "## 限制与未解析材料",
+      ...r.limitations.map((s) => "- " + esc(s)),
+    ].join("\n\n");
   }
   exportMarkdown(projectId: string, id: string): string {
     const report = this.store.getReport(projectId, id);

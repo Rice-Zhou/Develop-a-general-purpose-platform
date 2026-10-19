@@ -12,6 +12,7 @@ import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createCredentialStore } from "./credential-store";
 import type { AIProfile } from "../../../../packages/contracts/src/analysis";
+import type { IssueConnection } from "../../../../packages/contracts/src/issues";
 import {
   assertTrustedSender,
   parseRequest,
@@ -97,29 +98,41 @@ else {
               value: selection.canceled ? [] : selection.filePaths,
             };
           }
-          if (request.method === "saveAIProfile") {
+          if (
+            request.method === "saveAIProfile" ||
+            request.method === "saveIssueConnection"
+          ) {
+            const issueConnection = request.method === "saveIssueConnection";
             const id = request.params.id ?? randomUUID();
-            let existing: AIProfile | undefined;
+            let existing: AIProfile | IssueConnection | undefined;
             if (request.params.id) {
-              const result = await service.control("get-profile", { id });
+              const result = await service.control(
+                issueConnection ? "get-issue-connection" : "get-profile",
+                { id },
+              );
               if (!result.ok) return result;
-              existing = result.value as AIProfile;
+              existing = result.value as AIProfile | IssueConnection;
             }
             const draft = request.params.draft;
             const keep =
-              existing?.kind === "api" &&
-              draft.kind === "api" &&
+              existing &&
+              "baseUrl" in existing &&
+              "baseUrl" in draft &&
+              existing.kind === draft.kind &&
               existing.baseUrl === draft.baseUrl;
             const credentialRef = request.params.secret
               ? await credentials.save(id, request.params.secret)
               : keep
                 ? existing!.credentialRef
                 : null;
-            const saved = await service.control("save-profile", {
-              id,
-              credentialRef,
-              draft,
-            });
+            const saved = await service.control(
+              issueConnection ? "save-issue-connection" : "save-profile",
+              {
+                id,
+                credentialRef,
+                draft,
+              },
+            );
             if (!saved.ok) {
               if (credentialRef && credentialRef !== existing?.credentialRef)
                 await credentials.remove(credentialRef);
@@ -132,28 +145,42 @@ else {
               await credentials.remove(existing.credentialRef);
             return saved;
           }
-          if (request.method === "deleteAIProfile") {
-            const prior = await service.control("get-profile", {
-              id: request.params.id,
-            });
+          if (
+            request.method === "deleteAIProfile" ||
+            request.method === "deleteIssueConnection"
+          ) {
+            const issueConnection = request.method === "deleteIssueConnection";
+            const prior = await service.control(
+              issueConnection ? "get-issue-connection" : "get-profile",
+              {
+                id: request.params.id,
+              },
+            );
             if (!prior.ok) return prior;
-            const removed = await service.control("delete-profile", {
-              id: request.params.id,
-            });
+            const removed = await service.control(
+              issueConnection ? "delete-issue-connection" : "delete-profile",
+              {
+                id: request.params.id,
+              },
+            );
             if (!removed.ok) return removed;
             const ref = (prior.value as AIProfile).credentialRef;
             if (ref) await credentials.remove(ref);
             return removed;
           }
-          if (request.method === "exportReport") {
+          if (
+            request.method === "exportReport" ||
+            request.method === "exportBugReport"
+          ) {
+            const bug = request.method === "exportBugReport";
             const content = await service.control(
-              "export-report",
+              bug ? "export-bug-report" : "export-report",
               request.params,
             );
             if (!content.ok) return content;
             const selected = await dialog.showSaveDialog(window!, {
-              title: "导出需求核对报告",
-              defaultPath: `requirement-report-${request.params.reportId}.md`,
+              title: bug ? "导出 BUG 预分析报告" : "导出需求核对报告",
+              defaultPath: `${bug ? "bug" : "requirement"}-report-${request.params.reportId}.md`,
               filters: [{ name: "Markdown", extensions: ["md"] }],
             });
             if (selected.canceled || !selected.filePath)

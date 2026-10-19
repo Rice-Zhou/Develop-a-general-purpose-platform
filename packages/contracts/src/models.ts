@@ -3,6 +3,12 @@ import type { DocumentSnapshotRef, SourceGap } from "./documents";
 import type { DocumentSnapshot } from "./documents";
 import type { RequirementSet, RequirementItem } from "./requirements";
 import type {
+  IssueConnectionDraft,
+  PublicIssueConnection,
+  IssueSnapshot,
+  BugReport,
+} from "./issues";
+import type {
   AnalysisReport,
   AIProfileDraft,
   PublicAIProfile,
@@ -35,6 +41,8 @@ export const IssueBindingSchema = z
     instanceUrl: z.url(),
     projectKey: text,
     owner: text,
+    connectionId: z.uuid().optional(),
+    issueTypeIds: z.array(z.string().min(1).max(200)).min(1).max(50).optional(),
   })
   .strict();
 export const ProjectDraftSchema = z
@@ -94,6 +102,7 @@ export interface RepositorySnapshot {
   excluded: string[];
 }
 export interface ContextSnapshot {
+  issueSnapshotId?: string;
   id: string;
   projectId: string;
   configRevision: number;
@@ -133,7 +142,12 @@ export interface Task {
   projectName: string;
   projectRevision?: number;
   executionConfigurationHash?: string;
-  kind: "PREPARE_CONTEXT" | "EXTRACT_REQUIREMENTS" | "CHECK_REQUIREMENTS";
+  kind:
+    | "PREPARE_CONTEXT"
+    | "EXTRACT_REQUIREMENTS"
+    | "CHECK_REQUIREMENTS"
+    | "ANALYZE_BUG";
+  issueSnapshotId?: string;
   attemptId?: string;
   requirementSetId?: string;
   resultId?: string;
@@ -159,7 +173,48 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
-  getReport(projectId: string, reportId: string): Promise<Result<{ report: AnalysisReport; requirements: RequirementSet }>>;
+  getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
+  saveIssueConnection(
+    draft: IssueConnectionDraft,
+    secret?: string,
+    id?: string,
+  ): Promise<Result<PublicIssueConnection>>;
+  deleteIssueConnection(id: string): Promise<Result<null>>;
+  probeIssueConnection(
+    projectId: string,
+    bindingId: string,
+  ): Promise<Result<ExecutorDiagnostic>>;
+  getBugWorkspace(
+    projectId: string,
+  ): Promise<Result<{ issues: IssueSnapshot[]; reports: BugReport[] }>>;
+  refreshIssues(
+    projectId: string,
+    bindingId: string,
+  ): Promise<Result<IssueSnapshot[]>>;
+  readIssueByKey(
+    projectId: string,
+    bindingId: string,
+    key: string,
+  ): Promise<Result<IssueSnapshot[]>>;
+  analyzeBug(projectId: string, issueSnapshotId: string): Promise<Result<Task>>;
+  getBugReport(
+    projectId: string,
+    reportId: string,
+  ): Promise<
+    Result<{
+      report: BugReport;
+      issue: IssueSnapshot;
+      context: ContextSnapshot;
+    }>
+  >;
+  exportBugReport(
+    projectId: string,
+    reportId: string,
+  ): Promise<Result<string | null>>;
+  getReport(
+    projectId: string,
+    reportId: string,
+  ): Promise<Result<{ report: AnalysisReport; requirements: RequirementSet }>>;
   readDocumentBlock(
     projectId: string,
     contextId: string,
@@ -209,7 +264,12 @@ export interface DesktopAPI {
   deleteAIProfile(id: string): Promise<Result<null>>;
   getCliConfiguration(): Promise<
     Result<
-      CliConfiguration & { codexExecutable: string; claudeExecutable: string }
+      CliConfiguration & {
+        codexExecutable: string;
+        claudeExecutable: string;
+        jiraExecutable: string;
+        jiraConfigFile: string;
+      }
     >
   >;
   saveCliConfiguration(

@@ -3,6 +3,7 @@ import { AppError } from "./error";
 import { ProjectDraftSchema } from "./models";
 import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
 import { RequirementItemSchema } from "./requirements";
+import { IssueConnectionDraftSchema } from "./issues";
 const empty = z.object({}).strict();
 const id = z.uuid();
 const binding = z
@@ -16,7 +17,79 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
-  z.object({ method: z.literal("getReport"), params: z.object({ projectId: id, reportId: id }).strict() }).strict(),
+  z
+    .object({ method: z.literal("getIssueConnections"), params: empty })
+    .strict(),
+  z
+    .object({
+      method: z.literal("saveIssueConnection"),
+      params: z
+        .object({
+          draft: IssueConnectionDraftSchema,
+          secret: z.string().max(10000).optional(),
+          id: id.optional(),
+        })
+        .strict()
+        .refine(
+          (p) => p.draft.kind === "trinity" || !p.secret,
+          "Jira 登录由 CLI 管理，不接受密钥",
+        ),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("deleteIssueConnection"),
+      params: z.object({ id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("getBugWorkspace"),
+      params: z.object({ projectId: id }).strict(),
+    })
+    .strict(),
+  ...(["probeIssueConnection", "refreshIssues"] as const).map((method) =>
+    z
+      .object({
+        method: z.literal(method),
+        params: z
+          .object({ projectId: id, bindingId: z.string().min(1).max(200) })
+          .strict(),
+      })
+      .strict(),
+  ),
+  z
+    .object({
+      method: z.literal("readIssueByKey"),
+      params: z
+        .object({
+          projectId: id,
+          bindingId: z.string().min(1).max(200),
+          key: z.string().min(1).max(200),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("analyzeBug"),
+      params: z.object({ projectId: id, issueSnapshotId: id }).strict(),
+    })
+    .strict(),
+  ...(["getBugReport", "exportBugReport"] as const).map((method) =>
+    z
+      .object({
+        method: z.literal(method),
+        params: z.object({ projectId: id, reportId: id }).strict(),
+      })
+      .strict(),
+  ),
+  z
+    .object({
+      method: z.literal("getReport"),
+      params: z.object({ projectId: id, reportId: id }).strict(),
+    })
+    .strict(),
   z
     .object({
       method: z.literal("readDocumentBlock"),

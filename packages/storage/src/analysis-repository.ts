@@ -13,8 +13,13 @@ import {
   type AnalysisReport,
 } from "../../contracts/src/analysis";
 import type { Task, ContextSnapshot } from "../../contracts/src/models";
+import type { BugReport } from "../../contracts/src/issues";
+import { IssueRepository } from "./issue-repository";
 export abstract class AnalysisRepository {
-  constructor(protected readonly db: Database.Database) {}
+  readonly issues: IssueRepository;
+  constructor(protected readonly db: Database.Database) {
+    this.issues = new IssueRepository(db);
+  }
   abstract saveTask(task: Task): void;
   abstract event(taskId: string, stage: string, message: string): void;
   saveDocument(value: DocumentSnapshot): void {
@@ -123,6 +128,19 @@ export abstract class AnalysisRepository {
       error: null,
     });
     this.event(task.id, "SUCCEEDED", "分析结果已保存，证据绑定固定版本");
+  }
+  completeBug(task: Task, context: ContextSnapshot, report: BugReport): void {
+    this.db.transaction(() => {
+      if (
+        report.taskId !== task.id ||
+        report.projectId !== task.projectId ||
+        report.contextSnapshotId !== context.id ||
+        report.issueSnapshotId !== context.issueSnapshotId
+      )
+        throw new AppError("CONTEXT_MISMATCH", "BUG 报告与任务上下文不一致");
+      this.finish(task, context);
+      this.issues.saveReport(report);
+    })();
   }
   completeExtraction(
     task: Task,

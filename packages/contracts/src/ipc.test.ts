@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("accepts only scoped BUG methods without arbitrary command options", () => {
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    const issueSnapshotId = "22222222-2222-4222-8222-222222222222";
+    expect(
+      parseRequest({
+        method: "analyzeBug",
+        params: { projectId, issueSnapshotId },
+      }).method,
+    ).toBe("analyzeBug");
+    expect(() =>
+      parseRequest({
+        method: "refreshIssues",
+        params: { projectId, bindingId: "b", jql: "project IS NOT EMPTY" },
+      }),
+    ).toThrow();
+  });
   it("rejects unregistered methods and unknown payload fields", () => {
     expect(() =>
       parseRequest({ method: "shell", params: { command: "whoami" } }),

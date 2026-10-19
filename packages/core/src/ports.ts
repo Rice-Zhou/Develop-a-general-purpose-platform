@@ -9,12 +9,14 @@ import type {
 } from "../../contracts/src/models";
 import type { RequirementSet } from "../../contracts/src/requirements";
 import type { AnalysisReport } from "../../contracts/src/analysis";
+import type { BugReport } from "../../contracts/src/issues";
 export interface ProjectRepository {
   listProjects(): Project[];
   getProject(id: string): Project;
   saveProject(project: Project, expectedRevision?: number): void;
 }
 export interface TaskRepository {
+  completeBug(task: Task, context: ContextSnapshot, report: BugReport): void;
   listTasks(projectId?: string): Task[];
   getTask(id: string): Task;
   saveTask(task: Task): void;

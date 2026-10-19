@@ -107,8 +107,9 @@ async function dispatch(request: Request): Promise<unknown> {
           },
           {
             name: "Jira 与 Trinity",
-            available: false,
-            reason: "第三阶段：需要真实实例接口联调",
+            available: workbench.issues.connections().length > 0,
+            reason:
+              "Jira CLI 项目范围读取、Trinity 按 BUG 编号读取；真实实例需配置并验证，Trinity 项目列表尚不可用",
           },
           {
             name: "BUG 自动监控",
@@ -186,7 +187,24 @@ parent.on("message", (event) => {
       if (envelope.type === "control") {
         if (!store) throw new AppError("SERVICE_NOT_READY", "本地服务尚未就绪");
         let value: unknown;
-        if (envelope.action === "save-profile")
+        if (envelope.action === "save-issue-connection")
+          value = workbench.issues.saveConnection(envelope.payload);
+        else if (envelope.action === "get-issue-connection")
+          value = workbench.issues.connection(
+            z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
+          );
+        else if (envelope.action === "delete-issue-connection") {
+          workbench.issues.deleteConnection(
+            z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
+          );
+          value = null;
+        } else if (envelope.action === "export-bug-report") {
+          const p = z
+            .object({ projectId: z.uuid(), reportId: z.uuid() })
+            .strict()
+            .parse(envelope.payload);
+          value = workbench.exportBugMarkdown(p.projectId, p.reportId);
+        } else if (envelope.action === "save-profile")
           value = workbench.saveProfile(envelope.payload);
         else if (envelope.action === "get-profile")
           value = workbench.profile(

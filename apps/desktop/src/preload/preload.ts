@@ -3,7 +3,25 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
-  getReport: (projectId, reportId) => invoke("getReport", { projectId, reportId }),
+  getIssueConnections: () => invoke("getIssueConnections"),
+  saveIssueConnection: (draft, secret, id) =>
+    invoke("saveIssueConnection", { draft, secret, id }),
+  deleteIssueConnection: (id) => invoke("deleteIssueConnection", { id }),
+  probeIssueConnection: (projectId, bindingId) =>
+    invoke("probeIssueConnection", { projectId, bindingId }),
+  getBugWorkspace: (projectId) => invoke("getBugWorkspace", { projectId }),
+  refreshIssues: (projectId, bindingId) =>
+    invoke("refreshIssues", { projectId, bindingId }),
+  readIssueByKey: (projectId, bindingId, key) =>
+    invoke("readIssueByKey", { projectId, bindingId, key }),
+  analyzeBug: (projectId, issueSnapshotId) =>
+    invoke("analyzeBug", { projectId, issueSnapshotId }),
+  getBugReport: (projectId, reportId) =>
+    invoke("getBugReport", { projectId, reportId }),
+  exportBugReport: (projectId, reportId) =>
+    invoke("exportBugReport", { projectId, reportId }),
+  getReport: (projectId, reportId) =>
+    invoke("getReport", { projectId, reportId }),
   readDocumentBlock: (projectId, contextId, documentSnapshotId, blockId) =>
     invoke("readDocumentBlock", {
       projectId,

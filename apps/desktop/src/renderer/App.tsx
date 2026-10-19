@@ -10,12 +10,14 @@ import { ProjectEditor } from "./components/ProjectEditor";
 import { TaskDetails } from "./components/TaskDetails";
 import { RequirementsPage } from "./pages/RequirementsPage";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
+import { IssueConnectionsPage } from "./pages/IssueConnectionsPage";
+import { BugsPage } from "./pages/BugsPage";
 const statusLabels: Record<TaskStatus, string> = {
   QUEUED: "排队中",
   PREPARING: "准备中",
   RUNNING: "分析中",
   VALIDATING: "校验中",
-  SUCCEEDED: "准备成功",
+  SUCCEEDED: "已完成",
   WAITING_INPUT: "等待处理",
   FAILED: "执行失败",
   CANCELLING: "正在取消",
@@ -415,10 +417,10 @@ export function App() {
                 {taskTable(tasks.slice(0, 5))}
               </section>
               <div className="phase-note">
-                <span>01 / 本地基础</span>
+                <span>03 / 问题闭环</span>
                 <p>
-                  当前提供项目配置、代码同步和任务历史。需求核对、BUG 接入与 AI
-                  分析将在后续阶段接入。
+                  已提供文档需求核对与 BUG 手动预分析。Jira 使用 CLI，Trinity
+                  支持按编号读取；真实实例需配置验证，定时监控仍待接入。
                 </p>
               </div>
             </>
@@ -522,21 +524,11 @@ export function App() {
             />
           )}
           {page === "bugs" && (
-            <section className="empty-card capability-page">
-              <div className="code-symbol">◇</div>
-              <span className="tag">尚未接入</span>
-              <h2>BUG 监控与预分析</h2>
-              <p>
-                后续将按项目与任务归属接入
-                Jira、Trinity，先更新代码，再生成问题预分析报告。
-              </p>
-              <button className="secondary" onClick={() => setPage("projects")}>
-                先配置项目资料
-              </button>
-            </section>
+            <BugsPage projects={projects} tasks={tasks} onChanged={reload} />
           )}
           {page === "settings" && (
             <>
+              <IssueConnectionsPage />
               <ConnectionsPage
                 onChanged={() =>
                   void window.platform

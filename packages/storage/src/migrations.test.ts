@@ -51,7 +51,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(2);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(3);
   } finally {
     upgraded.close();
   }

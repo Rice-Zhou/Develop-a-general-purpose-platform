@@ -169,7 +169,15 @@ export class ServiceClient {
     return this.send({ type: "backup", destination });
   }
   async control(
-    action: "save-profile" | "get-profile" | "delete-profile" | "export-report",
+    action:
+      | "save-profile"
+      | "get-profile"
+      | "delete-profile"
+      | "export-report"
+      | "save-issue-connection"
+      | "get-issue-connection"
+      | "delete-issue-connection"
+      | "export-bug-report",
     payload: unknown,
   ): Promise<Result<unknown>> {
     await this.ensureReady();

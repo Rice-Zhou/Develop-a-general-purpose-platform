@@ -14,6 +14,12 @@ import type { RequirementService } from "../requirements/requirement-service";
 import type { ModelTransport, ModelMessage, ToolSpec } from "./ports";
 import { SYSTEM_PROMPT, EXTRACTION_GOAL, CHECK_GOAL } from "./prompts";
 import { EvidenceValidator } from "./evidence-validator";
+import {
+  BugProposalSchema,
+  BugReportSchema,
+  type BugReport,
+  type IssueSnapshot,
+} from "../../../contracts/src/issues";
 const toolSchemas = {
   searchEvidence: z
     .object({
@@ -320,6 +326,79 @@ export class AnalysisPipeline {
         })),
         expectedRevision,
       );
+    });
+  }
+  async preanalyze(
+    task: Task,
+    issue: IssueSnapshot,
+    signal: AbortSignal,
+  ): Promise<BugReport> {
+    if (
+      issue.projectId !== task.projectId ||
+      issue.id !== this.reader.context.issueSnapshotId
+    )
+      throw new AppError("CONTEXT_MISMATCH", "BUG 材料不属于当前分析上下文");
+    const goal =
+      "BUG 预分析：只基于本次 issue 与 materials 取证。输出 JSON {reproduction:string[], facts:[{text:string,evidenceIds:string[]}], hypotheses:[{text:string,supportEvidenceIds:string[],counterEvidenceIds:string[],nextSteps:string[]}], missingInformation:string[]}。facts 只描述有代码证据的事实；hypotheses 是待验证原因，不能宣称已确定根因。需通过工具读取代码，不能将零搜索命中当作历史 BUG 无效。说明调用路径和可执行排查步骤。";
+    return this.corrected(goal, { issue }, signal, async (value) => {
+      const proposal = BugProposalSchema.parse(value);
+      const allIds = new Set([
+        ...proposal.facts.flatMap((f) => f.evidenceIds),
+        ...proposal.hypotheses.flatMap((h) => [
+          ...h.supportEvidenceIds,
+          ...h.counterEvidenceIds,
+        ]),
+      ]);
+      const refs = [...allIds].map((id) => {
+        const ref = this.evidence.get(id);
+        if (!ref)
+          throw new AppError("OUTPUT_INVALID", "BUG 结论引用了未取得的证据");
+        return ref;
+      });
+      for (const fact of proposal.facts)
+        if (
+          !fact.evidenceIds.some((id) => this.evidence.get(id)?.kind === "code")
+        )
+          throw new AppError(
+            "OUTPUT_INVALID",
+            "BUG 事实必须引用本次取得的代码证据",
+          );
+      await new EvidenceValidator().validate(refs, this.reader, signal);
+      return BugReportSchema.parse({
+        ...proposal,
+        schemaVersion: 1,
+        id: randomUUID(),
+        projectId: task.projectId,
+        taskId: task.id,
+        attemptId: task.attemptId ?? task.id,
+        contextSnapshotId: this.reader.context.id,
+        issueSnapshotId: issue.id,
+        createdAt: new Date().toISOString(),
+        executorVersion: this.model.version,
+        executorConfiguration: this.model.identity,
+        templateVersion: "bugs-1",
+        evidenceRefs: refs,
+        checkedScope: this.trace.length
+          ? [...this.trace]
+          : ["未取得代码取证范围"],
+        verification: "STATIC_PRELIMINARY",
+        limitations: [
+          ...this.reader.context.limitations,
+          ...issue.warnings,
+          "静态预分析，未运行项目或确认根因；候选原因需人工验证",
+          `问题版本：${issue.versions.join("、") || "未提供"}；本次使用配置分支最新提交，未证明与故障版本一致，不据当前代码否定历史问题`,
+          ...issue.attachments.map(
+            (a) => `未解析附件：${a.name}（${a.mediaType}，${a.size} 字节）`,
+          ),
+          ...(this.reader.context.sourceGaps ?? []).map((g) => g.message),
+          ...this.reader.context.documents.flatMap((d) =>
+            this.reader.document(d.id).warnings.map((w) => w.message),
+          ),
+        ],
+        usage: this.usageKnown
+          ? { inputTokens: this.inputTokens, outputTokens: this.outputTokens }
+          : null,
+      });
     });
   }
   async check(

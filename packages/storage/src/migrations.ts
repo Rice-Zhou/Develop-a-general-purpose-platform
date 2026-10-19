@@ -9,15 +9,18 @@ export async function migrateDatabase(
   backupDirectory = dirname(path),
 ): Promise<void> {
   const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > 2)
+  if (version > 3)
     throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
-  if (version === 1) {
+  if (version === 1 || version === 2) {
     await mkdir(backupDirectory, { recursive: true });
     await db.backup(
-      join(backupDirectory, `${basename(path)}.backup-v1-${randomUUID()}.db`),
+      join(
+        backupDirectory,
+        `${basename(path)}.backup-v${version}-${randomUUID()}.db`,
+      ),
     );
   }
-  if (version === 2) return;
+  if (version === 3) return;
   db.transaction(() => {
     if (version === 0)
       db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
@@ -26,7 +29,8 @@ export async function migrateDatabase(
       CREATE TABLE contexts(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),json TEXT NOT NULL);
       CREATE TABLE task_events(task_id TEXT NOT NULL REFERENCES tasks(id),sequence INTEGER NOT NULL,json TEXT NOT NULL,PRIMARY KEY(task_id,sequence));
       CREATE INDEX tasks_by_project ON tasks(project_id,created_at);`);
-    db.exec(`CREATE TABLE documents(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),json TEXT NOT NULL);
+    if (version < 2)
+      db.exec(`CREATE TABLE documents(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),json TEXT NOT NULL);
       CREATE TABLE requirement_sets(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),context_id TEXT NOT NULL REFERENCES contexts(id),revision INTEGER NOT NULL,json TEXT NOT NULL);
       CREATE TABLE reports(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),json TEXT NOT NULL);
       CREATE TABLE settings(key TEXT PRIMARY KEY,json TEXT NOT NULL);
@@ -34,5 +38,9 @@ export async function migrateDatabase(
       CREATE VIRTUAL TABLE search_fts USING fts5(id UNINDEXED,text,tokenize='trigram');
       UPDATE tasks SET json=json_set(json,'$.attemptId',id) WHERE json_extract(json,'$.attemptId') IS NULL;
       PRAGMA user_version=2;`);
+    db.exec(`CREATE TABLE issue_snapshots(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),binding_id TEXT NOT NULL,remote_id TEXT NOT NULL,json TEXT NOT NULL);
+      CREATE TABLE issue_batches(project_id TEXT NOT NULL REFERENCES projects(id),binding_id TEXT NOT NULL,scope_hash TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(project_id,binding_id));
+      CREATE TABLE bug_reports(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),json TEXT NOT NULL);
+      PRAGMA user_version=3;`);
   })();
 }
