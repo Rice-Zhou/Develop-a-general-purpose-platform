@@ -82,7 +82,7 @@ export class SearchService {
         }
       }
     }
-    if (paths > files)
+    if (paths > 0)
       limitations.push(
         `内容检索仅覆盖 ${files}/${paths} 个文件的前 400 行；其余保留路径索引，可按固定提交继续取证，不能据零命中判定缺失`,
       );

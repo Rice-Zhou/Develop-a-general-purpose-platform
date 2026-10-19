@@ -16,6 +16,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("getReport"), params: z.object({ projectId: id, reportId: id }).strict() }).strict(),
   z
     .object({
       method: z.literal("readDocumentBlock"),

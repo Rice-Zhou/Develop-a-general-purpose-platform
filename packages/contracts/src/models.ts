@@ -131,6 +131,8 @@ export interface Task {
   id: string;
   projectId: string;
   projectName: string;
+  projectRevision?: number;
+  executionConfigurationHash?: string;
   kind: "PREPARE_CONTEXT" | "EXTRACT_REQUIREMENTS" | "CHECK_REQUIREMENTS";
   attemptId?: string;
   requirementSetId?: string;
@@ -157,6 +159,7 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  getReport(projectId: string, reportId: string): Promise<Result<{ report: AnalysisReport; requirements: RequirementSet }>>;
   readDocumentBlock(
     projectId: string,
     contextId: string,

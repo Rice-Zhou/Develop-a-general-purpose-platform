@@ -39,6 +39,7 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
+  configurationHash(project: Project): string;
   captureDocuments(
     project: Project,
     signal: AbortSignal,
@@ -107,6 +108,10 @@ export class TaskService {
       id: randomUUID(),
       projectId,
       projectName: project.name,
+      projectRevision: project.revision,
+      ...(kind !== "PREPARE_CONTEXT" && this.runtime
+        ? { executionConfigurationHash: this.runtime.configurationHash(project) }
+        : {}),
       kind,
       attemptId: randomUUID(),
       ...(requirementSetId ? { requirementSetId } : {}),
@@ -127,6 +132,13 @@ export class TaskService {
     this.store.saveTask(next);
     this.store.event(task.id, status, message);
     return next;
+  }
+  private assertConfiguration(task: Task, project: Project): void {
+    if (task.projectRevision !== project.revision ||
+      this.projects.get(project.id).revision !== project.revision ||
+      (task.kind !== "PREPARE_CONTEXT" && this.runtime &&
+        task.executionConfigurationHash !== this.runtime.configurationHash(project)))
+      throw new AppError("PROJECT_CHANGED", "项目或 AI 连接配置已改变，请重新运行");
   }
   async cancel(id: string): Promise<Task> {
     const task = this.get(id);
@@ -183,6 +195,7 @@ export class TaskService {
         const project = this.projects.get(task.projectId);
         if (!project.enabled)
           throw new AppError("PROJECT_DISABLED", "项目已停用");
+        this.assertConfiguration(task, project);
         const previous = this.store.latestContext(project.id);
         const bindings: RepositoryBinding[] = project.repositories.map(
           (binding) => ({
@@ -213,11 +226,7 @@ export class TaskService {
         }
         if (this.controller.signal.aborted)
           throw new AppError("CANCELLED", "任务已取消");
-        if (this.projects.get(project.id).revision !== project.revision)
-          throw new AppError(
-            "PROJECT_CHANGED",
-            "准备过程中项目配置已改变，请重新运行",
-          );
+        this.assertConfiguration(task, project);
         if (project.documents.length && !this.runtime)
           throw new AppError(
             "DOCUMENT_SERVICE_UNAVAILABLE",
@@ -253,6 +262,7 @@ export class TaskService {
           );
         }
         let outcome: Awaited<ReturnType<TaskRuntime["analyze"]>> | undefined;
+        this.assertConfiguration(task, project);
         if (task.kind !== "PREPARE_CONTEXT") {
           if (!this.runtime)
             throw new AppError("ANALYSIS_UNAVAILABLE", "分析执行器未装配");
@@ -276,11 +286,7 @@ export class TaskService {
         }
         if (this.controller.signal.aborted)
           throw new AppError("CANCELLED", "任务已取消");
-        if (this.projects.get(project.id).revision !== project.revision)
-          throw new AppError(
-            "PROJECT_CHANGED",
-            "执行过程中项目配置已修改，请重新运行",
-          );
+        this.assertConfiguration(task, project);
         if (outcome?.kind === "extraction")
           this.store.completeExtraction(
             { ...this.get(task.id), resultId: outcome.set.id },

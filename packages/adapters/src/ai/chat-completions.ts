@@ -40,6 +40,7 @@ export class ChatCompletionsTransport implements ModelTransport {
   constructor(
     private readonly profile: AIProfile & { kind: "api" },
     private readonly resolveKey: () => Promise<string | null>,
+    private readonly assertCurrent?: () => void,
   ) {
     this.identity = executorIdentity(profile);
   }
@@ -86,6 +87,7 @@ export class ChatCompletionsTransport implements ModelTransport {
     if (body.length > 700000)
       throw new AppError("MODEL_INPUT_LIMIT", "模型请求超过 700,000 字符预算");
     let result: Response;
+    this.assertCurrent?.();
     try {
       result = await fetch(url, {
         method: "POST",

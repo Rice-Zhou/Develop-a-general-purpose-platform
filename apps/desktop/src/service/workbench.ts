@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { z } from "zod";
@@ -126,16 +127,21 @@ export class Workbench implements TaskRuntime {
       this.profiles().filter((p) => p.id !== id),
     );
   }
-  private async transport(profile: AIProfile) {
+  configurationHash(project: Project): string {
+    if (!project.aiProfileId) throw new AppError("MODEL_NOT_CONFIGURED", "请在项目配置选择模型 API 或订阅工具连接");
+    return createHash("sha256").update(JSON.stringify(this.profile(project.aiProfileId))).digest("hex");
+  }
+  private async transport(profile: AIProfile, assertCurrent?: () => void) {
     if (profile.kind === "api")
       return new ChatCompletionsTransport(profile, () =>
         profile.credentialRef
           ? this.resolveKey(profile.id, profile.credentialRef)
           : Promise.resolve(null),
+        assertCurrent,
       );
     const cwd = join(this.dataPath, "subscription-workspace");
     await mkdir(cwd, { recursive: true });
-    return new SubscriptionTransport(profile, cwd);
+    return new SubscriptionTransport(profile, cwd, runProcess, assertCurrent);
   }
   async analyze(
     task: Task,
@@ -144,12 +150,20 @@ export class Workbench implements TaskRuntime {
     progress: (message: string) => void,
   ) {
     const project = this.store.getProject(task.projectId);
+    const assertCurrent = () => {
+      const current = this.store.getProject(task.projectId);
+      if (!current.enabled || current.revision !== task.projectRevision ||
+        current.revision !== context.configRevision ||
+        this.configurationHash(current) !== task.executionConfigurationHash)
+        throw new AppError("PROJECT_CHANGED", "项目或 AI 连接配置已改变，未继续发送材料，请重新运行");
+    };
+    assertCurrent();
     if (!project.aiProfileId)
       throw new AppError(
         "MODEL_NOT_CONFIGURED",
         "请在项目配置选择模型 API 或订阅工具连接",
       );
-    const model = await this.transport(this.profile(project.aiProfileId));
+    const model = await this.transport(this.profile(project.aiProfileId), assertCurrent);
     const pipeline = new AnalysisPipeline(
       this.bound(context),
       this.search,
@@ -254,6 +268,11 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+      case "getReport": {
+        const {projectId, reportId} = request.params;
+        const report = this.store.getReport(projectId, reportId);
+        return {report, requirements: this.store.getRequirementSet(projectId, report.requirementSetId)};
+      }
       case "readDocumentBlock": {
         const p = request.params;
         const reader = this.reader(p.projectId, p.contextId);

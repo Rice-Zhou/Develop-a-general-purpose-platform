@@ -3,6 +3,7 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
+  getReport: (projectId, reportId) => invoke("getReport", { projectId, reportId }),
   readDocumentBlock: (projectId, contextId, documentSnapshotId, blockId) =>
     invoke("readDocumentBlock", {
       projectId,

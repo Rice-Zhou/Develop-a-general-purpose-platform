@@ -184,10 +184,15 @@ test("desktop reads real documents, versions requirements and validates a report
     await expect(
       page.getByRole("button", { name: "查看报告", exact: true }).first(),
     ).toBeVisible({ timeout: 40000 });
+    await page.getByLabel("需求描述 1").fill("修改后的另一条需求");
+    await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
+    await expect(page.getByText("需求版本 3", { exact: true })).toBeVisible();
     await page
       .getByRole("button", { name: "查看报告", exact: true })
       .first()
       .click();
+    await expect(page.getByRole("heading", { name: "登录前必须验证密码", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "修改后的另一条需求", exact: true })).toHaveCount(0);
     await expect(
       page.getByText("已实现", { exact: true }).first(),
     ).toBeVisible();

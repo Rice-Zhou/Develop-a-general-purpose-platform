@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,8 +61,38 @@ async function settled(tasks: TaskService, id: string): Promise<Task> {
   );
 }
 describe("persistent preparation tasks", () => {
+  it.each(["project", "profile"])("rejects %s changes during capture before invoking analysis", async (change) => {
+    let configuration = "original-connection";
+    const analyze = vi.fn(async () => { throw new Error("must not send materials"); });
+    const f = await setup({
+      configurationHash: () => configuration,
+      captureDocuments: async () => {
+        if (change === "project") f.store.saveProject({ ...f.project, revision: f.project.revision + 1, aiProfileId: "new-connection" }, f.project.revision);
+        else configuration = "changed-endpoint";
+        return { documents: [], sourceGaps: [] };
+      },
+      indexContext: async () => [],
+      analyze,
+    } as TaskRuntime);
+    const queued = await f.tasks.enqueue(f.project.id, "EXTRACT_REQUIREMENTS");
+    const done = await settled(f.tasks, queued.id);
+    expect(done.status).toBe("WAITING_INPUT");
+    expect(done.error?.code).toBe("PROJECT_CHANGED");
+    expect(analyze).not.toHaveBeenCalled();
+  });
+  it("binds queued work to its project revision before any repository access", async () => {
+    const f = await setup();
+    const pending = f.tasks.enqueue(f.project.id, "PREPARE_CONTEXT");
+    f.store.saveProject({ ...f.project, revision: f.project.revision + 1 }, f.project.revision);
+    const queued = await pending;
+    const done = await settled(f.tasks, queued.id);
+    expect(done.status).toBe("WAITING_INPUT");
+    expect(done.error?.code).toBe("PROJECT_CHANGED");
+    expect(f.store.taskEvents(queued.id).some(e => e.stage === "GIT_SYNC")).toBe(false);
+  });
   it("publishes document captures and index coverage in the same context", async () => {
     const f = await setup({
+      configurationHash: () => "fixture",
       captureDocuments: async () => ({
         documents: [
           {

@@ -31,6 +31,7 @@ it("reads and searches pinned project evidence and versions manual requirements 
       issueBindings: [],
       aiProfileId: null,
     });
+    await f.publish(["initial", ...Array.from({length: 599}, (_, i) => i === 499 ? "outsideindexedrange" : `line ${i + 2}`)].join("\n"));
     const repository = await git.synchronize(
       project.repositories[0],
       new AbortController().signal,
@@ -107,7 +108,11 @@ it("reads and searches pinned project evidence and versions manual requirements 
       ).readBlock(documentId, "b"),
     ).toThrow();
     const search = new SearchService(store);
-    await search.index(reader, new AbortController().signal);
+    const coverage = await search.index(reader, new AbortController().signal);
+    expect(coverage.join(" ")).toContain("前 400 行");
+    expect(coverage.join(" ")).toContain("不能据零命中判定缺失");
+    expect(search.search(context, "outsideindexedrange").results).toHaveLength(0);
+    expect((await reader.readCode(repository.bindingId, "feature.txt", 501, 501)).text).toContain("outsideindexedrange");
     expect(search.search(context, "密码", 20).results).toHaveLength(1);
     expect(search.search(context, "密码验证", 20).results).toHaveLength(1);
     const refs = [

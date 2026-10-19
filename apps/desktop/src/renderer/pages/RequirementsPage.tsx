@@ -32,6 +32,17 @@ export function RequirementsPage({
   const [notice, setNotice] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
+  const [reportDetail, setReportDetail] = useState<Extract<Awaited<ReturnType<DesktopAPI["getReport"]>>, {ok: true}>["value"] | null>(null);
+  useEffect(() => {
+    setReportDetail(null);
+    if (!reportId || !projectId) return;
+    let alive = true;
+    void window.platform.getReport(projectId, reportId).then(result => {
+      const detail = unwrap(result);
+      if (alive) setReportDetail(detail);
+    }).catch(e => { if (alive) setError(message(e)); });
+    return () => { alive = false; };
+  }, [projectId, reportId]);
   const completedTaskId =
     tasks.find((t) => t.projectId === projectId && t.status === "SUCCEEDED")
       ?.id ?? "";
@@ -120,13 +131,12 @@ export function RequirementsPage({
       setNotice("已加入草稿，请补充验收条件并保存需求版本。");
     });
   }
-  const selectedReport = workspace?.reports.find((r) => r.id === reportId);
-  if (selectedReport)
+  if (reportDetail && reportDetail.report.id === reportId && reportDetail.report.projectId === projectId)
     return (
       <ReportPage
-        key={selectedReport.id}
-        report={selectedReport}
-        items={workspace?.requirements?.items ?? []}
+        key={reportDetail.report.id}
+        report={reportDetail.report}
+        items={reportDetail.requirements.items}
         onClose={() => setReportId(null)}
       />
     );

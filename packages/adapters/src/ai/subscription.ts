@@ -50,6 +50,7 @@ export class SubscriptionTransport implements ModelTransport {
     private readonly profile: AIProfile & { kind: "codex" | "claude" },
     private readonly cwd: string,
     private readonly run: typeof runProcess = runProcess,
+    private readonly assertCurrent?: () => void,
   ) {
     this.identity = executorIdentity(profile);
   }
@@ -120,6 +121,7 @@ export class SubscriptionTransport implements ModelTransport {
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.OPENAI_BASE_URL;
     delete env.ANTHROPIC_BASE_URL;
+    this.assertCurrent?.();
     const output = await this.run(this.profile.executable, args, {
       cwd: this.cwd,
       input,
