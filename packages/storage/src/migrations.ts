@@ -9,9 +9,9 @@ export async function migrateDatabase(
   backupDirectory = dirname(path),
 ): Promise<void> {
   const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > 4)
+  if (version > 5)
     throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
-  if (version >= 1 && version < 4) {
+  if (version >= 1 && version < 5) {
     await mkdir(backupDirectory, { recursive: true });
     await db.backup(
       join(
@@ -20,7 +20,7 @@ export async function migrateDatabase(
       ),
     );
   }
-  if (version === 4) return;
+  if (version === 5) return;
   db.transaction(() => {
     if (version === 0)
       db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
@@ -45,6 +45,7 @@ export async function migrateDatabase(
       PRAGMA user_version=3;`);
     // Removal is part of the persisted project JSON contract. Older clients must
     // reject this version instead of displaying removed projects again.
-    db.pragma("user_version = 4");
+    // v5 adds issue snapshot fields older strict readers cannot accept.
+    db.pragma("user_version = 5");
   })();
 }

@@ -51,7 +51,7 @@ it("indexes only the three requested Jira statuses and rejects completed single 
   expect(indexed.map((i) => i.status)).toEqual(["修复中", "分析中", "分配中"]);
   // Simulate an existing cache from the previous release.
   batch.push({ ...indexed[0], id: "old-completed", status: "已完成" });
-  expect(service.visible("p").map((i) => i.status)).toEqual(["修复中", "分析中", "分配中"]);
+  expect(service.workspace("p").issues.map((i) => i.status)).toEqual(["修复中", "分析中", "分配中"]);
   current = { ...records[0], status: "已完成" };
   await expect(service.refresh("p", "b", current.key, signal)).rejects.toMatchObject({ code: "ISSUE_STATUS_INACTIVE" });
   await expect(service.prepare({ projectId: "p", issueSnapshotId: indexed[0].id } as Task, signal)).rejects.toMatchObject({ code: "ISSUE_STATUS_INACTIVE" });
@@ -59,6 +59,6 @@ it("indexes only the three requested Jira statuses and rejects completed single 
   expect(publications).toBe(1);
   listed = records.slice(3);
   expect(await service.refresh("p", "b", undefined, signal)).toEqual([]);
-  expect(service.visible("p")).toEqual([]);
+  expect(service.workspace("p").issues).toEqual([]);
   expect(publications).toBe(2);
 });

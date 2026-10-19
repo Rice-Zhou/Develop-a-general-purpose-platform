@@ -8,6 +8,7 @@ import type {
   IssueSnapshot,
   BugReport,
 } from "./issues";
+import type { IssueMonitorConfiguration, IssueMonitorStatus, IssueWorkspace } from "./issue-monitor";
 import type {
   AnalysisReport,
   AIProfileDraft,
@@ -202,7 +203,11 @@ export interface DesktopAPI {
   ): Promise<Result<ExecutorDiagnostic>>;
   getBugWorkspace(
     projectId: string,
-  ): Promise<Result<{ issues: IssueSnapshot[]; reports: BugReport[] }>>;
+  ): Promise<Result<IssueWorkspace & { reports: BugReport[] }>>;
+  refreshBugWorkspace(projectId: string): Promise<Result<IssueWorkspace>>;
+  getIssueMonitor(): Promise<Result<IssueMonitorStatus>>;
+  saveIssueMonitor(configuration: IssueMonitorConfiguration): Promise<Result<IssueMonitorStatus>>;
+  checkIssueNotifications(): Promise<Result<IssueMonitorStatus>>;
   refreshIssues(
     projectId: string,
     bindingId: string,

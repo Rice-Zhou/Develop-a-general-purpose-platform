@@ -13,7 +13,9 @@ import {
   type JiraCatalogue,
   isIssueStatusIndexed,
 } from "../../../contracts/src/issues";
-import { AppError } from "../../../contracts/src/error";
+import { AppError, errorData } from "../../../contracts/src/error";
+import type { IssueWorkspace } from "../../../contracts/src/issue-monitor";
+import { issueWebUrl } from "./issue-link";
 interface IssueStore {
   getProject(id: string): Project;
   getSetting<T>(key: string): T | null;
@@ -120,22 +122,23 @@ export class IssueService {
     ScopePolicy.validate(scope);
     return scope;
   }
-  visible(projectId: string): IssueSnapshot[] {
-    const p = this.store.getProject(projectId);
-    return p.issueBindings.flatMap((b) => {
-      if (
-        !b.connectionId ||
-        !b.issueTypeIds?.length ||
-        !this.connections().some((c) => c.id === b.connectionId)
-      )
-        return [];
-      const scope = this.scope(projectId, b.id);
-      return this.store.issues.batch(
-        projectId,
-        b.id,
-        bindingFingerprint(scope),
-      ).filter((issue) => isIssueStatusIndexed(scope.connection.platform, issue.status));
+  workspace(projectId: string): IssueWorkspace {
+    const project = this.store.getProject(projectId);
+    const issues: IssueWorkspace["issues"] = [];
+    const sources = project.issueBindings.map((binding) => {
+      const label = `${this.connections().find(c => c.id === binding.connectionId)?.name ?? binding.platform} · ${binding.projectKey} · ${binding.owner}`;
+      try {
+        const scope = this.scope(projectId, binding.id);
+        const batch = this.store.issues.batch(projectId, binding.id, bindingFingerprint(scope))
+          .filter(i => isIssueStatusIndexed(scope.connection.platform, i.status));
+        const linked = batch.map(issue => ({ ...issue, webUrl: issueWebUrl(scope, issue) }));
+        issues.push(...linked);
+        return { bindingId: binding.id, label, status: "idle" as const, count: batch.length, lastSuccessAt: null, error: null };
+      } catch (error) {
+        return { bindingId: binding.id, label, status: "failed" as const, count: 0, lastSuccessAt: null, error: errorData(error) };
+      }
     });
+    return { issues, sources };
   }
   private snapshot(scope: IssueScope, issue: RemoteIssue): IssueSnapshot {
     ScopePolicy.assert(scope, issue);
@@ -171,7 +174,8 @@ export class IssueService {
       projectId,
       bindingId,
       bindingFingerprint(scope),
-      indexed,
+      key ? [...this.store.issues.batch(projectId, bindingId, bindingFingerprint(scope))
+        .filter(previous => !indexed.some(issue => issue.remoteId === previous.remoteId)), ...indexed] : indexed,
     );
     return indexed;
   }

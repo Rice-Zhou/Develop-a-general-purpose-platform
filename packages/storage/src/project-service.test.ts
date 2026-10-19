@@ -59,7 +59,7 @@ describe("project persistence", () => {
     }
     const check = new Database(join(f.root, "app.db"));
     try {
-      expect(check.pragma("user_version", { simple: true })).toBe(4);
+      expect(check.pragma("user_version", { simple: true })).toBe(5);
     } finally {
       check.close();
     }

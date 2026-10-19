@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { jiraIssueUrl } from "./jira-format";
+import { issueWebUrl } from "../../../core/src/issues/issue-link";
 import type { IssueScope, RemoteIssue } from "../../../contracts/src/issues";
 const scope: IssueScope = {
   projectId: "p",
@@ -42,7 +42,7 @@ const issue: RemoteIssue = {
   warnings: [],
 };
 it("builds only validated project issue links and never follows issue content URLs", () => {
-  expect(jiraIssueUrl(scope, issue)).toBe(
+  expect(issueWebUrl(scope, issue)).toBe(
     "https://jira.example/context/browse/A-1",
   );
   for (const patch of [
@@ -51,5 +51,5 @@ it("builds only validated project issue links and never follows issue content UR
     { instanceUrl: "https://evil.example" },
     { ownerId: "bob" },
   ])
-    expect(() => jiraIssueUrl(scope, { ...issue, ...patch })).toThrow();
+    expect(() => issueWebUrl(scope, { ...issue, ...patch })).toThrow();
 });

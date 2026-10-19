@@ -14,6 +14,14 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
   let transferred = false;
   const server = createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
+    if (req.url === "/trinity/sys/user/userinfo") {
+      res.end(JSON.stringify({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } }));
+      return;
+    }
+    if (req.url?.startsWith("/trinity/quality/quality/bug/findBugsByProject")) {
+      res.end(JSON.stringify({ success: true, data: { pageNum: 1, total: 1, bugs: [{ bugId: "T-1" }] } }));
+      return;
+    }
     if (req.url?.startsWith("/trinity/quality/bugRedux/getByBugId")) {
       expect(req.headers["x-token"]).toBe("Bearer fixture-token");
       res.end(
@@ -238,7 +246,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     );
     await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
     await page
-      .getByRole("button", { name: "读取项目 BUG", exact: true })
+      .getByRole("button", { name: "刷新问题单", exact: true })
       .first()
       .click();
     await expect(
@@ -246,6 +254,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     ).toBeVisible();
     await page
       .getByRole("button", { name: "更新代码并预分析", exact: true })
+      .first()
       .click();
     await expect(
       page.getByRole("button", { name: "查看 BUG 报告", exact: true }),
@@ -265,6 +274,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     await page
       .getByRole("button", { name: "返回 BUG 工作台", exact: true })
       .click();
+    await page.getByText("按编号读取（可选）", { exact: true }).click();
     await page.getByLabel(`BUG 编号 ${ids.t}`).fill("T-1");
     await page
       .getByRole("button", { name: "按编号读取", exact: true })
@@ -272,7 +282,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       .click();
     await expect(
       page.getByRole("heading", {
-        name: "T-1 （问题链接不可用） · Trinity test bug",
+        name: "T-1 · Trinity test bug",
       }),
     ).toBeVisible();
     await page

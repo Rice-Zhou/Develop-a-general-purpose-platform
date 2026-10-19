@@ -118,12 +118,12 @@ async function dispatch(request: Request): Promise<unknown> {
             name: "Jira 与 Trinity",
             available: workbench.issues.connections().length > 0,
             reason:
-              "Jira CLI 项目范围读取、Trinity 按 BUG 编号读取；真实实例需配置并验证，Trinity 项目列表尚不可用",
+              "汇总当前项目配置的全部来源，Jira 与 Trinity 均按项目及负责人分页读取",
           },
           {
             name: "BUG 自动监控",
-            available: false,
-            reason: "第四阶段：在问题连接器验证后接入",
+            available: workbench.monitor.status().configuration.enabled,
+            reason: "应用运行或驻留托盘时定时查询；新增问题通过飞书 CLI 提醒，失败信息见 BUG 工作台",
           },
           {
             name: "模型 API 与订阅工具",
@@ -190,6 +190,7 @@ parent.on("message", (event) => {
           resolveCredential,
         );
         tasks = new TaskService(store, projects, git, workbench);
+        workbench.monitor.start();
         parent.postMessage({ type: "ready" });
         return;
       }
@@ -241,6 +242,7 @@ parent.on("message", (event) => {
         return;
       }
       if (envelope.type === "shutdown") {
+        await workbench.monitor.shutdown();
         await tasks.shutdown();
         store?.close();
         parent.postMessage({

@@ -113,7 +113,7 @@ it("rejects repeated pages rather than publishing a partial Jira list", async ()
     ).list(scope, new AbortController().signal),
   ).rejects.toMatchObject({ code: "ISSUE_PAGINATION_INVALID" });
 });
-it("Trinity never calls an unproven all-account list and rejects business and scope errors", async () => {
+it("Trinity detail rejects business and scope errors", async () => {
   const trinity: IssueScope = {
     ...scope,
     binding: { ...scope.binding, platform: "trinity", issueTypeIds: ["BUG"] },
@@ -132,6 +132,7 @@ it("Trinity never calls an unproven all-account list and rejects business and sc
     async () => "token",
     async (url) => {
       calls.push(String(url));
+      if (String(url).endsWith("/sys/user/userinfo")) return Response.json({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } });
       return new Response(
         JSON.stringify({
           code: 200,
@@ -149,18 +150,17 @@ it("Trinity never calls an unproven all-account list and rejects business and sc
       );
     },
   );
-  await expect(adapter.list()).rejects.toMatchObject({
-    code: "TRINITY_LIST_UNVERIFIED",
-  });
-  expect(calls).toHaveLength(0);
   expect(
     (await adapter.get(trinity, "A-1", new AbortController().signal)).key,
   ).toBe("A-1");
-  expect(calls[0]).toContain("/quality/bugRedux/getByBugId?bugId=A-1");
+  expect(calls[0]).toContain("/sys/user/userinfo");
+  expect(calls[1]).toContain("/quality/bugRedux/getByBugId?bugId=A-1");
   await expect(
     new TrinityAdapter(
       async () => "token",
-      async () => new Response(JSON.stringify({ code: 401, msg: "sensitive" })),
+      async url => String(url).endsWith("/sys/user/userinfo")
+        ? Response.json({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } })
+        : Response.json({ code: 401, msg: "sensitive" }),
     ).get(trinity, "A-1", new AbortController().signal),
   ).rejects.toMatchObject({ code: "ISSUE_REMOTE_FAILED" });
 });

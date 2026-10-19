@@ -12,6 +12,10 @@ const api: DesktopAPI = {
   probeIssueConnection: (projectId, bindingId) =>
     invoke("probeIssueConnection", { projectId, bindingId }),
   getBugWorkspace: (projectId) => invoke("getBugWorkspace", { projectId }),
+  refreshBugWorkspace: (projectId) => invoke("refreshBugWorkspace", { projectId }),
+  getIssueMonitor: () => invoke("getIssueMonitor"),
+  saveIssueMonitor: (configuration) => invoke("saveIssueMonitor", { configuration }),
+  checkIssueNotifications: () => invoke("checkIssueNotifications"),
   refreshIssues: (projectId, bindingId) =>
     invoke("refreshIssues", { projectId, bindingId }),
   readIssueByKey: (projectId, bindingId, key) =>

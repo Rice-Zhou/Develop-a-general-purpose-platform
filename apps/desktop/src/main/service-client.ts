@@ -166,7 +166,11 @@ export class ServiceClient {
     await this.ensureReady();
     return this.send(
       { request },
-      request.method === "refreshIssues"
+      request.method === "refreshBugWorkspace"
+        ? ISSUE_REFRESH_TIMEOUT_MS + 35000
+        : request.method === "checkIssueNotifications"
+          ? 35000
+          : request.method === "refreshIssues"
         ? ISSUE_REFRESH_TIMEOUT_MS + 5000
         : request.method === "getJiraCatalogue" || request.method === "saveProject"
           ? JIRA_DISCOVERY_TIMEOUT_MS + 5000

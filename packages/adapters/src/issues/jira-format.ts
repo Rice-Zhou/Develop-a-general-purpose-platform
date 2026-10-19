@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   ScopePolicy,
-  instanceUrl,
 } from "../../../core/src/issues/scope-policy";
 import {
   RemoteIssueSchema,
@@ -122,18 +121,4 @@ export function assertJiraKey(scope: IssueScope, key: string): void {
       "ISSUE_OUT_OF_SCOPE",
       "Jira 编号不属于配置项目，未启动读取命令",
     );
-}
-export function jiraIssueUrl(scope: IssueScope, issue: RemoteIssue): string {
-  ScopePolicy.assert(scope, issue);
-  if (scope.connection.platform === "trinity")
-    throw new AppError(
-      "ISSUE_LINK_UNVERIFIED",
-      "Trinity 详情页面链接契约尚未确认",
-    );
-  assertJiraKey(scope, issue.key);
-  return (
-    instanceUrl(scope.connection.baseUrl) +
-    "/browse/" +
-    encodeURIComponent(issue.key)
-  );
 }

@@ -6,43 +6,15 @@ import type {
 } from "../../../../../packages/contracts/src/models";
 import type {
   BugReport,
-  IssueSnapshot,
 } from "../../../../../packages/contracts/src/issues";
 import { message, unwrap } from "../api";
 import { BugReportPage } from "./BugReportPage";
+import { IssueMonitorSettings } from "../components/IssueMonitorSettings";
+import type { IssueListItem, IssueSourceState } from "../../../../../packages/contracts/src/issue-monitor";
 type Detail = Extract<
   Awaited<ReturnType<DesktopAPI["getBugReport"]>>,
   { ok: true }
 >["value"];
-type RefreshState = {
-  status: "refreshing" | "success" | "failed";
-};
-function unavailable(binding: Project["issueBindings"][number]): string {
-  if (!binding.connectionId) return "尚未刷新：缺少来源连接，请编辑项目配置。";
-  if (!binding.issueTypeIds?.length)
-    return "尚未刷新：缺少 BUG 类型 ID，请编辑项目配置。";
-  if (binding.platform === "trinity")
-    return "尚未刷新：Trinity 项目列表契约待验证，仅支持按编号读取。";
-  return "";
-}
-function jiraLink(issue: IssueSnapshot): string | null {
-  const url = new URL(issue.instanceUrl);
-  if (
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    !(
-      url.protocol === "https:" ||
-      (url.protocol === "http:" &&
-        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-    )
-  )
-    return null;
-  return (
-    url.href.replace(/\/$/, "") + "/browse/" + encodeURIComponent(issue.key)
-  );
-}
 export function BugsPage({
   projects,
   tasks,
@@ -59,15 +31,16 @@ export function BugsPage({
   const [projectId, setProjectId] = useState("");
   const [workspace, setWorkspace] = useState<{
     scope: string;
-    issues: IssueSnapshot[];
+    issues: IssueListItem[];
+    sources: IssueSourceState[];
     reports: BugReport[];
-  }>({ scope: "", issues: [], reports: [] });
+  }>({ scope: "", issues: [], reports: [], sources: [] });
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [refreshes, setRefreshes] = useState<Record<string, RefreshState>>({});
+  const foreground = useRef(false);
   const project = projects.find((p) => p.id === projectId);
   const scope = JSON.stringify([
     project?.id,
@@ -91,37 +64,31 @@ export function BugsPage({
     setError("");
     setNotice("");
     setLoading(false);
-    setRefreshes({});
+    foreground.current = false;
     operation.current++;
   }, [scope]);
   useEffect(() => {
     if (!projectId) {
-      setWorkspace({ scope: "", issues: [], reports: [] });
+      setWorkspace({ scope: "", issues: [], reports: [], sources: [] });
       return;
     }
     let live = true;
-    const request = operation.current;
-    void window.platform
-      .getBugWorkspace(projectId)
-      .then((r) => {
-        if (
-          live &&
-          currentScope.current === scope &&
-          operation.current === request
-        )
-          setWorkspace({ ...unwrap(r), scope });
-      })
-      .catch((e) => {
-        if (
-          live &&
-          currentScope.current === scope &&
-          operation.current === request
-        )
-          setError(message(e));
-      });
-    return () => {
-      live = false;
+    let reading = false;
+    const load = async () => {
+      if (reading || foreground.current) return;
+      reading = true;
+      const request = operation.current;
+      try {
+        const next = unwrap(await window.platform.getBugWorkspace(projectId));
+        if (live && !foreground.current && currentScope.current === scope && operation.current === request)
+          setWorkspace({ ...next, scope });
+      } catch (e) {
+        if (live && currentScope.current === scope && operation.current === request) setError(message(e));
+      } finally { reading = false; }
     };
+    void load();
+    const timer = setInterval(() => void load(), 3000);
+    return () => { live = false; clearInterval(timer); };
   }, [projectId, scope, completed]);
   useEffect(() => {
     mounted.current = true;
@@ -135,15 +102,9 @@ export function BugsPage({
       project?.issueBindings.some((binding) => binding.id === issue.bindingId),
   );
   const reports = workspace.scope === scope ? workspace.reports : [];
-  const allRefreshed =
-    !!project?.issueBindings.length &&
-    project.issueBindings.every(
-      (binding) =>
-        !unavailable(binding) && refreshes[binding.id]?.status === "success",
-    );
-  const refreshFailed = Object.values(refreshes).some(
-    (state) => state.status === "failed",
-  );
+  const sources = workspace.scope === scope ? workspace.sources : [];
+  const allRefreshed = sources.length > 0 && sources.every(source => source.status === "success");
+  const refreshFailed = sources.some(source => source.status === "failed");
   const active = tasks.some(
     (t) =>
       t.projectId === projectId &&
@@ -174,6 +135,7 @@ export function BugsPage({
       mounted.current &&
       currentScope.current === scope &&
       operation.current === request;
+    foreground.current = true;
     setLoading(true);
     setError("");
     setNotice("");
@@ -189,69 +151,8 @@ export function BugsPage({
     } catch (e) {
       if (valid()) setError(message(e));
     } finally {
-      if (valid()) setLoading(false);
+      if (valid()) { foreground.current = false; setLoading(false); }
     }
-  }
-  async function refreshBindings(bindingIds: string[]) {
-    if (!project) return;
-    const request = ++operation.current;
-    const valid = () =>
-      mounted.current &&
-      currentScope.current === scope &&
-      operation.current === request;
-    const bindings = project.issueBindings.filter(
-      (binding) => bindingIds.includes(binding.id) && !unavailable(binding),
-    );
-    setLoading(true);
-    setError("");
-    setNotice("");
-    const failures: string[] = [];
-    for (const binding of bindings) {
-      setRefreshes((previous) => ({
-        ...previous,
-        [binding.id]: { ...previous[binding.id], status: "refreshing" },
-      }));
-      try {
-        const fetched = unwrap(
-          await window.platform.refreshIssues(projectId, binding.id),
-        );
-        if (!valid()) return;
-        setWorkspace((previous) => ({
-          scope,
-          reports: previous.scope === scope ? previous.reports : [],
-          issues: [
-            ...(previous.scope === scope ? previous.issues : []).filter(
-              (issue) => issue.bindingId !== binding.id,
-            ),
-            ...fetched,
-          ],
-        }));
-        setRefreshes((previous) => ({
-          ...previous,
-          [binding.id]: { status: "success" },
-        }));
-      } catch (e) {
-        if (!valid()) return;
-        failures.push(
-          `${binding.projectKey} · ${binding.owner}：${message(e)}`,
-        );
-        setRefreshes((previous) => ({
-          ...previous,
-          [binding.id]: { ...previous[binding.id], status: "failed" },
-        }));
-      }
-    }
-    if (!valid()) return;
-    try {
-      const next = unwrap(await window.platform.getBugWorkspace(projectId));
-      if (!valid()) return;
-      setWorkspace({ ...next, scope });
-    } catch (e) {
-      if (!valid()) return;
-      failures.push(`读取本地问题和报告历史失败：${message(e)}`);
-    }
-    setError(failures.join("；"));
-    setLoading(false);
   }
   if (detail && detail.report.projectId === projectId)
     return <BugReportPage {...detail} onClose={() => setDetail(null)} />;
@@ -280,7 +181,7 @@ export function BugsPage({
         </div>
         <p className="muted">
           只读操作，始终限制项目与负责人。分析前重新读取
-          BUG、安全更新配置分支并固定代码；定时监控尚未开启。
+          BUG、安全更新配置分支并固定代码。所有已配置来源统一读取和展示。
           Jira 仅索引修复中、分析中、分配中的问题。
         </p>
         {error && (
@@ -313,80 +214,21 @@ export function BugsPage({
             请先在设置添加来源连接，再为项目配置 BUG 范围。
           </p>
         )}
-        {project?.issueBindings.map((b) => (
-          <article className="binding-form" key={b.id}>
-            <strong>
-              {b.platform === "trinity" ? "Trinity" : "Jira"} · 项目{" "}
-              {b.projectKey} · 负责人 {b.owner}
-            </strong>
-            {unavailable(b) && (
-              <p className="coverage-warning">{unavailable(b)}</p>
-            )}
-            {!unavailable(b) && (
-              <p className="muted small">
-                {refreshes[b.id]?.status === "success"
-                  ? `刷新成功：${issues.filter((issue) => issue.bindingId === b.id).length} 条问题。`
-                  : refreshes[b.id]?.status === "failed"
-                    ? "刷新失败；显示的缓存仅代表上次读取的材料。"
-                    : refreshes[b.id]?.status === "refreshing"
-                      ? "正在刷新当前配置范围…"
-                      : "此范围尚未刷新。"}
-              </p>
-            )}
-            <div className="row-actions">
-              <button
-                className="secondary"
-                disabled={busy || !project.enabled || !!unavailable(b)}
-                onClick={() => void refreshBindings([b.id])}
-              >
-                读取项目 BUG
-              </button>
-              <input
-                aria-label={`BUG 编号 ${b.id}`}
-                placeholder="BUG 编号"
-                value={keys[b.id] ?? ""}
-                onChange={(e) => setKeys({ ...keys, [b.id]: e.target.value })}
-              />
-              <button
-                className="secondary"
-                disabled={
-                  busy ||
-                  !project.enabled ||
-                  !b.connectionId ||
-                  !keys[b.id]?.trim()
-                }
-                onClick={() =>
-                  void act(
-                    async () => {
-                      return unwrap(
-                        await window.platform.readIssueByKey(
-                          projectId,
-                          b.id,
-                          keys[b.id].trim(),
-                        ),
-                      );
-                    },
-                    "按编号读取完成；此范围展示本次单号结果，完整列表请刷新。",
-                    () => {
-                      setRefreshes((previous) => {
-                        const next = { ...previous };
-                        delete next[b.id];
-                        return next;
-                      });
-                    },
-                  )
-                }
-              >
-                按编号读取
-              </button>
+        <IssueMonitorSettings onConfigure={onConfigureAI} />
+        <details>
+          <summary>按编号读取（可选）</summary>
+          {project?.issueBindings.map(b => (
+            <div className="binding-form" key={b.id}>
+              <strong>{sources.find(source => source.bindingId === b.id)?.label ?? b.projectKey}</strong>
+              <div className="row-actions">
+                <input aria-label={`BUG 编号 ${b.id}`} placeholder="BUG 编号" value={keys[b.id] ?? ""}
+                  onChange={e => setKeys({ ...keys, [b.id]: e.target.value })} />
+                <button className="secondary" disabled={busy || !project.enabled || !b.connectionId || !keys[b.id]?.trim()}
+                  onClick={() => void act(async () => unwrap(await window.platform.readIssueByKey(projectId, b.id, keys[b.id].trim())), "问题已读取并加入当前列表。")}>按编号读取</button>
+              </div>
             </div>
-            {b.platform === "trinity" && (
-              <p className="muted small">
-                Trinity 项目列表契约待验证；按编号读取后仍检查返回项目和负责人。
-              </p>
-            )}
-          </article>
-        ))}
+          ))}
+        </details>
       </section>
       <section className="panel work-panel">
         <div className="section-heading">
@@ -396,22 +238,22 @@ export function BugsPage({
             disabled={
               busy ||
               !project?.enabled ||
-              !project.issueBindings.some((binding) => !unavailable(binding))
+              !project.issueBindings.length
             }
-            onClick={() =>
-              void refreshBindings(
-                project?.issueBindings.map((binding) => binding.id) ?? [],
-              )
-            }
+            onClick={() => void act(async () => unwrap(await window.platform.refreshBugWorkspace(projectId)))}
           >
             刷新问题单
           </button>
         </div>
-        {!allRefreshed && !refreshFailed && (
-          <p className="muted">
-            尚未刷新当前配置范围；缓存仅代表上次读取的材料。
-          </p>
-        )}
+        <p className="muted small">一次获取当前项目全部来源，无需切换平台。某个来源失败时，其余来源仍正常展示；失败来源的缓存仅代表上次读取的材料。</p>
+        {sources.map(source => (
+          <div key={source.bindingId} className={source.error ? "error-panel" : "muted small"} role={source.error ? "alert" : undefined}>
+            {source.label} · {source.status === "success" ? `刷新成功：${source.count} 条问题` : source.status === "failed" ? "刷新失败；缓存仅代表上次读取的材料" : "此范围尚未刷新"}
+            {source.lastSuccessAt && ` · 最近成功 ${new Date(source.lastSuccessAt).toLocaleString()}`}
+            {source.error && <p>{source.error.code}：{source.error.message}</p>}
+          </div>
+        ))}
+        {!allRefreshed && !refreshFailed && <p className="muted">尚未刷新当前配置范围；缓存仅代表上次读取的材料。</p>}
         {allRefreshed && issues.length === 0 && (
           <p className="muted">当前配置项目及负责人范围内无任何问题</p>
         )}
@@ -419,28 +261,10 @@ export function BugsPage({
           <article className="finding-card" key={issue.id}>
             <div className="section-heading">
               <h3>
-                {project?.issueBindings.find(
-                  (binding) => binding.id === issue.bindingId,
-                )?.platform !== "trinity" && jiraLink(issue) ? (
-                  <a
-                    href={jiraLink(issue)!}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      void act(async () =>
-                        unwrap(
-                          await window.platform.openIssue(projectId, issue.id),
-                        ),
-                      );
-                    }}
-                  >
-                    {issue.key}
-                  </a>
-                ) : (
-                  <>
-                    {issue.key}{" "}
-                    <span className="muted small">（问题链接不可用）</span>
-                  </>
-                )}{" "}
+                <a href={issue.webUrl} onClick={event => {
+                  event.preventDefault();
+                  void act(async () => unwrap(await window.platform.openIssue(projectId, issue.id)));
+                }}>{issue.key}</a> {" "}
                 · {issue.title}
               </h3>
               <span className="tag">{issue.status}</span>

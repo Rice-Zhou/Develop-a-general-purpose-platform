@@ -21,6 +21,8 @@ import type {
 import { DocumentService } from "../../../../packages/core/src/documents/document-service";
 import { LocalDocumentSource } from "../../../../packages/adapters/src/documents/local-source";
 import { FeishuCliSource } from "../../../../packages/adapters/src/feishu/document-source";
+import { FeishuIssueNotifier } from "../../../../packages/adapters/src/feishu/issue-notifier";
+import { IssueMonitor } from "../../../../packages/core/src/issues/issue-monitor";
 import { ParserClient } from "../../../../packages/adapters/src/documents/parser-client";
 import { GitRepositoryAdapter } from "../../../../packages/adapters/src/git/repository";
 import { ContextReader } from "../../../../packages/core/src/context/context-reader";
@@ -31,7 +33,7 @@ import { EvidenceValidator } from "../../../../packages/core/src/analysis/eviden
 import { ChatCompletionsTransport } from "../../../../packages/adapters/src/ai/chat-completions";
 import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
 import { inspectLocalJira } from "../../../../packages/adapters/src/issues/jira-local";
-import { jiraIssueUrl } from "../../../../packages/adapters/src/issues/jira-format";
+import { issueWebUrl } from "../../../../packages/core/src/issues/issue-link";
 import { ISSUE_REFRESH_TIMEOUT_MS, JIRA_DISCOVERY_TIMEOUT_MS } from "../../../../packages/contracts/src/issues";
 import { SubscriptionTransport } from "../../../../packages/adapters/src/ai/subscription";
 import { runProcess } from "../../../../packages/adapters/src/process/run-process";
@@ -48,6 +50,7 @@ const publicProfile = (profile: AIProfile): PublicAIProfile => {
   return { ...draft, hasCredential: Boolean(credentialRef) };
 };
 export class Workbench implements TaskRuntime {
+  readonly monitor: IssueMonitor;
   readonly issues: IssueService;
   readonly content: SnapshotStore;
   readonly search: SearchService;
@@ -74,6 +77,7 @@ export class Workbench implements TaskRuntime {
         ? new JiraHttpAdapter(credential)
         : new TrinityAdapter(credential);
     });
+    this.monitor = new IssueMonitor(store, this.issues, new FeishuIssueNotifier(() => this.cliConfiguration()));
     this.content = new SnapshotStore(join(dataPath, "content"));
     this.search = new SearchService(store);
     this.requirements = new RequirementService(store);
@@ -278,7 +282,7 @@ export class Workbench implements TaskRuntime {
   }
   issueUrl(projectId: string, issueSnapshotId: string): string {
     const issue = this.store.issues.get(projectId, issueSnapshotId);
-    return jiraIssueUrl(this.issues.scope(projectId, issue.bindingId), issue);
+    return issueWebUrl(this.issues.scope(projectId, issue.bindingId), issue);
   }
   async probe(id: string) {
     const profile = this.profile(id);
@@ -352,9 +356,17 @@ export class Workbench implements TaskRuntime {
         return this.issues.publicConnections();
       case "getBugWorkspace":
         return {
-          issues: this.issues.visible(request.params.projectId),
+          ...this.monitor.workspace(request.params.projectId),
           reports: this.store.issues.reports(request.params.projectId),
         };
+      case "refreshBugWorkspace":
+        return this.monitor.refreshProject(request.params.projectId);
+      case "getIssueMonitor":
+        return this.monitor.status();
+      case "saveIssueMonitor":
+        return this.monitor.configure(request.params.configuration);
+      case "checkIssueNotifications":
+        return this.monitor.checkNotification();
       case "refreshIssues":
         return this.issues.refresh(
           request.params.projectId,
@@ -389,13 +401,10 @@ export class Workbench implements TaskRuntime {
             );
           }).probe(scope, AbortSignal.timeout(30000));
         else
-          throw new AppError(
-            "TRINITY_LIST_UNVERIFIED",
-            "Trinity 请按编号读取验证 detail 契约，不进行全账户探测",
-          );
+          await this.issues.refresh(request.params.projectId, request.params.bindingId, undefined, AbortSignal.timeout(30000));
         return {
           available: true,
-          detail: "Jira 连接已验证；问题项目和负责人仍在每次读取时验证",
+          detail: "来源连接已验证；问题项目和负责人仍在每次读取时验证",
         };
       }
       case "analyzeBug": {

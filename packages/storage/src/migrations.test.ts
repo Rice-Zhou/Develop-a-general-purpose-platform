@@ -28,6 +28,25 @@ async function legacy() {
   db.close();
   return { root, path };
 }
+it("backs up v4 before enabling the new issue snapshot contract and preserves existing settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "platform-v4-migration-"));
+  roots.push(root);
+  const path = join(root, "app.db");
+  let store = await DataStore.open(path);
+  store.setSetting("existing", { value: "keep" });
+  store.close();
+  const old = new Database(path);
+  old.pragma("user_version = 4");
+  old.close();
+  store = await DataStore.open(path);
+  try {
+    expect(store.getSetting("existing")).toEqual({ value: "keep" });
+    expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
+  } finally { store.close(); }
+  const upgraded = new Database(path);
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(5); }
+  finally { upgraded.close(); }
+});
 it("backs up v1 before migrating and preserves projects", async () => {
   const f = await legacy();
   const store = await DataStore.open(f.path);
@@ -51,7 +70,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(4);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(5);
   } finally {
     upgraded.close();
   }

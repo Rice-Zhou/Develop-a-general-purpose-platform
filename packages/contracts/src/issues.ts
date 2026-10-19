@@ -67,6 +67,7 @@ export interface LocalJiraConfiguration {
 export const RemoteIssueSchema = z
   .object({
     remoteId: atom,
+    workitemId: atom.optional(),
     key: atom,
     instanceUrl: z.url(),
     remoteProjectId: atom,
