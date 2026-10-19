@@ -15,7 +15,7 @@ async function fixture() {
   roots.push(root);
   const repo = join(root, "代码 A");
   await mkdir(repo);
-  const store = new DataStore(join(root, "app.db"));
+  const store = await DataStore.open(join(root, "app.db"));
   return { root, repo, store, service: new ProjectService(store) };
 }
 function draft(name: string, path: string) {
@@ -40,7 +40,7 @@ describe("project persistence", () => {
       const b = await f.service.save(draft("B", repoB));
       expect(a.id).not.toBe(b.id);
       f.store.close();
-      const reopened = new DataStore(join(f.root, "app.db"));
+      const reopened = await DataStore.open(join(f.root, "app.db"));
       try {
         expect(
           new ProjectService(reopened)

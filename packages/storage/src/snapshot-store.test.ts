@@ -43,7 +43,7 @@ describe("owned content and backups", () => {
   });
   it("creates a consistent reopenable database backup", async () => {
     const path = await root();
-    const source = new DataStore(join(path, "source.db"));
+    const source = await DataStore.open(join(path, "source.db"));
     try {
       await new ProjectService(source).save({
         name: "备份项目",
@@ -56,7 +56,7 @@ describe("owned content and backups", () => {
         aiProfileId: null,
       });
       await source.backup(join(path, "backup.db"));
-      const backup = new DataStore(join(path, "backup.db"));
+      const backup = await DataStore.open(join(path, "backup.db"));
       try {
         expect(backup.listProjects()[0].name).toBe("备份项目");
       } finally {

@@ -116,7 +116,7 @@ parent.on("message", (event) => {
           throw new AppError("INIT_INVALID", "服务初始化参数缺失");
         dataPath = envelope.dataPath;
         version = envelope.version;
-        store = new DataStore(join(dataPath, "platform.db"));
+        store = await DataStore.open(join(dataPath, "platform.db"));
         projects = new ProjectService(store);
         tasks = new TaskService(store, projects, git);
         parent.postMessage({ type: "ready" });

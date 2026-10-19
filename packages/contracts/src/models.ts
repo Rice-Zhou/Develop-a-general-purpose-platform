@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DocumentSnapshotRef, SourceGap } from './documents';
 const text = z.string().trim().min(1).max(2048);
 export const RepositoryDraftSchema = z
   .object({
@@ -86,7 +87,8 @@ export interface ContextSnapshot {
   projectId: string;
   configRevision: number;
   repositories: RepositorySnapshot[];
-  documents: never[];
+  documents: DocumentSnapshotRef[];
+  sourceGaps?: SourceGap[];
   createdAt: string;
   limitations: string[];
 }
@@ -116,7 +118,10 @@ export interface Task {
   id: string;
   projectId: string;
   projectName: string;
-  kind: "PREPARE_CONTEXT";
+  kind: "PREPARE_CONTEXT" | "EXTRACT_REQUIREMENTS" | "CHECK_REQUIREMENTS";
+  attemptId?: string;
+  requirementSetId?: string;
+  resultId?: string;
   status: TaskStatus;
   attempt: number;
   createdAt: string;

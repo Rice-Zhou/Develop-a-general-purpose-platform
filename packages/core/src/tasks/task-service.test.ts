@@ -17,7 +17,7 @@ async function setup() {
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const f = await gitFixture();
   cleanup.push(f.dispose);
-  const store = new DataStore(join(root, "app.db"));
+  const store = await DataStore.open(join(root, "app.db"));
   cleanup.push(async () => store.close());
   const projects = new ProjectService(store);
   const project = await projects.save({

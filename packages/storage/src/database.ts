@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { migrateDatabase } from "./migrations";
+import { AnalysisRepository } from "./analysis-repository";
 import { AppError } from "../../contracts/src/error";
 import type {
   ContextSnapshot,
@@ -12,34 +14,16 @@ import type {
 interface JsonRow {
   json: string;
 }
-export class DataStore {
-  private readonly db: Database.Database;
-  constructor(readonly path: string) {
+export class DataStore extends AnalysisRepository {
+  private constructor(readonly path: string, db: Database.Database) { super(db); }
+  static async open(path: string, options: { backupDirectory?: string } = {}): Promise<DataStore> {
     mkdirSync(dirname(path), { recursive: true });
-    this.db = new Database(path);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
-    this.db.pragma("busy_timeout = 5000");
-    const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version > 1) {
-      this.db.close();
-      throw new AppError(
-        "DATABASE_NEWER",
-        "数据库版本比当前应用新，请使用对应版本的应用",
-      );
-    }
-    if (version === 0)
-      this.db.transaction(() => {
-        this.db.exec(`
-        CREATE TABLE projects (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, json TEXT NOT NULL);
-        CREATE TABLE repository_paths (path_key TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id));
-        CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), status TEXT NOT NULL, created_at TEXT NOT NULL, json TEXT NOT NULL);
-        CREATE TABLE contexts (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), json TEXT NOT NULL);
-        CREATE TABLE task_events (task_id TEXT NOT NULL REFERENCES tasks(id), sequence INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY(task_id, sequence));
-        CREATE INDEX tasks_by_project ON tasks(project_id, created_at);
-        PRAGMA user_version = 1;
-      `);
-      })();
+    const db = new Database(path);
+    try {
+      db.pragma("journal_mode = WAL"); db.pragma("foreign_keys = ON"); db.pragma("busy_timeout = 5000");
+      await migrateDatabase(db,path,options.backupDirectory);
+      return new DataStore(path,db);
+    } catch(error) { db.close(); throw error; }
   }
   close(): void {
     if (this.db.open) this.db.close();

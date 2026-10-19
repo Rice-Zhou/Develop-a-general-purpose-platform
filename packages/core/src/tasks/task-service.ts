@@ -56,7 +56,7 @@ export class TaskService {
   }
   async enqueue(
     projectId: string,
-    _kind: "PREPARE_CONTEXT",
+    kind: Task['kind'],
     attempt = 1,
   ): Promise<Task> {
     if (this.stopping)
@@ -69,7 +69,8 @@ export class TaskService {
       id: randomUUID(),
       projectId,
       projectName: project.name,
-      kind: "PREPARE_CONTEXT",
+      kind,
+      attemptId: randomUUID(),
       status: "QUEUED",
       attempt,
       createdAt: now,
