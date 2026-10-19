@@ -28,6 +28,7 @@ const config: ForgeConfig = {
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
+        { entry: 'packages/adapters/src/documents/parser-worker.ts', config: 'vite.parser.config.ts', target: 'main' },
         {
           entry: "apps/desktop/src/main/main.ts",
           config: "vite.main.config.ts",
