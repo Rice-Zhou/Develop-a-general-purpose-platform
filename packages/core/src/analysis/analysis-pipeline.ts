@@ -342,6 +342,17 @@ export class AnalysisPipeline {
       "BUG 预分析：只基于本次 issue 与 materials 取证。输出 JSON {reproduction:string[], facts:[{text:string,evidenceIds:string[]}], hypotheses:[{text:string,supportEvidenceIds:string[],counterEvidenceIds:string[],nextSteps:string[]}], missingInformation:string[]}。facts 只描述有代码证据的事实；hypotheses 是待验证原因，不能宣称已确定根因。需通过工具读取代码，不能将零搜索命中当作历史 BUG 无效。说明调用路径和可执行排查步骤。";
     return this.corrected(goal, { issue }, signal, async (value) => {
       const proposal = BugProposalSchema.parse(value);
+      if (!proposal.facts.length && !proposal.hypotheses.length) {
+        if (proposal.missingInformation.length)
+          throw new AppError(
+            "BUG_EVIDENCE_INSUFFICIENT",
+            `材料不足，未生成成功报告：${proposal.missingInformation.join("；").slice(0, 1500)}`,
+          );
+        throw new AppError(
+          "OUTPUT_INVALID",
+          "BUG 输出完全为空，未形成分析结果",
+        );
+      }
       const allIds = new Set([
         ...proposal.facts.flatMap((f) => f.evidenceIds),
         ...proposal.hypotheses.flatMap((h) => [
@@ -362,6 +373,17 @@ export class AnalysisPipeline {
           throw new AppError(
             "OUTPUT_INVALID",
             "BUG 事实必须引用本次取得的代码证据",
+          );
+      for (const hypothesis of proposal.hypotheses)
+        if (
+          ![
+            ...hypothesis.supportEvidenceIds,
+            ...hypothesis.counterEvidenceIds,
+          ].some((id) => this.evidence.get(id)?.kind === "code")
+        )
+          throw new AppError(
+            "OUTPUT_INVALID",
+            "BUG 候选原因必须引用本次取得的代码依据；没有代码依据时只报告缺失信息",
           );
       await new EvidenceValidator().validate(refs, this.reader, signal);
       return BugReportSchema.parse({

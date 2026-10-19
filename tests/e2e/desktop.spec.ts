@@ -42,7 +42,7 @@ test("real desktop persists projects and prepares a pinned context without expos
     await fixture.publish("updated for desktop test\n");
     await page.getByRole("button", { name: "更新并准备上下文" }).click();
     await expect(
-      page.getByText("准备成功", { exact: true }).first(),
+      page.getByText("已完成", { exact: true }).first(),
     ).toBeVisible({ timeout: 30000 });
     await page.getByRole("button", { name: "查看详情" }).first().click();
     await expect(page.getByText("代码快照", { exact: true })).toBeVisible();

@@ -29,7 +29,7 @@ const issue: IssueSnapshot = {
   attachments: [],
   warnings: ["附件未解析"],
 };
-it.each([true, false])(
+it.each([true, false, "empty", "unsupported", "missing"])(
   "validates BUG facts and retains hypotheses as preliminary (fabricated=%s)",
   async (fabricated) => {
     const reader = new ContextReader(
@@ -80,6 +80,26 @@ it.each([true, false])(
       complete: async (
         messages: { role: string; content: string | null }[],
       ) => {
+        if (typeof fabricated === "string")
+          return {
+            content: JSON.stringify({
+              reproduction: [],
+              facts: [],
+              hypotheses:
+                fabricated === "unsupported"
+                  ? [
+                      {
+                        text: "凭空猜测",
+                        supportEvidenceIds: [],
+                        counterEvidenceIds: [],
+                        nextSteps: ["检查"],
+                      },
+                    ]
+                  : [],
+              missingInformation:
+                fabricated === "missing" ? ["请提供故障版本和可定位代码"] : [],
+            }),
+          };
         if (round++ === 0)
           return {
             content: null,
@@ -149,7 +169,12 @@ it.each([true, false])(
       new AbortController().signal,
     );
     if (fabricated)
-      await expect(result).rejects.toMatchObject({ code: "OUTPUT_INVALID" });
+      await expect(result).rejects.toMatchObject({
+        code:
+          fabricated === "missing"
+            ? "BUG_EVIDENCE_INSUFFICIENT"
+            : "OUTPUT_INVALID",
+      });
     else {
       const report = await result;
       expect(report.evidenceRefs).toHaveLength(1);

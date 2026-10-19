@@ -49,36 +49,67 @@ it("uses bounded read-only Jira CLI queries and validates every returned issue",
   const calls: string[][] = [];
   const run = async (_exe: string, args: string[]) => {
     calls.push(args);
-    if (args[0] === "serverinfo") return "Base URL: https://jira.example\n";
+    if (args[0] === "serverinfo") return "Deployment Type: Server\n";
+    if (args[1] === "view") return JSON.stringify(raw());
     return args.includes("0:100") ? JSON.stringify([raw()]) : "[]";
   };
-  const adapter = new JiraCliAdapter(process.cwd(), run);
+  const adapter = new JiraCliAdapter(
+    process.cwd(),
+    run,
+    async () => "https://jira.example",
+  );
   const issues = await adapter.list(scope, new AbortController().signal);
   expect(issues).toHaveLength(1);
   expect(calls[1]).toContain("--raw");
   expect(calls[1]).toContain("--project");
+  expect(calls[1][calls[1].indexOf("--jql") + 1]).not.toMatch(/ORDER BY/i);
+  expect(calls[1]).toContain("--order-by");
+  expect(calls[1]).toContain("--reverse");
   expect(calls[1][calls[1].indexOf("--jql") + 1]).toContain(
     'assignee = "alice\\" OR project IS NOT EMPTY"',
   );
-  expect(calls[2]).toContain("1:100");
+  expect(calls[3]).toContain("1:100");
   await expect(
-    new JiraCliAdapter(process.cwd(), async (_e, a) =>
-      a[0] === "serverinfo"
-        ? "Base URL: https://jira.example"
-        : JSON.stringify([raw("bob")]),
+    new JiraCliAdapter(
+      process.cwd(),
+      async (_e, a) =>
+        a[0] === "serverinfo"
+          ? "Deployment Type: Server"
+          : a[1] === "view"
+            ? JSON.stringify(raw("bob"))
+            : JSON.stringify([raw("bob")]),
+      async () => "https://jira.example",
     ).list(scope, new AbortController().signal),
   ).rejects.toMatchObject({ code: "ISSUE_OUT_OF_SCOPE" });
   await expect(
     new JiraCliAdapter(
       process.cwd(),
       async () => "Base URL: https://wrong.example",
+      async () => "https://wrong.example",
     ).list(scope, new AbortController().signal),
   ).rejects.toMatchObject({ code: "CLI_INSTANCE_MISMATCH" });
 });
+it("rejects a known out-of-project Jira key before running any CLI command", async () => {
+  let calls = 0;
+  await expect(
+    new JiraCliAdapter(process.cwd(), async () => {
+      calls++;
+      return "https://jira.example";
+    }).get(scope, "OTHER-2", new AbortController().signal),
+  ).rejects.toMatchObject({ code: "ISSUE_OUT_OF_SCOPE" });
+  expect(calls).toBe(0);
+});
 it("rejects repeated pages rather than publishing a partial Jira list", async () => {
   await expect(
-    new JiraCliAdapter(process.cwd(), async (_e, a) =>
-      a[0] === "serverinfo" ? "https://jira.example" : JSON.stringify([raw()]),
+    new JiraCliAdapter(
+      process.cwd(),
+      async (_e, a) =>
+        a[0] === "serverinfo"
+          ? "Deployment Type: Server"
+          : a[1] === "view"
+            ? JSON.stringify(raw())
+            : JSON.stringify([raw()]),
+      async () => "https://jira.example",
     ).list(scope, new AbortController().signal),
   ).rejects.toMatchObject({ code: "ISSUE_PAGINATION_INVALID" });
 });

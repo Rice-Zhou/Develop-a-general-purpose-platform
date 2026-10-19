@@ -11,7 +11,8 @@ import {
   type RemoteIssue,
 } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
-import { runProcess } from "../process/run-process";
+import { runProcess, ProcessExitError } from "../process/run-process";
+import { readJiraServer } from "./jira-config";
 const id = z.union([z.string(), z.number()]).transform(String);
 const record = z.object({
   id,
@@ -70,6 +71,7 @@ export class JiraCliAdapter implements IssueAdapter {
   constructor(
     private readonly cwd: string,
     private readonly run: typeof runProcess = runProcess,
+    private readonly readServer: typeof readJiraServer = readJiraServer,
   ) {}
   private args(scope: IssueScope): string[] {
     const c = scope.connection;
@@ -85,14 +87,56 @@ export class JiraCliAdapter implements IssueAdapter {
       );
     return ["--config", c.configFile, "--project", scope.binding.projectKey];
   }
-  private execute(
+  private async page(
+    scope: IssueScope,
+    args: string[],
+    signal: AbortSignal,
+  ): Promise<unknown[]> {
+    let output: string;
+    try {
+      output = await this.execute(scope, args, signal);
+    } catch (error) {
+      // jira-cli 1.7.0 exits 1 with this exact diagnostic for a successful empty query.
+      if (
+        error instanceof ProcessExitError &&
+        error.exitCode === 1 &&
+        error.diagnostic ===
+          `✗ No result found for given query in project ${JSON.stringify(scope.binding.projectKey)}`
+      )
+        return [];
+      throw error;
+    }
+    return z
+      .union([
+        z.array(z.unknown()),
+        z.object({ issues: z.array(z.unknown()) }).transform((v) => v.issues),
+      ])
+      .parse(JSON.parse(output));
+  }
+  private async execute(
     scope: IssueScope,
     args: string[],
     signal: AbortSignal,
   ): Promise<string> {
     if (scope.connection.kind !== "jira-cli")
       throw new AppError("ISSUE_CONNECTION_INVALID", "不是 Jira CLI 连接");
-    const env = { ...process.env, NO_COLOR: "1", CLICOLOR: "0" };
+    const configArgs = this.args(scope);
+    if (
+      instanceUrl(await this.readServer(scope.connection.configFile)) !==
+      instanceUrl(scope.connection.baseUrl)
+    )
+      throw new AppError(
+        "CLI_INSTANCE_MISMATCH",
+        "Jira CLI 配置中的 server 与绑定实例不一致，未启动命令",
+      );
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      NO_COLOR: "1",
+      CLICOLOR: "0",
+    };
+    delete env.JIRA_SERVER;
+    delete env.JIRA_SERVER_URL;
+    delete env.JIRA_CONFIG_FILE;
     if (scope.connection.bypassProxy)
       Object.assign(env, {
         HTTP_PROXY: "",
@@ -102,31 +146,27 @@ export class JiraCliAdapter implements IssueAdapter {
         https_proxy: "",
         all_proxy: "",
       });
-    return this.run(
-      scope.connection.executable,
-      [...args, ...this.args(scope)],
-      {
-        cwd: this.cwd,
-        signal,
-        env,
-        timeoutMs: 30000,
-        maxOutput: 8 * 1024 * 1024,
-      },
-    );
+    return this.run(scope.connection.executable, [...args, ...configArgs], {
+      cwd: this.cwd,
+      signal,
+      env,
+      timeoutMs: 30000,
+      maxOutput: 8 * 1024 * 1024,
+    });
   }
   async probe(scope: IssueScope, signal: AbortSignal): Promise<void> {
     const output = await this.execute(scope, ["serverinfo"], signal);
-    const urls =
-      output.replace(/\x1b\[[0-9;]*m/g, "").match(/https?:\/\/[^\s<>]+/g) ?? [];
-    if (
-      !urls.some(
-        (url) =>
-          url.replace(/\/$/, "") === instanceUrl(scope.connection.baseUrl),
-      )
-    )
+    const deployment = output
+      .match(/Deployment Type:\s*([^\r\n]+)/)?.[1]
+      ?.trim();
+    const allowed =
+      scope.connection.platform === "jira-cloud"
+        ? ["Cloud"]
+        : ["Server", "Data Center"];
+    if (!deployment || !allowed.includes(deployment))
       throw new AppError(
-        "CLI_INSTANCE_MISMATCH",
-        "Jira CLI 的 serverinfo 未确认所配置实例；请检查 CLI 配置和版本",
+        "CLI_DEPLOYMENT_MISMATCH",
+        "Jira CLI 未返回匹配的部署类型，请检查配置和 CLI 版本",
       );
   }
   private normalize(scope: IssueScope, input: unknown): RemoteIssue {
@@ -183,40 +223,43 @@ export class JiraCliAdapter implements IssueAdapter {
       '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
     if (!scope.binding.issueTypeIds?.length)
       throw new AppError("ISSUE_NOT_CONFIGURED", "请配置 BUG 类型 ID");
-    const jql = `project = ${quote(scope.binding.projectKey)} AND assignee = ${quote(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quote).join(",")}) ORDER BY key ASC`;
+    const jql = `project = ${quote(scope.binding.projectKey)} AND assignee = ${quote(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quote).join(",")})`;
     const result: RemoteIssue[] = [];
     const seen = new Set<string>();
     for (let page = 0; page < 100; page++) {
-      const raw: unknown = JSON.parse(
-        await this.execute(
-          scope,
-          [
-            "issue",
-            "list",
-            "--raw",
-            "--jql",
-            jql,
-            "--paginate",
-            `${result.length}:100`,
-          ],
-          signal,
-        ),
+      const items = await this.page(
+        scope,
+        [
+          "issue",
+          "list",
+          "--raw",
+          "--jql",
+          jql,
+          "--paginate",
+          `${result.length}:100`,
+          "--order-by",
+          "key",
+          "--reverse",
+        ],
+        signal,
       );
-      const items = z
-        .union([
-          z.array(z.unknown()),
-          z.object({ issues: z.array(z.unknown()) }).transform((v) => v.issues),
-        ])
-        .parse(raw);
       if (!items.length) return result;
       for (const item of items) {
-        const issue = this.normalize(scope, item);
-        if (seen.has(issue.remoteId))
+        // list --raw is a CLI projection: fetch raw detail for stable identity and project fields.
+        const key = z.object({ key: z.string() }).parse(item).key;
+        if (seen.has(key))
           throw new AppError(
             "ISSUE_PAGINATION_INVALID",
             "Jira 分页重复，未发布部分列表",
           );
-        seen.add(issue.remoteId);
+        const issue = await this.detail(scope, key, signal);
+        if (seen.has("id:" + issue.remoteId))
+          throw new AppError(
+            "ISSUE_PAGINATION_INVALID",
+            "Jira 分页重复，未发布部分列表",
+          );
+        seen.add(key);
+        seen.add("id:" + issue.remoteId);
         result.push(issue);
         if (result.length > 5000)
           throw new AppError(
@@ -235,9 +278,25 @@ export class JiraCliAdapter implements IssueAdapter {
     key: string,
     signal: AbortSignal,
   ): Promise<RemoteIssue> {
+    this.assertKey(scope, key);
+    await this.probe(scope, signal);
+    return this.detail(scope, key, signal);
+  }
+  private assertKey(scope: IssueScope, key: string): void {
     if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(key))
       throw new AppError("ISSUE_KEY_INVALID", "Jira 编号格式应为 PROJECT-123");
-    await this.probe(scope, signal);
+    if (key.slice(0, key.lastIndexOf("-")) !== scope.binding.projectKey)
+      throw new AppError(
+        "ISSUE_OUT_OF_SCOPE",
+        "Jira 编号不属于配置项目，未启动读取命令",
+      );
+  }
+  private async detail(
+    scope: IssueScope,
+    key: string,
+    signal: AbortSignal,
+  ): Promise<RemoteIssue> {
+    this.assertKey(scope, key);
     const issue = this.normalize(
       scope,
       JSON.parse(

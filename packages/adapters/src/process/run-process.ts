@@ -10,6 +10,17 @@ export interface ProcessOptions {
   maxOutput?: number;
   env?: NodeJS.ProcessEnv;
 }
+export class ProcessExitError extends AppError {
+  constructor(
+    public readonly exitCode: number | null,
+    public readonly diagnostic: string,
+  ) {
+    super(
+      "PROCESS_FAILED",
+      `工具退出码 ${exitCode}。${diagnostic || "请检查工具登录、权限及版本"}`,
+    );
+  }
+}
 export function runProcess(
   executable: string,
   args: string[],
@@ -93,19 +104,18 @@ export function runProcess(
         }
         if (code !== 0) {
           reject(
-            new AppError(
-              "PROCESS_FAILED",
-              `工具退出码 ${code}。${
-                diagnostic
-                  .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
-                  .replace(
-                    /(?:Bearer|token|password|api[_-]?key)["']?\s*[=: ]+\s*["']?[^\s,"']+/gi,
-                    "[凭据已隐藏]",
-                  )
-                  .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[密钥已隐藏]")
-                  .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
-                  .slice(0, 2000) || "请检查工具登录、权限及版本"
-              }`,
+            new ProcessExitError(
+              code,
+              diagnostic
+                .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
+                .replace(
+                  /(?:Bearer|token|password|api[_-]?key)["']?\s*[=: ]+\s*["']?[^\s,"']+/gi,
+                  "[凭据已隐藏]",
+                )
+                .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[密钥已隐藏]")
+                .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+                .slice(0, 2000)
+                .trim(),
             ),
           );
           return;

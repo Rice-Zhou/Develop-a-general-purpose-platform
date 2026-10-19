@@ -107,12 +107,17 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       ),
       [
         "/nologo",
+        "/codepage:65001",
         `/out:${exe}`,
         resolve("packages/testkit/fixtures/issues/JiraFixture.cs"),
       ],
       { windowsHide: true, stdio: "pipe" },
     );
     await writeFile(join(data, "host.txt"), base);
+    await writeFile(
+      join(data, "jira.yml"),
+      `server: ${base}\ninstallation: Local\nlogin: alice\n`,
+    );
     await writeFile(
       join(data, "issue.json"),
       JSON.stringify({
@@ -224,7 +229,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
         );
         return { projectId: project.id, j, t };
       },
-      { base, exe, config: join(data, "host.txt"), repo: f.analysis },
+      { base, exe, config: join(data, "jira.yml"), repo: f.analysis },
     );
     await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
     await page

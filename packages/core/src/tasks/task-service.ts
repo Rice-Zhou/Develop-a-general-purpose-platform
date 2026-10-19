@@ -19,6 +19,7 @@ import type { TaskRepository, RepositoryAdapter } from "../ports";
 import type { ProjectService } from "../projects/project-service";
 
 const humanActionCodes = new Set([
+  "BUG_EVIDENCE_INSUFFICIENT",
   "ISSUE_NOT_CONFIGURED",
   "ISSUE_OUT_OF_SCOPE",
   "ISSUE_CHANGED",
