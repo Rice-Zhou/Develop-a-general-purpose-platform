@@ -14,6 +14,8 @@ export interface JiraCatalogue {
   typeSource: "server" | "cli-config";
 }
 const atom = z.string().trim().min(1).max(2048);
+export const JiraConnectionProjectSchema = z.object({ key: atom, name: atom, owner: atom, issueTypeIds: z.array(atom).min(1).max(50) }).strict();
+const jiraProject = JiraConnectionProjectSchema.optional();
 const base = {
   name: atom,
   baseUrl: z.url(),
@@ -24,6 +26,7 @@ export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
     .object({
       ...base,
       kind: z.literal("jira-cli"),
+      jiraProject,
       platform: z.enum(["jira-cloud", "jira-dc"]),
       executable: atom,
       configFile: atom,
@@ -33,6 +36,7 @@ export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
     .object({
       ...base,
       kind: z.literal("jira-http"),
+      jiraProject,
       platform: z.literal("jira-dc"),
       username: atom.refine((value) => !/[\r\n:]/.test(value), "账号格式无效"),
     })
@@ -43,6 +47,7 @@ export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
       kind: z.literal("trinity"),
       platform: z.literal("trinity"),
       username: atom.optional(),
+      accountId: atom.optional(),
     })
     .strict(),
 ]);

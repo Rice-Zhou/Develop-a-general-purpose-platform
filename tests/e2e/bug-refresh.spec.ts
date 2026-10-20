@@ -84,6 +84,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
           await window.platform.saveIssueConnection(
             {
               kind: "jira-http",
+              jiraProject: {key:"A",name:"Project A",owner:"alice",issueTypeIds:["1"]},
               platform: "jira-dc",
               name: "fixture",
               baseUrl: base,
@@ -182,8 +183,8 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
     await expect(page.getByRole("link", { name: "B-1", exact: true })).toHaveCount(0);
     const analyze = page.getByRole("button", { name: "更新代码并预分析", exact: true });
     await expect(analyze).toBeDisabled();
-    await expect(analyze).toHaveAttribute("title", "预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。");
-    await expect(page.getByText("预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。", { exact: true })).toBeVisible();
+    await expect(analyze).toHaveAttribute("title", "预分析不可用：匹配的代码项目未配置可用 AI 执行连接。");
+    await expect(page.getByText("预分析不可用：匹配的代码项目未配置可用 AI 执行连接。", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "A-2", exact: true })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "查看 BUG 报告", exact: true }),

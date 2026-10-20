@@ -9,9 +9,9 @@ export async function migrateDatabase(
   backupDirectory = dirname(path),
 ): Promise<void> {
   const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > 7)
+  if (version > 8)
     throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
-  if (version >= 1 && version < 7) {
+  if (version >= 1 && version < 8) {
     await mkdir(backupDirectory, { recursive: true });
     await db.backup(
       join(
@@ -20,7 +20,7 @@ export async function migrateDatabase(
       ),
     );
   }
-  if (version === 7) return;
+  if (version === 8) return;
   db.transaction(() => {
     if (version === 0)
       db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
@@ -64,6 +64,28 @@ export async function migrateDatabase(
     const profiles = db.prepare("SELECT json FROM settings WHERE key='profiles'").get() as { json: string } | undefined;
     const first = profiles ? JSON.parse(profiles.json)[0] : undefined;
     if (first) db.prepare("INSERT OR IGNORE INTO settings(key,json) VALUES(?,?)").run("default-ai-profile", JSON.stringify(first.id));
-    db.pragma("user_version = 7");
+    // v8 separates fixed Jira project connections from the singleton Trinity account.
+    const connectionRow=db.prepare("SELECT json FROM settings WHERE key='issue-connections'").get() as {json:string}|undefined;
+    {
+      const connections=(connectionRow ? JSON.parse(connectionRow.json) : []) as import("../../contracts/src/issues").IssueConnection[];
+      const account=connections.filter(c=>c.kind==="trinity").at(-1);
+      const projects=db.prepare("SELECT id,json FROM projects").all() as {id:string;json:string}[];
+      const migrated=connections.filter(c=>c.kind!=="trinity").map(c=>{
+        if(c.jiraProject)return c;
+        const refs=projects.filter(p=>!JSON.parse(p.json).deletedAt).flatMap(p=>JSON.parse(p.json).issueBindings??[]).filter((b:{connectionId?:string})=>b.connectionId===c.id);
+        const distinct=[...new Set(refs.map((b:{projectKey:string;owner:string;issueTypeIds?:string[]})=>JSON.stringify({key:b.projectKey,owner:b.owner,issueTypeIds:b.issueTypeIds})))];
+        if(distinct.length!==1)return c;
+        const selected=JSON.parse(distinct[0] as string);
+        return selected.issueTypeIds?.length?{...c,jiraProject:{...selected,name:selected.key}}:c;
+      });
+      db.prepare("UPDATE settings SET json=? WHERE key='issue-connections'").run(JSON.stringify([...migrated,...(account?[account]:[])]));
+      for(const row of projects){
+        const project=JSON.parse(row.json);
+        const mappings=project.trinityProjects??(project.issueBindings??[]).filter((b:{platform:string;connectionId?:string;scopeMode?:string})=>b.platform==="trinity"&&b.connectionId===account?.id&&b.scopeMode!=="account").map((b:{instanceUrl:string;projectKey:string})=>({instanceUrl:b.instanceUrl,projectId:b.projectKey}));
+        const updated={...project,trinityProjects:mappings,issueBindings:(project.issueBindings??[]).filter((b:{platform:string})=>b.platform!=="trinity")};
+        db.prepare("UPDATE projects SET json=? WHERE id=?").run(JSON.stringify(updated),row.id);
+      }
+    }
+    db.pragma("user_version = 8");
   })();
 }

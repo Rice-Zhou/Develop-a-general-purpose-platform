@@ -38,6 +38,7 @@ it("indexes every non-completed Jira status and rejects completed single reads a
     getSetting: <T>() => [connection] as T,
     setSetting: () => {},
     issues: {
+      replaceBatches: values => { for(const value of values){batch=value.snapshots;publications++;} },
       save: () => { publications++; },
       get: () => batch[0],
       replaceBatch: (_p, _b, _h, next) => {

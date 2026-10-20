@@ -1,80 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import type { JiraCatalogue, PublicIssueConnection } from "../../../../../packages/contracts/src/issues";
+import type { PublicIssueConnection } from "../../../../../packages/contracts/src/issues";
 import type { Project } from "../../../../../packages/contracts/src/models";
-import { message, unwrap } from "../api";
 import { IssueConnectionsPage } from "../pages/IssueConnectionsPage";
-import { JiraProjectPicker } from "./JiraProjectPicker";
-
-type Binding = Project["issueBindings"][number];
-export function JiraProjectField({ binding, connections, onConnectionSaved, onChange, onReadinessChange, initialConnectionId }: {
-  initialConnectionId?: string;
-  binding?: Binding;
-  connections: PublicIssueConnection[];
-  onConnectionSaved: (connection: PublicIssueConnection) => void;
-  onChange: (binding: Binding | null) => void;
-  onReadinessChange: (ready: boolean) => void;
+type Binding=Project["issueBindings"][number];
+export function JiraProjectField({binding,connections,onConnectionSaved,onChange,initialConnectionId}: {
+ initialConnectionId?:string;binding?:Binding;connections:PublicIssueConnection[];onConnectionSaved:(connection:PublicIssueConnection)=>void;onChange:(binding:Binding|null)=>void;
 }) {
-  const [connectionId, setConnectionId] = useState(initialConnectionId ?? binding?.connectionId ?? "");
-  const [catalogue, setCatalogue] = useState<JiraCatalogue | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const sequence = useRef(0);
-  const bindingRef = useRef(binding);
-  bindingRef.current = binding;
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const connection = connections.find((c) => c.id === connectionId);
-  function select(key: string, data: JiraCatalogue, types?: string[]) {
-    if (!key || !connection) { onChangeRef.current(null); return; }
-    const candidates = data.issueTypes.filter((t) => /bug|缺陷|故障/i.test(t.name));
-    const issueTypeIds = types ?? (candidates.length === 1 ? [candidates[0].id] : []);
-    onChangeRef.current({ id: bindingRef.current?.id ?? crypto.randomUUID(), connectionId, instanceUrl: connection.baseUrl, platform: connection.platform, projectKey: key, owner: data.owner, issueTypeIds });
-  }
-  async function load() {
-    const request = ++sequence.current;
-    setCatalogue(null); setError(""); setLoading(true); onReadinessChange(false);
-    try {
-      const next = unwrap(await window.platform.getJiraCatalogue(connectionId));
-      if (request !== sequence.current) return;
-      setCatalogue(next);
-      onReadinessChange(true);
-      const previous = bindingRef.current;
-      if (previous?.connectionId === connectionId) {
-        if (previous.owner !== next.owner || !next.projects.some(p => p.key === previous.projectKey)) setError("当前登录身份或可访问项目已变化。原范围保持不变；如需调整，请重新选择 Jira 项目。");
-      } else onChangeRef.current(null);
-    } catch (e) { if (request === sequence.current) setError(message(e)); }
-    finally { if (request === sequence.current) setLoading(false); }
-  }
-  useEffect(() => {
-    if (connection) void load();
-    else { setCatalogue(null); setError(""); setLoading(false); onReadinessChange(false); }
-    return () => { sequence.current++; };
-    // A login choice owns its response; editing a project name must not refetch.
-  }, [connectionId, connection]);
-  return <div className="binding-form">
-    <label>Jira 登录连接<select value={connectionId} onChange={(e) => { sequence.current++; setConnectionId(e.target.value); onReadinessChange(false); onChange(null); }}>
-      <option value="">添加登录连接</option>
-      {connectionId && !connection && <option value={connectionId} disabled>原关联已失效，请重新选择</option>}
-      {connections.filter((c) => c.platform !== "trinity").map((c) => <option key={c.id} value={c.id}>{c.name} · {c.kind === "jira-cli" ? "Jira CLI" : "账号登录"}</option>)}
-    </select></label>
-    {connectionId && !connection && <div className="error-panel" role="alert">原 Jira 连接已不存在。请选择已有登录连接，或添加登录连接，然后重新选择 Jira 项目并保存。</div>}
-    {!connectionId && <IssueConnectionsPage embedded onSaved={(saved) => { onConnectionSaved(saved); setConnectionId(saved.id); }} />}
-    {connectionId && <>
-      <button type="button" className="secondary" disabled={loading || !connection} onClick={() => void load()}>刷新 Jira 项目列表</button>
-      {loading && <p role="status">正在读取登录身份与可访问的 Jira 项目…</p>}
-      {error && <div className="error-panel" role="alert">{error}</div>}
-      <JiraProjectPicker key={connectionId} projects={catalogue?.projects ?? []} value={binding?.projectKey} disabled={!catalogue || loading} onChange={(key) => {
-        if (key && catalogue) select(key, catalogue);
-        else onChange(null);
-      }} />
-      {catalogue && <>
-        {catalogue.owner && <p className="muted small">仅接收分配给 {catalogue.owner} 的问题</p>}
-        {!catalogue.projects.length && <p role="status">当前登录账号没有可访问的 Jira 项目。</p>}
-        {catalogue.typeSource === "cli-config" && <p className="muted small">类型来自本地 Jira CLI 配置；请确认配置已更新。读取问题时仍会校验实际项目、负责人和类型。</p>}
-        {binding && <label>缺陷类型<select multiple required value={binding.issueTypeIds ?? []} onChange={(e) => select(binding.projectKey, catalogue, Array.from(e.target.selectedOptions, (option) => option.value))}>
-          {catalogue.issueTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select></label>}
-      </>}
-    </>}
-  </div>;
+ const [connectionId,setConnectionId]=useState(initialConnectionId??binding?.connectionId??"");
+ const change=useRef(onChange);change.current=onChange;
+ const original=useRef(binding);original.current=binding;
+ const connection=connections.find(c=>c.id===connectionId&&c.kind!=="trinity");
+ useEffect(()=>{
+  if(connection&&connection.kind!=="trinity"&&connection.jiraProject){const p=connection.jiraProject;change.current({id:original.current?.id??crypto.randomUUID(),connectionId:connection.id,platform:connection.platform,instanceUrl:connection.baseUrl,projectKey:p.key,owner:p.owner,issueTypeIds:p.issueTypeIds});}
+ },[connection]);
+ return <div className="binding-form">
+  <label>Jira 项目连接<select value={connectionId} onChange={e=>{setConnectionId(e.target.value);onChange(null);}}><option value="">添加 Jira 项目连接</option>
+   {connectionId&&!connection&&<option value={connectionId} disabled>原关联已失效，请重新选择</option>}
+   {connections.filter(c=>c.kind!=="trinity").map(c=><option key={c.id} value={c.id}>{c.name}{c.jiraProject?` · ${c.jiraProject.name}（${c.jiraProject.key}）`:" · 待配置 Jira 项目"}</option>)}
+  </select></label>
+  {connectionId&&!connection&&<div className="error-panel" role="alert">原 Jira 连接已不存在，请选择已有连接或添加连接。</div>}
+  {connection&&connection.kind!=="trinity"&&(connection.jiraProject?<p className="muted small">已配置项目：{connection.jiraProject.name}（{connection.jiraProject.key}） · 负责人：{connection.jiraProject.owner}。切换连接即可更换 Jira 项目。</p>:<p className="error-panel" role="alert">请先在设置编辑此连接，登录并选择 Jira 项目后再关联。</p>)}
+  {!connectionId&&<IssueConnectionsPage embedded onSaved={saved=>{onConnectionSaved(saved);setConnectionId(saved.id);}}/>}
+ </div>;
 }

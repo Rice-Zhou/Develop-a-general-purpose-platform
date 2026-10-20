@@ -33,7 +33,7 @@ interface MonitorStore {
   setSetting(key: string, value: unknown): void;
 }
 const STATE_KEY = "issue-monitor-state";
-const cursorKey = (projectId: string, bindingId: string) => `${projectId}:${bindingId}`;
+const cursorKey = (projectId: string, binding: Project["issueBindings"][number]) => binding.scopeMode === "account" ? `account:${binding.connectionId}` : `${projectId}:${binding.id}`;
 
 export class IssueMonitor {
   private readonly state: MonitorState;
@@ -42,6 +42,7 @@ export class IssueMonitor {
   private timer: NodeJS.Timeout | undefined;
   private runtimeError: ErrorData | null = null;
   private ticking = false;
+  private delivery: Promise<void> | undefined;
   constructor(
     private readonly store: MonitorStore,
     private readonly issues: IssueService,
@@ -87,7 +88,7 @@ export class IssueMonitor {
     return { ...workspace, sources: workspace.sources.map(source => {
       if (source.error) return source;
       const scopeHash = bindingFingerprint(this.issues.scope(projectId, source.bindingId));
-      const cursor = this.state.cursors[cursorKey(projectId, source.bindingId)];
+      const cursor = this.state.cursors[cursorKey(projectId, this.issues.scope(projectId,source.bindingId).binding)];
       return cursor?.scopeHash === scopeHash ? { ...cursor.source, label: source.label, count: source.count } : source;
     }) };
   }
@@ -105,7 +106,7 @@ export class IssueMonitor {
     const successful = new Set<string>();
     const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(ISSUE_REFRESH_TIMEOUT_MS)]);
     const read = async (binding: Project["issueBindings"][number]) => {
-      const key = cursorKey(projectId, binding.id);
+      const key = cursorKey(projectId, binding);
       let scopeHash = "";
       try {
         if (signal.aborted) throw new AppError("CANCELLED", "问题刷新已取消或超时");
@@ -138,7 +139,7 @@ export class IssueMonitor {
     return this.workspace(projectId);
   }
   private observe(project: Project, bindingId: string, scopeHash: string, snapshots: IssueSnapshot[]) {
-    const key = cursorKey(project.id, bindingId);
+    const key = cursorKey(project.id, this.issues.scope(project.id,bindingId).binding);
     const previous = this.state.cursors[key];
     const known = previous?.scopeHash === scopeHash ? previous.known : null;
     if (known && this.state.configuration.enabled && this.state.configuration.notificationsEnabled) {
@@ -147,7 +148,7 @@ export class IssueMonitor {
         this.state.pending.push({
           id: randomUUID(), projectId: project.id, bindingId, scopeHash,
           remoteId: issue.remoteId, key: issue.key,
-          text: `有新的 BUG 需要及时处理\n项目：${project.name}\n${issue.key} · ${issue.title.slice(0, 300)}\n${issueWebUrl(scope, issue)}`,
+          text: `有新的 BUG 需要及时处理\n项目：${scope.binding.scopeMode === "account" ? `Trinity ${issue.remoteProjectId}` : project.name}\n${issue.key} · ${issue.title.slice(0, 300)}\n${issueWebUrl(scope, issue)}`,
         });
       }
     }
@@ -169,12 +170,18 @@ export class IssueMonitor {
     this.state.pending = this.state.pending.filter(event => this.current(event));
     const projects = this.store.listProjects();
     for (const key of Object.keys(this.state.cursors)) {
-      if (!projects.some(p => p.enabled && p.issueBindings.some(b => cursorKey(p.id, b.id) === key)))
+      if (!projects.some(p => p.enabled && p.issueBindings.some(b => cursorKey(p.id, b) === key)))
         delete this.state.cursors[key];
     }
     this.save();
   }
-  private async flush(successful: Set<string>) {
+  private async flush(successful: Set<string>): Promise<void> {
+    if(this.delivery){await this.delivery;return this.flush(successful);}
+    const delivery=this.deliver(successful).finally(()=>{this.delivery=undefined;});
+    this.delivery=delivery;
+    return delivery;
+  }
+  private async deliver(successful: Set<string>) {
     if (!this.state.configuration.enabled || !this.state.configuration.notificationsEnabled || this.controller.signal.aborted) return;
     const events = this.state.pending.filter(e => successful.has(e.scopeHash));
     if (!events.length) return;
@@ -210,7 +217,7 @@ export class IssueMonitor {
       const interval = this.state.configuration.intervalMinutes * 60000;
       for (const project of this.store.listProjects().filter(p => p.enabled)) {
         const due = project.issueBindings.some(b => {
-          const cursor = this.state.cursors[cursorKey(project.id, b.id)];
+          const cursor = this.state.cursors[cursorKey(project.id, b)];
           if (!cursor) return true;
           try {
             if (bindingFingerprint(this.issues.scope(project.id, b.id)) !== cursor.scopeHash) return true;

@@ -6,6 +6,7 @@ import { ScopePolicy, bindingFingerprint, fingerprint } from "./scope-policy";
 import type { Project, Task } from "../../../contracts/src/models";
 import {
   IssueConnectionDraftSchema,
+  RemoteIssueSchema,
   type IssueConnection,
   type IssueScope,
   type IssueSnapshot,
@@ -25,6 +26,7 @@ interface IssueStore {
   issues: {
     save(issue: IssueSnapshot): void;
     get(projectId: string, id: string): IssueSnapshot;
+    replaceBatches(batches: {projectId:string;bindingId:string;scopeHash:string;snapshots:IssueSnapshot[]}[]): void;
     replaceBatch(
       projectId: string,
       bindingId: string,
@@ -39,6 +41,7 @@ interface IssueStore {
   };
 }
 export class IssueService {
+  private readonly accountReads = new Map<string, { key: string | undefined; promise: Promise<IssueSnapshot[]> }>();
   constructor(
     private readonly store: IssueStore,
     private readonly adapter: (connection: IssueConnection) => IssueAdapter,
@@ -76,6 +79,12 @@ export class IssueService {
       ScopePolicy.validate({ projectId: "configuration", enabled: true, binding, connection: this.connection(binding.connectionId) });
       if (!binding.issueTypeIds?.length) throw new AppError("ISSUE_NOT_CONFIGURED", "请选择缺陷类型");
       if (binding.platform === "trinity") continue;
+      const saved = this.connection(binding.connectionId);
+      if (saved.kind !== "trinity" && saved.jiraProject) {
+        const selected = saved.jiraProject;
+        if (binding.projectKey !== selected.key || binding.owner !== selected.owner || !isDeepStrictEqual(binding.issueTypeIds, selected.issueTypeIds)) throw new AppError("JIRA_SELECTION_INVALID", "Jira 范围必须使用连接已保存的项目配置");
+        continue;
+      }
       const catalogue = await this.catalogue(binding.connectionId, signal);
       if (binding.owner !== catalogue.owner || !catalogue.projects.some((p) => p.key === binding.projectKey) || !binding.issueTypeIds?.length || binding.issueTypeIds.some((id) => !catalogue.issueTypes.some((t) => t.id === id)))
         throw new AppError("JIRA_SELECTION_INVALID", "Jira 项目、负责人或缺陷类型与当前登录信息不符，请重新读取并选择");
@@ -99,11 +108,13 @@ export class IssueService {
       credentialRef: input.credentialRef,
     };
     const previous = this.connections().find(c => c.id === input.id);
-    if (previous && (previous.kind !== connection.kind || previous.platform !== connection.platform ||
+    if (previous && (previous.kind !== connection.kind || previous.platform !== connection.platform)) this.assertUnreferenced(input.id);
+    if (previous && connection.kind !== "trinity" && (previous.kind !== connection.kind || previous.platform !== connection.platform ||
       previous.baseUrl !== connection.baseUrl ||
       ("username" in previous ? previous.username : undefined) !== ("username" in connection ? connection.username : undefined))) {
       this.assertUnreferenced(input.id);
     }
+    if (connection.kind === "trinity" && this.connections().some(c => c.kind === "trinity" && c.id !== connection.id)) throw new AppError("TRINITY_ACCOUNT_UNIQUE", "请编辑已有 Trinity 账号，不能添加第二个账号");
     this.store.setSetting("issue-connections", [
       ...this.connections().filter((c) => c.id !== input.id),
       connection,
@@ -113,7 +124,7 @@ export class IssueService {
   }
   deleteConnection(id: string): void {
     this.connection(id);
-    this.assertUnreferenced(id);
+    if (this.connection(id).kind !== "trinity") this.assertUnreferenced(id);
     this.store.setSetting(
       "issue-connections",
       this.connections().filter((c) => c.id !== id),
@@ -145,12 +156,12 @@ export class IssueService {
     const project = this.store.getProject(projectId);
     const issues: IssueWorkspace["issues"] = [];
     const sources = project.issueBindings.map((binding) => {
-      const label = `${this.connections().find(c => c.id === binding.connectionId)?.name ?? binding.platform} · ${binding.projectKey} · ${binding.owner}`;
+      const label = `${this.connections().find(c => c.id === binding.connectionId)?.name ?? binding.platform} · ${binding.scopeMode === "account" ? "账号问题" : binding.projectKey} · ${binding.owner}`;
       try {
         const scope = this.scope(projectId, binding.id);
         const batch = this.store.issues.batch(projectId, binding.id, bindingFingerprint(scope))
           .filter(i => isIssueStatusIndexed(scope.connection.platform, i.status));
-        const linked = batch.map(issue => ({ ...issue, webUrl: issueWebUrl(scope, issue) }));
+        const linked = batch.map(issue => ({ ...issue, webUrl: issueWebUrl(scope, issue), ...this.analysisTarget(projectId, issue) }));
         issues.push(...linked);
         return { bindingId: binding.id, label, status: "idle" as const, count: batch.length, lastSuccessAt: null, error: null };
       } catch (error) {
@@ -173,7 +184,23 @@ export class IssueService {
       fetchedAt: new Date().toISOString(),
     };
   }
-  async refresh(
+  async refresh(projectId: string, bindingId: string, key: string | undefined, signal: AbortSignal): Promise<IssueSnapshot[]> {
+    const scope=this.scope(projectId,bindingId);
+    if(scope.binding.scopeMode!=="account")return this.refreshSource(projectId,bindingId,key,signal);
+    const hash=bindingFingerprint(scope);
+    const previous=this.accountReads.get(hash);
+    if(previous){
+      await previous.promise;
+      if(signal.aborted)throw new AppError("CANCELLED","账号问题读取已取消");
+      this.assertCurrent(scope);
+      if(previous.key!==key)return this.refresh(projectId,bindingId,key,signal);
+      return this.store.issues.batch(projectId,bindingId,hash).filter(issue=>!key||issue.key===key);
+    }
+    const promise=this.refreshSource(projectId,bindingId,key,signal).finally(()=>this.accountReads.delete(hash));
+    this.accountReads.set(hash,{key,promise});
+    return promise;
+  }
+  private async refreshSource(
     projectId: string,
     bindingId: string,
     key: string | undefined,
@@ -189,13 +216,13 @@ export class IssueService {
     const indexed = snapshots.filter((issue) => isIssueStatusIndexed(scope.connection.platform, issue.status));
     if (signal.aborted) throw new AppError("CANCELLED", "问题读取已取消");
     this.assertCurrent(scope);
-    this.store.issues.replaceBatch(
-      projectId,
-      bindingId,
-      bindingFingerprint(scope),
-      key ? [...this.store.issues.batch(projectId, bindingId, bindingFingerprint(scope))
-        .filter(previous => !indexed.some(issue => issue.remoteId === previous.remoteId)), ...indexed] : indexed,
-    );
+    const scopes = scope.binding.scopeMode === "account" ? this.store.listProjects().filter(p=>p.enabled&&p.issueBindings.some(b=>b.id===bindingId)).map(p=>this.scope(p.id,bindingId)) : [scope];
+    const batches=scopes.map(target=>{
+      if(bindingFingerprint(target)!==bindingFingerprint(scope))throw new AppError("PROJECT_CHANGED","Trinity 账号配置已变化，未发布本次列表");
+      const next=target.projectId===projectId?indexed:indexed.map(issue=>this.snapshot(target,RemoteIssueSchema.strip().parse(issue)));
+      return {projectId:target.projectId,bindingId,scopeHash:bindingFingerprint(target),snapshots:key?[...this.store.issues.batch(target.projectId,bindingId,bindingFingerprint(target)).filter(previous=>!next.some(issue=>issue.remoteId===previous.remoteId)),...next]:next};
+    });
+    this.store.issues.replaceBatches(batches);
     return indexed;
   }
   private assertCurrent(scope: IssueScope): void {
@@ -207,6 +234,34 @@ export class IssueService {
         "PROJECT_CHANGED",
         "BUG 范围或连接已变化，未保存本次读取",
       );
+  }
+  analysisTarget(projectId: string, issue: RemoteIssue): { analysisProjectId?: string; analysisProjectName?: string; analysisUnavailable: string } {
+    const current = this.store.getProject(projectId);
+    const accountIssue = current.issueBindings.some(b => b.platform === "trinity" && b.scopeMode === "account" && b.instanceUrl === issue.instanceUrl);
+    if (!accountIssue) return {analysisProjectId:projectId,analysisProjectName:current.name,analysisUnavailable:""};
+    const candidates = this.store.listProjects().filter(p => p.enabled && p.trinityProjects?.some(m => m.projectId === issue.remoteProjectId && new URL(m.instanceUrl).href.replace(/\/$/, "") === new URL(issue.instanceUrl).href.replace(/\/$/, "")));
+    const target = candidates.find(p => p.id === projectId) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    if (!target) return {analysisUnavailable:candidates.length ? "当前问题匹配多个代码项目，请切换至其中一个匹配项目后预分析" : "当前问题与所有项目不匹配，无法进行预分析，请在代码项目配置 Trinity 项目映射"};
+    return {analysisProjectId:target.id,analysisProjectName:target.name,analysisUnavailable:""};
+  }
+  assertAnalysisProject(projectId: string, issue: RemoteIssue): void {
+    const match = this.analysisTarget(projectId, issue);
+    if (match.analysisProjectId !== projectId) throw new AppError("ISSUE_PROJECT_UNMATCHED", match.analysisUnavailable || "当前问题与当前代码项目不匹配，请选择匹配项目重新预分析");
+  }
+  analysisInput(projectId: string, issueSnapshotId: string): { projectId: string; issueSnapshotId: string } {
+    const issue = this.store.issues.get(projectId, issueSnapshotId);
+    const scope = this.scope(projectId, issue.bindingId);
+    if (issue.scopeHash !== bindingFingerprint(scope)) throw new AppError("PROJECT_CHANGED", "BUG 来源或账号已变化，请刷新问题列表");
+    ScopePolicy.assert(scope, issue); ScopePolicy.assertActiveStatus(scope, issue.status);
+    const match = this.analysisTarget(projectId, issue);
+    if (!match.analysisProjectId) throw new AppError("ISSUE_PROJECT_UNMATCHED", match.analysisUnavailable);
+    if (match.analysisProjectId === projectId) return {projectId,issueSnapshotId};
+    const targetScope = this.scope(match.analysisProjectId, issue.bindingId);
+    this.assertAnalysisProject(match.analysisProjectId, issue);
+    const remote = RemoteIssueSchema.strip().parse(issue);
+    const target = this.snapshot(targetScope, remote);
+    this.store.issues.save(target);
+    return {projectId:match.analysisProjectId,issueSnapshotId:target.id};
   }
   async prepare(task: Task, signal: AbortSignal): Promise<string> {
     if (!task.issueSnapshotId)
@@ -227,6 +282,7 @@ export class IssueService {
       signal,
     );
     this.assertCurrent(scope);
+    this.assertAnalysisProject(task.projectId, latest);
     const snapshot = this.snapshot(scope, latest);
     ScopePolicy.assertActiveStatus(scope, snapshot.status);
     this.store.issues.save(snapshot);
@@ -245,6 +301,7 @@ export class IssueService {
       signal,
     );
     ScopePolicy.assert(scope, current);
+    this.assertAnalysisProject(issue.projectId, current);
     ScopePolicy.assertActiveStatus(scope, current.status);
     this.assertCurrent(scope);
     if (fingerprint(current) !== issue.contentHash)

@@ -40,14 +40,7 @@ import { gitFixture } from "../../packages/testkit/src/git-fixture";
       await expect(
         editor.getByRole("button", { name: "添加 Jira 范围" }),
       ).toBeVisible();
-      await expect(
-        editor.getByRole("button", { name: "添加 Trinity 范围" }),
-      ).toBeVisible();
-      await editor.getByRole("button", { name: "添加 Trinity 范围" }).click();
-      await expect(editor.getByLabel("缺陷类型（逗号分隔）")).toHaveValue(
-        "BUG",
-      );
-      await editor.getByRole("button", { name: "移除范围" }).click();
+      await expect(editor.getByRole("button", {name:"添加 Trinity 范围"})).toHaveCount(0);
       await editor.getByLabel("项目名称").fill("配置引导项目");
       await editor
         .getByLabel("分析目录", { exact: true })

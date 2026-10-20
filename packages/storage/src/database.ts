@@ -1,3 +1,6 @@
+import { isDeepStrictEqual } from "node:util";
+import type { IssueConnection } from "../../contracts/src/issues";
+import { resolveIssueBindings } from "../../core/src/issues/bindings";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -18,6 +21,18 @@ interface JsonRow {
   json: string;
 }
 export class DataStore extends AnalysisRepository {
+  override setSetting(key: string, value: unknown): void {
+    if (key !== "issue-connections") { super.setSetting(key, value); return; }
+    const next = value as IssueConnection[];
+    if (next.filter(c => c.platform === "trinity").length > 1) throw new AppError("TRINITY_ACCOUNT_UNIQUE", "Trinity 仅允许一个当前登录账号，请编辑已有账号连接");
+    const previous = this.getSetting<IssueConnection[]>(key) ?? [];
+    const accountChanged = !isDeepStrictEqual(previous.find(c => c.platform === "trinity"), next.find(c => c.platform === "trinity"));
+    const changed = new Set([...previous, ...next].filter(c => !isDeepStrictEqual(previous.find(p => p.id === c.id), next.find(p => p.id === c.id))).map(c => c.id));
+    this.db.transaction(() => {
+      super.setSetting(key, value);
+      this.touchProjects(p => accountChanged || p.issueBindings?.some(b => Boolean(b.connectionId && changed.has(b.connectionId))));
+    })();
+  }
   documentResources(): DocumentResource[] { return this.getSetting<DocumentResource[]>("document-resources") ?? []; }
   getDefaultAIProfile(): string | null { return this.getSetting<string>("default-ai-profile"); }
   setDefaultAIProfile(id: string): void {
@@ -69,6 +84,7 @@ export class DataStore extends AnalysisRepository {
         return { id: ref.id, kind: resource.kind, locator: resource.locator, required: ref.required };
       });
     }
+    project.issueBindings = resolveIssueBindings(project, this.getSetting<IssueConnection[]>("issue-connections") ?? []);
     const defaultId = this.getDefaultAIProfile();
     if (!project.aiProfileId && defaultId) { project.aiProfileId = defaultId; project.usesDefaultAI = true; }
     return project;
@@ -160,7 +176,8 @@ export class DataStore extends AnalysisRepository {
       }
       this.setSetting("document-resources", resources);
       const { usesDefaultAI, ...persisted } = project;
-      const json = { ...persisted, aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
+      const trinityProjects = project.trinityProjects ?? project.issueBindings.filter(b => b.platform === "trinity" && b.scopeMode !== "account").map(b => ({ instanceUrl: b.instanceUrl, projectId: b.projectKey }));
+      const json = { ...persisted, ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
       this.db
         .prepare(
           "INSERT INTO projects VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, json=excluded.json",

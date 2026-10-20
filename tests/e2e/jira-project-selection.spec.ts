@@ -45,12 +45,13 @@ for (const mode of ["account", "cli"] as const) test(`project setup via ${mode} 
     if (mode === "account") {
       await editor.getByLabel("登录账号").fill("alice");
       await editor.getByLabel("登录密码").fill("fixture-password");
-      await editor.getByRole("button", { name: "登录并保存平台连接" }).click();
+
     } else {
       await editor.getByLabel("Jira 可执行文件").fill(process.env.PLATFORM_TEST_JIRA_CLI!);
       await editor.getByLabel("Jira CLI 配置文件").fill(configFile);
-      await editor.getByRole("button", { name: "保存本地 Jira 连接" }).click();
+
     }
+    await editor.getByRole("button", {name:"登录并读取 Jira 项目",exact:true}).click();
     const picker = editor.getByRole("combobox", { name: "Jira 项目", exact: true });
     await expect(picker).toBeEnabled();
     await expect(editor.getByLabel("搜索 Jira 项目", { exact: true })).toHaveCount(0);
@@ -74,7 +75,9 @@ for (const mode of ["account", "cli"] as const) test(`project setup via ${mode} 
     await picker.click();
     await picker.press("Escape");
     await expect(editor.getByRole("listbox", { name: "匹配的 Jira 项目" })).toHaveCount(0);
-    await expect(editor.getByText("仅接收分配给 alice 的问题", { exact: true })).toBeVisible();
+    await editor.getByRole("button", {name:mode==="cli"?"保存本地 Jira 连接":"保存 Jira 连接",exact:true}).click();
+    await expect(editor.getByLabel("Jira 项目连接")).toHaveValue(/.+/);
+    await expect(editor.getByRole("combobox", {name:"Jira 项目",exact:true})).toHaveCount(0);
     await editor.getByRole("button", { name: "保存项目", exact: true }).click();
     await expect(editor).toHaveCount(0);
     const state = await page.evaluate(async () => { const r = await window.platform.listProjects(); if (!r.ok) throw new Error(r.error.message); return r.value; });
@@ -88,56 +91,22 @@ for (const mode of ["account", "cli"] as const) test(`project setup via ${mode} 
     });
     expect(invalidOwner.ok).toBe(false);
     if (!invalidOwner.ok) expect(invalidOwner.error.code).toBe("JIRA_SELECTION_INVALID");
-    await page.getByRole("button", { name: "编辑配置" }).click();
-    const edit = page.getByRole("dialog", { name: "编辑项目" });
-    const editPicker = edit.getByRole("combobox", { name: "Jira 项目", exact: true });
-    await expect(editPicker).toHaveValue("项目乙（B）");
-    await editPicker.fill("A");
-    await expect(edit.getByLabel("缺陷类型")).toHaveCount(0);
-    await editPicker.fill("B");
-    await editPicker.press("ArrowDown");
-    await editPicker.press("Enter");
-    await expect(editPicker).toHaveValue("项目乙（B）");
-    empty = true;
-    await edit.getByRole("button", { name: "刷新 Jira 项目列表" }).click();
-    await expect(edit.getByText("当前登录账号没有可访问的 Jira 项目。", { exact: true })).toBeVisible();
-    deny = true;
-    await edit.getByRole("button", { name: "刷新 Jira 项目列表" }).click();
-    await expect(edit.getByRole("alert")).toContainText("403");
-    await expect(edit.getByLabel("Jira 项目", { exact: true })).toBeDisabled();
-    if (mode === "account") {
-      deny = false; empty = false;
-      await edit.getByRole("button", { name: "取消", exact: true }).click();
-      await app.evaluate(({ ipcMain }) => {
-        const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (event: unknown, input: unknown) => Promise<unknown>> })._invokeHandlers;
-        const original = handlers.get("platform:request")!;
-        ipcMain.removeHandler("platform:request");
-        ipcMain.handle("platform:request", async (event, input) => {
-          if (input.method === "saveProject") {
-            ipcMain.removeHandler("platform:request");
-            ipcMain.handle("platform:request", original);
-          }
-          const result = await original(event, input) as { ok: boolean; value?: { issueBindings: { id: string; projectKey: string }[] }[] };
-          if (input.method !== "listProjects" || !result.ok) return result;
-          return { ...result, value: result.value!.map((p) => ({ ...p, issueBindings: [...p.issueBindings, { ...p.issueBindings[0], id: "legacy-extra", projectKey: "A" }] })) };
-        });
-      });
-      await expect(page.getByText("2 条 BUG 范围", { exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "编辑配置" }).click();
-      const legacy = page.getByRole("dialog", { name: "编辑项目" });
-      await expect(legacy.getByText(/旧配置包含多个 Jira 范围/)).toBeVisible();
-      await expect(legacy.getByLabel("Jira 登录连接")).toHaveValue("");
-      await legacy.getByLabel("Jira 登录连接").selectOption(state[0].issueBindings[0].connectionId!);
-      await expect(legacy.getByLabel("Jira 项目", { exact: true })).toBeEnabled();
-      await legacy.getByRole("combobox", { name: "Jira 项目", exact: true }).fill("A");
-      await legacy.getByRole("combobox", { name: "Jira 项目", exact: true }).press("ArrowDown");
-      await legacy.getByRole("combobox", { name: "Jira 项目", exact: true }).press("Enter");
-      await legacy.getByRole("button", { name: "保存项目", exact: true }).click();
-      await expect(legacy).toHaveCount(0);
-      const saved = await page.evaluate(async () => { const r = await window.platform.listProjects(); if (!r.ok) throw new Error(r.error.message); return r.value[0].issueBindings; });
-      expect(saved).toHaveLength(1);
-      expect(saved[0].projectKey).toBe("A");
-    }
+    deny=true;
+    await page.getByRole("button",{name:"管理关联",exact:true}).click();
+    const links=page.getByRole("dialog",{name:"管理项目关联",exact:true});
+    await expect(links.getByLabel("Jira 项目连接")).toHaveValue(state[0].issueBindings[0].connectionId!);
+    await expect(links.getByRole("combobox",{name:"Jira 项目",exact:true})).toHaveCount(0);
+    await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
+    await page.getByRole("button",{name:"设置",exact:true}).click();
+    await page.getByRole("button",{name:"编辑 / 重新登录",exact:true}).click();
+    if(mode==="account")await page.getByLabel("登录密码",{exact:true}).fill("fixture-password");
+    await page.getByRole("button",{name:"登录并读取 Jira 项目",exact:true}).click();
+    await expect(page.getByRole("alert")).toContainText("403");
+    deny=false;empty=true;
+    await page.getByRole("button",{name:"登录并读取 Jira 项目",exact:true}).click();
+    await expect(page.getByRole("combobox",{name:"Jira 项目",exact:true})).toBeEnabled();
+    await page.getByRole("combobox",{name:"Jira 项目",exact:true}).fill("不存在");
+    await expect(page.getByText("未找到匹配的 Jira 项目",{exact:true})).toBeVisible();
   } finally {
     if (app) await app.close(); server.close(); await once(server, "close");
     await fixture.dispose(); await rm(data, { recursive: true, force: true });

@@ -25,7 +25,7 @@ export function instanceUrl(value: string): string {
 }
 export function bindingFingerprint(scope: IssueScope): string {
   return fingerprint({
-    projectId: scope.projectId,
+    projectId: scope.binding.scopeMode === "account" ? "trinity-account" : scope.projectId,
     binding: scope.binding,
     connection: scope.connection,
   });
@@ -37,6 +37,7 @@ export class ScopePolicy {
   }
   static validate(scope: IssueScope): void {
     if (!scope.enabled) throw new AppError("PROJECT_DISABLED", "项目已停用");
+    if (scope.binding.scopeMode === "account" && (scope.connection.kind !== "trinity" || !scope.connection.accountId || scope.binding.owner !== scope.connection.accountId)) throw new AppError("TRINITY_IDENTITY_REQUIRED", "请在设置重新登录 Trinity，验证当前账号身份后读取问题");
     if (
       scope.binding.connectionId !== scope.connection.id ||
       scope.binding.platform !== scope.connection.platform ||
@@ -55,7 +56,7 @@ export class ScopePolicy {
       binding.platform !== connection.platform ||
       instanceUrl(binding.instanceUrl) !== instanceUrl(connection.baseUrl) ||
       instanceUrl(issue.instanceUrl) !== instanceUrl(connection.baseUrl) ||
-      issue.remoteProjectId !== binding.projectKey ||
+      (binding.scopeMode !== "account" && issue.remoteProjectId !== binding.projectKey) ||
       issue.ownerId !== binding.owner ||
       !binding.issueTypeIds?.includes(issue.typeId)
     )
@@ -65,3 +66,5 @@ export class ScopePolicy {
       );
   }
 }
+
+export function trinityApiUrl(value: string): string { const base = instanceUrl(value); const url = new URL(base); return url.pathname === "/" ? base + "/trinity" : base; }

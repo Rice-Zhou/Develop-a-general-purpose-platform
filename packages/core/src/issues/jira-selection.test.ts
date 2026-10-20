@@ -11,7 +11,7 @@ it("validates selected project, owner and named type against current login and r
     getProject: () => { throw new Error("discovery must not need an existing project"); },
     listProjects: () => [],
     getSetting: <T>() => [connection] as T, setSetting: () => {},
-    issues: { save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
+    issues: { replaceBatches: () => { throw new Error("unused"); }, save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
   }, () => ({ get: async () => { throw new Error("unused"); }, list: async () => [], discover: async () => { if (change) connection = { ...connection, name: "changed" }; return catalogue; } }));
   const binding: Project["issueBindings"][number] = { id: "b", platform: "jira-dc", instanceUrl: connection.baseUrl, projectKey: "A", owner: "alice", connectionId: "c", issueTypeIds: ["1"] };
   await service.validateBindings([binding], new AbortController().signal);
@@ -27,7 +27,7 @@ it("keeps unchanged offline bindings while validating newly associated sources",
   const service = new IssueService({
     getProject: () => { throw new Error("unused"); }, listProjects: () => [],
     getSetting: <T>() => [connection] as T, setSetting: () => {},
-    issues: { save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
+    issues: { replaceBatches: () => { throw new Error("unused"); }, save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
   }, () => ({ get: async () => { throw new Error("offline"); }, list: async () => [], discover: async () => { throw new Error("offline"); } }));
   const binding: Project["issueBindings"][number] = { id: "b", connectionId: "c", platform: "jira-dc", instanceUrl: connection.baseUrl, projectKey: "A", owner: "alice", issueTypeIds: ["1"] };
   const reordered = { issueTypeIds: ["1"], owner: binding.owner, projectKey: binding.projectKey, instanceUrl: binding.instanceUrl, platform: binding.platform, connectionId: binding.connectionId, id: binding.id };

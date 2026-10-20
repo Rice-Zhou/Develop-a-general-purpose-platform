@@ -18,6 +18,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({method:z.literal("discoverJiraConnection"),params:z.object({draft:IssueConnectionDraftSchema,secret:z.string().max(10000).optional()}).strict().refine(p=>p.draft.kind!=="trinity","此入口仅支持 Jira")}).strict(),
   z.object({ method: z.literal("saveProjectLinks"), params: ProjectLinksUpdateSchema }).strict(),
   ...(["getDocumentResources", "getDefaultAIProfile"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),
   z.object({ method: z.literal("saveDocumentResource"), params: z.object({ draft: DocumentResourceDraftSchema, expectedRevision: z.number().int().positive().optional() }).strict() }).strict(),

@@ -91,6 +91,9 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
       return;
     }
     res.setHeader("content-type", "application/json");
+    if(req.url==="/rest/api/2/project"){res.end(JSON.stringify([{key:"A",name:"Project A"}]));return;}
+    if(req.url==="/rest/api/2/issuetype"){res.end(JSON.stringify([{id:"1",name:"Bug"}]));return;}
+    if(req.url==="/trinity/sys/user/userinfo"){res.end(JSON.stringify({code:200,data:{uid:"uid-alice",apiVersion:"v7",isGray:false}}));return;}
     if (req.url === "/rest/api/2/myself") {
       jiraLogins++;
       expect(req.headers.authorization).toBe(
@@ -135,12 +138,10 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     await page.getByLabel("平台地址", { exact: true }).fill(base);
     await page.getByLabel("登录账号", { exact: true }).fill("alice");
     await page.getByLabel("登录密码", { exact: true }).fill("fixture-password");
-    await page
-      .getByRole("button", { name: "登录并保存平台连接", exact: true })
-      .click();
-    await expect(
-      page.getByText("平台连接已保存。", { exact: false }),
-    ).toBeVisible();
+    await page.getByRole("button",{name:"登录并读取 Jira 项目",exact:true}).click();
+    const picker=page.getByRole("combobox",{name:"Jira 项目",exact:true});await expect(picker).toBeEnabled();await picker.fill("A");await page.getByRole("option",{name:"Project A（A）",exact:true}).click();
+    await page.getByRole("button",{name:"保存 Jira 连接",exact:true}).click();
+    await expect(page.getByText("Jira 连接及对应项目已保存，可直接关联代码项目。",{exact:true})).toBeVisible();
     await expect(page.getByLabel("登录密码", { exact: true })).toHaveValue("");
     await page.getByLabel("BUG 平台").selectOption("trinity");
     await page.getByLabel("平台地址", { exact: true }).fill(base + "/trinity");
@@ -167,7 +168,7 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     expect(publicData).not.toMatch(
       /fixture-password|fixture-session-token|credentialRef/,
     );
-    expect(jiraLogins).toBe(1);
+    expect(jiraLogins).toBe(2);
     expect(trinityLogins).toBe(1);
     expect(
       (await readFile(join(data, "platform.db"))).includes(

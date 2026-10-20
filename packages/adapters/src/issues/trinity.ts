@@ -35,6 +35,7 @@ export class TrinityAdapter implements IssueAdapter {
   ) {}
   async list(scope: IssueScope, signal: AbortSignal): Promise<RemoteIssue[]> {
     ScopePolicy.validate(scope);
+    if (scope.binding.scopeMode === "account") return this.listAccount(scope, signal);
     const issues: RemoteIssue[] = [];
     const seen = new Set<string>();
     let total: number | undefined;
@@ -65,6 +66,28 @@ export class TrinityAdapter implements IssueAdapter {
         throw new AppError("ISSUE_PAGINATION_INVALID", "Trinity 分页未完整返回，未发布部分列表");
     }
     throw new AppError("ISSUE_PAGINATION_INVALID", "Trinity 分页超出 100 页预算，未发布部分列表");
+  }
+  private async listAccount(scope: IssueScope, signal: AbortSignal): Promise<RemoteIssue[]> {
+    const issues: RemoteIssue[] = []; const seen = new Set<string>(); let total: number | undefined;
+    const pageSchema = z.object({total:z.number().int().nonnegative().max(10000),records:z.array(z.object({bugId:z.string().min(1).max(200)})).max(100)});
+    for (let pageNum=1;pageNum<=100;pageNum++) {
+      const raw = await this.read(scope,"/quality/bugRedux/getBugsByMultiProjects",signal,{
+        fields:["bugId","projectId","title","assigneeId","status"],allProjects:true,projectList:[],projectIds:[],
+        workitemType:"issueList",mode:"assignToMe",userId:scope.binding.owner,pageNum,currentPage:pageNum,pageSize:100,total:0,
+        bugReduxAttributeQueryBO:{title:"",bugIds:[],authorIds:[],statuses:[],assigneeIds:[]},
+        bugReduxMultiKeyWordsQueryBO:{bugId:true,bugTitle:true,assignee:true,author:true,keywords:[""]},
+        bugReduxGroupQueryBO:{},
+      });
+      const parsed=z.object({code:z.literal(200),data:z.union([pageSchema,z.object({page:pageSchema})])}).safeParse(raw);
+      if(!parsed.success)throw new AppError("ISSUE_REMOTE_FAILED","Trinity 账号问题列表响应契约不符或登录已失效，请重新登录");
+      const page="page" in parsed.data.data?parsed.data.data.page:parsed.data.data;
+      if(total!==undefined&&total!==page.total)throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题总数变化，请重新刷新");
+      total=page.total;
+      for(const row of page.records){if(seen.has(row.bugId))throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题分页重复");seen.add(row.bugId);issues.push(await this.get(scope,row.bugId,signal));}
+      if(issues.length===total)return issues;
+      if(!page.records.length||issues.length>total)throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题分页不完整，未发布部分列表");
+    }
+    throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题分页超出预算");
   }
   private async read(scope: IssueScope, path: string, signal: AbortSignal, body?: unknown): Promise<unknown> {
     this.protocol ??= this.readProtocol(scope, signal);

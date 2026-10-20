@@ -1,7 +1,7 @@
 import { createCipheriv } from "node:crypto";
 import { z } from "zod";
 import { AppError } from "../../../contracts/src/error";
-import { instanceUrl } from "../../../core/src/issues/scope-policy";
+import { trinityApiUrl } from "../../../core/src/issues/scope-policy";
 import { readResponseText } from "../network/response";
 import { curlFetch } from "../network/curl-fetch";
 
@@ -16,7 +16,7 @@ export async function loginTrinity(
     init?: RequestInit,
   ) => Promise<Response> = curlFetch,
 ): Promise<string> {
-  const base = instanceUrl(baseUrl);
+  const base = trinityApiUrl(baseUrl);
   const origin = new URL(base).origin;
   const signal = AbortSignal.timeout(30000);
   let budget = 8 * 1024 * 1024;
@@ -132,4 +132,14 @@ export async function loginTrinity(
       "Trinity 登录未成功，请检查账号、密码及验证码要求；未保存响应正文",
     );
   return result.data.data.token;
+}
+
+export async function readTrinityIdentity(baseUrl: string, token: string, request: typeof fetch = curlFetch as typeof fetch): Promise<{ accountId: string }> {
+ const response = await request(trinityApiUrl(baseUrl) + "/sys/user/userinfo", {redirect:"error",signal:AbortSignal.timeout(30000),headers:{"X-Token":`Bearer ${token.replace(/^Bearer\s+/i, "")}`,"X-Platform":"trinity",Accept:"application/json"}});
+ if (!response.ok) { await response.body?.cancel(); throw new AppError("ISSUE_LOGIN_FAILED", `Trinity 账号验证失败（HTTP ${response.status}）`); }
+ const text = await readResponseText(response);
+ let raw:unknown; try {raw=JSON.parse(text);} catch {throw new AppError("ISSUE_LOGIN_FAILED","Trinity 身份响应不是有效 JSON，未保存正文");}
+ const result=z.object({code:z.literal(200),data:z.object({uid:z.union([z.string().min(1),z.number()]).transform(String),apiVersion:z.string().min(1),isGray:z.boolean()})}).safeParse(raw);
+ if (!result.success) throw new AppError("TRINITY_IDENTITY_REQUIRED","Trinity 未返回可验证的账号 UID，未保存连接");
+ return {accountId:result.data.data.uid};
 }

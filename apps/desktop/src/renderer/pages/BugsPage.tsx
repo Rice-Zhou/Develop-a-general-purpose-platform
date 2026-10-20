@@ -46,6 +46,7 @@ export function BugsPage({
     project?.id,
     project?.enabled,
     project?.issueBindings,
+    projects.map(p=>[p.id,p.enabled,p.trinityProjects,p.aiProfileId]),
   ]);
   const currentScope = useRef(scope);
   currentScope.current = scope;
@@ -113,15 +114,15 @@ export function BugsPage({
       ),
   );
   const busy = loading || active;
-  const analysisUnavailable = !project?.enabled
-    ? "预分析不可用：项目已停用，请在项目配置中启用。"
-    : active
-      ? "预分析不可用：当前项目有任务执行中，请等待完成或到任务历史取消。"
-      : loading
-        ? "预分析不可用：正在读取或提交请求，请稍候。"
-        : !project.aiProfileId
-          ? "预分析不可用：当前项目未关联 AI 执行连接，请先配置并关联。"
-          : "";
+  const unavailableFor = (issue: IssueListItem): string => {
+    if(issue.analysisUnavailable)return issue.analysisUnavailable;
+    const target=projects.find(p=>p.id===(issue.analysisProjectId??projectId));
+    if(!target?.enabled)return "预分析不可用：匹配的代码项目已停用。";
+    if(tasks.some(t=>t.projectId===target.id&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status)))return "预分析不可用：匹配项目有任务执行中，请等待完成或到任务历史取消。";
+    if(loading)return "预分析不可用：正在读取或提交请求，请稍候。";
+    if(!target.aiProfileId)return "预分析不可用：匹配的代码项目未配置可用 AI 执行连接。";
+    return "";
+  };
   const latest = tasks.find(
     (t) => t.projectId === projectId && t.kind === "ANALYZE_BUG",
   );
@@ -180,7 +181,7 @@ export function BugsPage({
           </label>
         </div>
         <p className="muted">
-          只读操作，始终限制项目与负责人。分析前重新读取
+          只读操作，Jira 限制配置项目与负责人，Trinity 读取当前登录账号的问题。分析前重新读取
           BUG、安全更新配置分支并固定代码。所有已配置来源统一读取和展示。
           Jira 展示除完成状态外的所有问题。
         </p>
@@ -245,7 +246,7 @@ export function BugsPage({
             刷新问题单
           </button>
         </div>
-        <p className="muted small">一次获取当前项目全部来源，无需切换平台。某个来源失败时，其余来源仍正常展示；失败来源的缓存仅代表上次读取的材料。</p>
+        <p className="muted small">Trinity 显示当前账号的问题，预分析按明确的代码项目映射执行。一次获取当前项目全部来源，无需切换平台。某个来源失败时，其余来源仍正常展示；失败来源的缓存仅代表上次读取的材料。</p>
         {sources.map(source => (
           <div key={source.bindingId} className={source.error ? "error-panel" : "muted small"} role={source.error ? "alert" : undefined}>
             {source.label} · {source.status === "success" ? `刷新成功：${source.count} 条问题` : source.status === "failed" ? "刷新失败；缓存仅代表上次读取的材料" : "此范围尚未刷新"}
@@ -258,7 +259,7 @@ export function BugsPage({
         {allRefreshed && issues.length === 0 && (
           <p className="muted">当前配置项目及负责人范围内无任何问题</p>
         )}
-        {issues.map((issue) => (
+        {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); return (
           <article className="finding-card" key={issue.id}>
             <div className="section-heading">
               <h3>
@@ -271,7 +272,7 @@ export function BugsPage({
               <span className="tag">{issue.status}</span>
             </div>
             <p className="muted small">
-              {issue.ownerId} · 问题版本 {issue.versions.join("、") || "未提供"}{" "}
+              Trinity / Jira 项目标识：{issue.remoteProjectId} · {issue.analysisProjectName ? `匹配代码项目：${issue.analysisProjectName} · ` : ""}{issue.ownerId} · 问题版本 {issue.versions.join("、") || "未提供"}{" "}
               · 更新 {issue.updatedAt}
             </p>
             <p style={{ whiteSpace: "pre-wrap" }}>{issue.description}</p>
@@ -294,7 +295,7 @@ export function BugsPage({
               onClick={() =>
                 void act(async () => {
                   unwrap(await window.platform.analyzeBug(projectId, issue.id));
-                }, "预分析任务已加入队列，将重新校验问题并更新代码。")
+                }, `预分析任务已加入代码项目“${issue.analysisProjectName??project?.name}”，将重新校验问题并更新代码。`)
               }
             >
               更新代码并预分析
@@ -303,7 +304,7 @@ export function BugsPage({
               <p id={`analysis-reason-${issue.id}`} className="coverage-warning">{analysisUnavailable}</p>
             )}
           </article>
-        ))}
+        );})}
       </section>
       <section className="panel work-panel">
         <h2>BUG 报告历史</h2>

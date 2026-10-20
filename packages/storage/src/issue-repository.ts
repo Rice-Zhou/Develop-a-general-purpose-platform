@@ -56,6 +56,9 @@ export class IssueRepository {
         );
     })();
   }
+  replaceBatches(batches: {projectId:string;bindingId:string;scopeHash:string;snapshots:IssueSnapshot[]}[]): void {
+    this.db.transaction(()=>{for(const batch of batches)this.replaceBatch(batch.projectId,batch.bindingId,batch.scopeHash,batch.snapshots);})();
+  }
   batch(
     projectId: string,
     bindingId: string,

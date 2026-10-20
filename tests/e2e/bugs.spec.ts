@@ -15,11 +15,11 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
   const server = createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/trinity/sys/user/userinfo") {
-      res.end(JSON.stringify({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } }));
+      res.end(JSON.stringify({ code: 200, data: { uid:"alice", apiVersion: "Trinity V7.5.0", isGray: false } }));
       return;
     }
-    if (req.url?.startsWith("/trinity/quality/quality/bug/findBugsByProject")) {
-      res.end(JSON.stringify({ success: true, data: { pageNum: 1, total: 1, bugs: [{ bugId: "T-1" }] } }));
+    if (req.url?.startsWith("/trinity/quality/bugRedux/getBugsByMultiProjects")) {
+      res.end(JSON.stringify({ code:200, data: { total: 1, records: [{ bugId: "T-1" }] } }));
       return;
     }
     if (req.url?.startsWith("/trinity/quality/bugRedux/getByBugId")) {
@@ -180,6 +180,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
         const jira = take(
           await window.platform.saveIssueConnection({
             kind: "jira-cli",
+            jiraProject:{key:"A",name:"Project A",owner:"alice",issueTypeIds:["1"]},
             platform: "jira-dc",
             name: "fixture Jira",
             baseUrl: input.base,
@@ -241,7 +242,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
           }),
         );
         if (project.aiProfileId !== ai.id || !project.usesDefaultAI) throw new Error("BUG 项目未继承默认 AI");
-        return { projectId: project.id, j, t };
+        return { projectId: project.id, j, t: project.issueBindings.find(b=>b.platform==="trinity")!.id };
       },
       { base, exe, config: join(data, "jira.yml"), repo: f.analysis },
     );

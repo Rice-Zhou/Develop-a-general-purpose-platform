@@ -11,7 +11,9 @@ import {
 import { join, resolve } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { loginTrinity } from "../../../../packages/adapters/src/issues/login";
+import { loginTrinity, readTrinityIdentity } from "../../../../packages/adapters/src/issues/login";
+import { JiraCliAdapter } from "../../../../packages/adapters/src/issues/jira-cli";
+import { trinityApiUrl } from "../../../../packages/core/src/issues/scope-policy";
 import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
 import { createCredentialStore } from "./credential-store";
 import type { AIProfile } from "../../../../packages/contracts/src/analysis";
@@ -115,14 +117,27 @@ else {
               value: selection.canceled ? [] : selection.filePaths,
             };
           }
+          if (request.method === "discoverJiraConnection") {
+            const {draft,secret}=request.params;
+            if(draft.kind==="trinity")throw new AppError("ISSUE_CONNECTION_INVALID","请选择 Jira 登录方式");
+            if(draft.kind==="jira-http"&&!secret)throw new AppError("ISSUE_LOGIN_REQUIRED","请输入 Jira 登录密码");
+            const adapter=draft.kind==="jira-cli"?new JiraCliAdapter(app.getPath("userData")):new JiraHttpAdapter(async()=>secret!);
+            return {ok:true,value:await adapter.discover({...draft,id:randomUUID(),credentialRef:null},AbortSignal.timeout(120000))};
+          }
           if (
             request.method === "saveAIProfile" ||
             request.method === "saveIssueConnection"
           ) {
             const issueConnection = request.method === "saveIssueConnection";
-            const id = request.params.id ?? randomUUID();
+            let selectedId = request.params.id;
+            if(issueConnection && request.params.draft.kind === "trinity" && !selectedId) {
+              const current=await service.request({method:"getIssueConnections",params:{}});
+              if(!current.ok)return current;
+              selectedId=(current.value as IssueConnection[]).find(c=>c.kind==="trinity")?.id;
+            }
+            const id = selectedId ?? randomUUID();
             let existing: AIProfile | IssueConnection | undefined;
-            if (request.params.id) {
+            if (selectedId) {
               const result = await service.control(
                 issueConnection ? "get-issue-connection" : "get-profile",
                 { id },
@@ -130,7 +145,8 @@ else {
               if (!result.ok) return result;
               existing = result.value as AIProfile | IssueConnection;
             }
-            const draft = request.params.draft;
+            let draft = request.params.draft;
+            if(issueConnection && draft.kind === "trinity") draft={...draft,baseUrl:trinityApiUrl(draft.baseUrl)};
             let secret = request.params.secret;
             if (
               issueConnection &&
@@ -154,23 +170,18 @@ else {
                 draft.username,
                 secret,
               );
-            if (issueConnection && draft.kind === "jira-http" && secret) {
-              await new JiraHttpAdapter(async () => secret!).probe(
-                {
-                  projectId: id,
-                  enabled: true,
-                  binding: {
-                    id,
-                    connectionId: id,
-                    platform: draft.platform,
-                    instanceUrl: draft.baseUrl,
-                    projectKey: "LOGIN",
-                    owner: draft.username,
-                  },
-                  connection: { ...draft, id, credentialRef: null },
-                },
-                AbortSignal.timeout(30000),
-              );
+            if(issueConnection && draft.kind === "trinity") {
+              if(!secret)throw new AppError("ISSUE_LOGIN_REQUIRED","请重新登录 Trinity 验证账号");
+              draft={...draft,...await readTrinityIdentity(draft.baseUrl,secret)};
+            }
+            if(issueConnection && (draft.kind === "jira-cli" || draft.kind === "jira-http")) {
+              if(!draft.jiraProject)throw new AppError("JIRA_SELECTION_REQUIRED","请先读取并选择此连接对应的 Jira 项目及缺陷类型");
+              const adapter=draft.kind==="jira-cli"?new JiraCliAdapter(app.getPath("userData")):new JiraHttpAdapter(async()=>secret!);
+              const catalogue=await adapter.discover({...draft,id,credentialRef:null},AbortSignal.timeout(120000));
+              const selected=draft.jiraProject;
+              const project=catalogue.projects.find(p=>p.key===selected.key);
+              if(!project || selected.owner!==catalogue.owner || !selected.issueTypeIds.length || selected.issueTypeIds.some(type=>!catalogue.issueTypes.some(t=>t.id===type))) throw new AppError("JIRA_SELECTION_INVALID","Jira 项目或负责人已变化，请重新读取并选择");
+              draft={...draft,jiraProject:{...project,owner:catalogue.owner,issueTypeIds:selected.issueTypeIds}};
             }
             const keep =
               existing &&

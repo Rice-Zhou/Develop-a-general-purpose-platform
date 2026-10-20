@@ -35,7 +35,8 @@ export function ProjectEditor({
             role: repo.role,
           })),
           documents: project.documents,
-          issueBindings: initialIssueConnection?.platform === "trinity" && !project.issueBindings.some(b => b.connectionId === initialIssueConnection.id) ? [...project.issueBindings, { id: crypto.randomUUID(), platform: "trinity", connectionId: initialIssueConnection.id, instanceUrl: initialIssueConnection.baseUrl, projectKey: "", owner: "", issueTypeIds: ["BUG"] }] : project.issueBindings,
+          issueBindings: project.issueBindings.filter(b=>b.platform!=="trinity"),
+          trinityProjects: project.trinityProjects ?? [],
           aiProfileId: project.usesDefaultAI ? null : project.aiProfileId,
         }
       : {
@@ -52,7 +53,7 @@ export function ProjectEditor({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [jiraEnabled, setJiraEnabled] = useState(Boolean((initialIssueConnection && initialIssueConnection.platform !== "trinity") || project?.issueBindings.some((b) => b.platform !== "trinity")));
-  const [jiraReady, setJiraReady] = useState(false);
+
   const jiraBindings = draft.issueBindings.filter((b) => b.platform !== "trinity");
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
   const [defaultAIId, setDefaultAIId] = useState<string | null>(null);
@@ -77,12 +78,9 @@ export function ProjectEditor({
     setBusy(true);
     setError("");
     try {
-      const jiraChanged = JSON.stringify(draft.issueBindings.filter(b => b.platform !== "trinity")) !== JSON.stringify(project?.issueBindings.filter(b => b.platform !== "trinity") ?? []);
-      const selectingNewJira = initialIssueConnection && initialIssueConnection.platform !== "trinity" && !project?.issueBindings.some(b => b.connectionId === initialIssueConnection.id);
-      const requiresJiraSelection = jiraChanged || selectingNewJira || !project?.issueBindings.some(b => b.platform !== "trinity");
-      if (requiresJiraSelection && jiraEnabled && (!jiraReady || !draft.issueBindings.some((b) => b.platform !== "trinity"))) throw new Error("请先读取 Jira 项目列表并选择一个项目及缺陷类型");
+      if(jiraEnabled&&!draft.issueBindings.some(b=>b.platform!=="trinity"))throw new Error("请选择已配置项目的 Jira 连接");
       const saved = unwrap(
-        linksOnly && project ? await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents: draft.documents, issueBindings: draft.issueBindings, aiProfileId: draft.aiProfileId }) : await window.platform.saveProject(draft, project?.revision),
+        linksOnly && project ? await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents: draft.documents, issueBindings: draft.issueBindings, trinityProjects: draft.trinityProjects, aiProfileId: draft.aiProfileId }) : await window.platform.saveProject(draft, project?.revision),
       );
       onSaved(saved);
     } catch (err) {
@@ -108,22 +106,6 @@ export function ProjectEditor({
       repositories: old.repositories.map((repo, i) =>
         i === index ? { ...repo, ...patch } : repo,
       ),
-    }));
-  }
-  function addTrinityBinding() {
-    setDraft((current) => ({
-      ...current,
-      issueBindings: [
-        ...current.issueBindings,
-        {
-          id: crypto.randomUUID(),
-          platform: "trinity",
-          instanceUrl: "",
-          projectKey: "",
-          owner: "",
-          issueTypeIds: ["BUG"],
-        },
-      ],
     }));
   }
   return (
@@ -301,7 +283,7 @@ export function ProjectEditor({
               BUG 项目范围 <span>{draft.issueBindings.length} 条</span>
             </summary>
             <p className="muted small">
-              Jira 可直接选择 CLI 或账号登录，读取项目列表后单选一个项目；负责人取自登录信息。Trinity 使用已保存连接及范围。
+              Jira 选择已配置项目的连接即可；Trinity 当前账号自动关联所有代码项目，无需添加范围。
             </p>
             {jiraBindings.length > 1 && <p className="coverage-warning">旧配置包含多个 Jira 范围，请从列表重新选择一个 Jira 项目后保存。</p>}
             {jiraEnabled && <>
@@ -309,125 +291,11 @@ export function ProjectEditor({
                 initialConnectionId={initialIssueConnection?.platform !== "trinity" ? initialIssueConnection?.id : undefined}
                 binding={jiraBindings.length === 1 ? jiraBindings[0] : undefined}
                 connections={issueConnections}
-                onReadinessChange={setJiraReady}
                 onConnectionSaved={(connection) => setIssueConnections((previous) => [...previous.filter((c) => c.id !== connection.id), connection])}
                 onChange={(binding) => setDraft((previous) => ({ ...previous, issueBindings: [...previous.issueBindings.filter((b) => b.platform === "trinity"), ...(binding ? [binding] : [])] }))}
               />
-              <button type="button" className="text-button" onClick={() => { setJiraEnabled(false); setJiraReady(false); setDraft((previous) => ({ ...previous, issueBindings: previous.issueBindings.filter((b) => b.platform === "trinity") })); }}>移除 Jira 关联</button>
+              <button type="button" className="text-button" onClick={() => { setJiraEnabled(false); setDraft((previous) => ({ ...previous, issueBindings: previous.issueBindings.filter((b) => b.platform === "trinity") })); }}>移除 Jira 关联</button>
             </>}
-            {draft.issueBindings.map((binding, index) => binding.platform === "trinity" && (
-              <div className="binding-form" key={binding.id}>
-                <label>
-                  Trinity 平台连接
-                  <select
-                    required
-                    value={binding.connectionId ?? ""}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        issueBindings: draft.issueBindings.map((item, i) =>
-                          i === index
-                            ? {
-                                ...item,
-                                connectionId: e.target.value || undefined,
-                                platform:
-                                  issueConnections.find(
-                                    (c) => c.id === e.target.value,
-                                  )?.platform ?? item.platform,
-                                instanceUrl:
-                                  issueConnections.find(
-                                    (c) => c.id === e.target.value,
-                                  )?.baseUrl ?? item.instanceUrl,
-                                issueTypeIds: ["BUG"],
-                              }
-                            : item,
-                        ),
-                      })
-                    }
-                  >
-                    <option value="">请选择已保存连接</option>
-                    {issueConnections
-                      .filter((c) => c.platform === "trinity")
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} · Trinity
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <p className="muted small">
-                  Trinity ·{" "}
-                  {binding.instanceUrl || "选择连接后确定实例"}
-                </p>
-                <label>
-                  缺陷类型（逗号分隔）
-                  <input
-                    required
-                    value={binding.issueTypeIds?.join(",") ?? ""}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        issueBindings: draft.issueBindings.map((b, i) =>
-                          i === index
-                            ? {
-                                ...b,
-                                issueTypeIds: e.target.value
-                                  ? e.target.value
-                                      .split(",")
-                                      .map((s) => s.trim())
-                                      .filter(Boolean)
-                                  : undefined,
-                              }
-                            : b,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                {(["projectKey", "owner"] as const).map((key) => (
-                  <label key={key}>
-                    {
-                      {
-                        instanceUrl: "实例地址",
-                        projectKey: "项目 Key",
-                        owner: "负责人",
-                      }[key]
-                    }
-                    <input
-                      required
-                      value={binding[key]}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          issueBindings: draft.issueBindings.map((item, i) =>
-                            i === index
-                              ? { ...item, [key]: e.target.value }
-                              : item,
-                          ),
-                        })
-                      }
-                    />
-                  </label>
-                ))}
-                <p className="muted small">
-                  负责人填写 Trinity 的 assigneeId；缺陷类型填写 BUG。
-                </p>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      issueBindings: draft.issueBindings.filter(
-                        (_, i) => i !== index,
-                      ),
-                    })
-                  }
-                >
-                  移除范围
-                </button>
-              </div>
-            ))}
             <button
               type="button"
               className="text-button"
@@ -436,14 +304,11 @@ export function ProjectEditor({
             >
               ＋ 添加 Jira 范围
             </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={addTrinityBinding}
-            >
-              ＋ 添加 Trinity 范围
-            </button>
           </details>
+          {issueConnections.filter(c=>c.kind==="trinity").map(c=><div className="binding-form" key={c.id}><h3>Trinity 账号 · 自动关联</h3><p>{c.name} · {"username" in c?c.username:""}。此账号自动应用于所有代码项目。</p>
+            <label>Trinity 项目 ID（逗号分隔）<input value={(draft.trinityProjects??[]).filter(m=>m.instanceUrl===c.baseUrl).map(m=>m.projectId).join(",")} onChange={e=>setDraft({...draft,trinityProjects:[...(draft.trinityProjects??[]).filter(m=>m.instanceUrl!==c.baseUrl),...e.target.value.split(",").map(id=>id.trim()).filter(Boolean).map(projectId=>({instanceUrl:c.baseUrl,projectId}))]})}/></label>
+            <p className="muted small">填写与本代码项目对应的 Trinity 项目 ID，只在准确匹配时预分析；未匹配的问题仍展示。不填写时不进行本项目的 Trinity BUG 预分析。</p>
+          </div>)}
           {error && (
             <div className="error-panel" role="alert">
               {error}

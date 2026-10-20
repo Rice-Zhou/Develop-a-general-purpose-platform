@@ -23,20 +23,20 @@ test("aggregates both platforms, isolates failures and periodically notifies the
     if (url.pathname === "/rest/api/2/myself") return reply({ name: "alice" });
     if (url.pathname === "/rest/api/2/project") return reply([{ key: "A", name: "Project A" }]);
     if (url.pathname === "/rest/api/2/issuetype") return reply([{ id: "1", name: "Bug" }]);
-    if (url.pathname === "/trinity/sys/user/userinfo") return reply({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } });
+    if (url.pathname === "/trinity/sys/user/userinfo") return reply({ code: 200, data: { uid:"alice", apiVersion: "Trinity V7.5.0", isGray: false } });
     if (url.pathname === "/rest/api/2/search") {
       const issues = Array.from({ length: jiraCount }, (_, i) => ({ id: String(i + 1), key: `A-${i + 1}`, self: `${base}/rest/api/2/issue/${i + 1}`, fields: { project: { key: "A" }, assignee: { name: "alice" }, issuetype: { id: "1" }, summary: "Jira bug", description: "fixture", status: { name: "分析中" }, updated: "now", versions: [], comment: { total: 0, comments: [] }, attachment: [] } }));
       return reply({ startAt: 0, total: issues.length, issues });
     }
-    if (url.pathname === "/trinity/quality/quality/bug/findBugsByProject") {
+    if (url.pathname === "/trinity/quality/bugRedux/getBugsByMultiProjects") {
       expect(req.headers.apiversion).toBe("Trinity V7.5.0");
       let text = "";
       for await (const part of req) text += part;
       const body = JSON.parse(text);
-      expect(body.projectIds).toEqual(["T"]);
-      expect(body.assignees).toEqual(["alice"]);
+      expect(body.projectIds).toEqual([]);
+      expect(body.userId).toBe("alice");expect(body.mode).toBe("assignToMe");
       if (trinityFailed) { res.writeHead(503).end("{}"); return; }
-      return reply({ success: true, data: { pageNum: body.pageNum, total: trinityCount, bugs: Array.from({ length: trinityCount }, (_, i) => ({ bugId: `T-${i + 1}` })) } });
+      return reply({ code:200, data: { total: trinityCount, records: Array.from({ length: trinityCount }, (_, i) => ({ bugId: `T-${i + 1}` })) } });
     }
     if (url.pathname === "/trinity/quality/bugRedux/getByBugId") {
       const key = url.searchParams.get("bugId")!;
@@ -55,7 +55,7 @@ test("aggregates both platforms, isolates failures and periodically notifies the
     const page = await app.firstWindow();
     await page.evaluate(async ({ base, repo, exe }) => {
       function take<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T { if (!result.ok) throw new Error(result.error.message); return result.value; }
-      const jira = take(await window.platform.saveIssueConnection({ kind: "jira-http", platform: "jira-dc", name: "Jira", baseUrl: base, username: "alice", bypassProxy: true }, "fixture-password"));
+      const jira = take(await window.platform.saveIssueConnection({ kind: "jira-http", platform: "jira-dc", jiraProject:{key:"A",name:"Project A",owner:"alice",issueTypeIds:["1"]}, name: "Jira", baseUrl: base, username: "alice", bypassProxy: true }, "fixture-password"));
       const trinity = take(await window.platform.saveIssueConnection({ kind: "trinity", platform: "trinity", name: "Trinity", baseUrl: base + "/trinity", bypassProxy: true }, "fixture-token"));
       take(await window.platform.saveCliConfiguration({ larkExecutable: exe, identity: "user" }));
       take(await window.platform.saveProject({ name: "多来源项目", enabled: true, repositories: [{ path: repo, branch: "main", remoteName: "origin", role: "main" }], documents: [], aiProfileId: null, issueBindings: [{ id: "jira", platform: "jira-dc", instanceUrl: base, projectKey: "A", owner: "alice", connectionId: jira.id, issueTypeIds: ["1"] }, { id: "trinity", platform: "trinity", instanceUrl: base + "/trinity", projectKey: "T", owner: "alice", connectionId: trinity.id, issueTypeIds: ["BUG"] }] }));

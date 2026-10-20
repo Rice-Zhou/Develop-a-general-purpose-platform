@@ -14,7 +14,7 @@ export function ProjectDocumentsDialog({ project, onClose, onSaved, initialDocum
   const [error, setError] = useState("");
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
-    try { onSaved(unwrap(await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents, issueBindings: project.issueBindings, aiProfileId: project.usesDefaultAI ? null : project.aiProfileId }))); }
+    try { onSaved(unwrap(await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents, issueBindings: project.issueBindings, trinityProjects: project.trinityProjects, aiProfileId: project.usesDefaultAI ? null : project.aiProfileId }))); }
     catch (error) { setError(message(error)); }
     finally { setBusy(false); }
   }

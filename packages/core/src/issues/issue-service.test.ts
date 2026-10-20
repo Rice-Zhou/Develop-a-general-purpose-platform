@@ -63,6 +63,7 @@ it("publishes only whole valid batches and revalidates transfer and content befo
       getSetting: <T>() => [connection] as T,
       setSetting: () => {},
       issues: {
+        replaceBatches: values => { for(const batch of values){batches++;saved.push(...batch.snapshots);} },
         save: (i) => {
           saved.push(i);
         },

@@ -50,7 +50,7 @@ describe("project persistence", () => {
     old.close();
     const upgraded = await DataStore.open(join(f.root, "app.db"));
     try {
-      expect(upgraded.getProject(p.id)).toEqual(p);
+      expect(upgraded.getProject(p.id)).toEqual({ ...p, trinityProjects: [] });
       expect(
         (await readdir(f.root)).some((name) => name.includes("backup-v3")),
       ).toBe(true);
@@ -59,7 +59,7 @@ describe("project persistence", () => {
     }
     const check = new Database(join(f.root, "app.db"));
     try {
-      expect(check.pragma("user_version", { simple: true })).toBe(7);
+      expect(check.pragma("user_version", { simple: true })).toBe(8);
     } finally {
       check.close();
     }

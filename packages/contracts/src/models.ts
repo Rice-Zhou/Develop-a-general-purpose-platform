@@ -47,12 +47,14 @@ export const IssueBindingSchema = z
     id: z.string(),
     platform: z.enum(["jira-cloud", "jira-dc", "trinity"]),
     instanceUrl: z.url(),
+    scopeMode: z.literal("account").optional(),
     projectKey: text,
     owner: text,
     connectionId: z.uuid().optional(),
     issueTypeIds: z.array(z.string().min(1).max(200)).min(1).max(50).optional(),
   })
   .strict();
+export const TrinityProjectMappingSchema = z.object({ instanceUrl: z.url(), projectId: text }).strict();
 export const ProjectDraftSchema = z
   .object({
     id: z.uuid().optional(),
@@ -61,11 +63,12 @@ export const ProjectDraftSchema = z
     repositories: z.array(RepositoryDraftSchema).min(1).max(20),
     documents: ProjectDocumentsUpdateSchema.shape.documents,
     issueBindings: z.array(IssueBindingSchema).max(20).refine((items) => items.filter((b) => b.platform !== "trinity").length <= 1, "每个本地项目仅可选择单个 Jira 项目"),
+    trinityProjects: z.array(TrinityProjectMappingSchema).max(100).optional(),
     aiProfileId: z.string().nullable(),
   })
   .strict();
 export type ProjectDraft = z.infer<typeof ProjectDraftSchema>;
-export const ProjectLinksUpdateSchema = z.object({ projectId: z.uuid(), expectedRevision: z.number().int().positive(), documents: ProjectDraftSchema.shape.documents, issueBindings: ProjectDraftSchema.shape.issueBindings, aiProfileId: ProjectDraftSchema.shape.aiProfileId }).strict();
+export const ProjectLinksUpdateSchema = z.object({ projectId: z.uuid(), expectedRevision: z.number().int().positive(), documents: ProjectDraftSchema.shape.documents, issueBindings: ProjectDraftSchema.shape.issueBindings, trinityProjects: ProjectDraftSchema.shape.trinityProjects, aiProfileId: ProjectDraftSchema.shape.aiProfileId }).strict();
 export interface RepositoryBinding {
   id: string;
   canonicalPath: string;
@@ -83,6 +86,7 @@ export interface Project {
   documents: z.infer<typeof DocumentBindingSchema>[];
   issueBindings: z.infer<typeof IssueBindingSchema>[];
   aiProfileId: string | null;
+  trinityProjects?: z.infer<typeof TrinityProjectMappingSchema>[];
   usesDefaultAI?: boolean;
   updatedAt: string;
   deletedAt?: string;
@@ -198,6 +202,7 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  discoverJiraConnection(draft: IssueConnectionDraft, secret?: string): Promise<Result<import("./issues").JiraCatalogue>>;
   getJiraCatalogue(connectionId: string): Promise<Result<import("./issues").JiraCatalogue>>;
   getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
   inspectLocalJira(): Promise<

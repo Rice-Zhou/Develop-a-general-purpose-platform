@@ -18,6 +18,7 @@ export function issueFixture() {
     getSetting: <T>(key: string) => structuredClone(settings.get(key) ?? null) as T | null,
     setSetting: (key: string, value: unknown) => { settings.set(key, structuredClone(value)); },
     issues: {
+      replaceBatches: (values: {bindingId:string;snapshots:IssueSnapshot[]}[]) => { for(const value of values)batches.set(value.bindingId,value.snapshots); },
       save: () => {}, get: (_p: string, id: string) => [...batches.values()].flat().find(i => i.id === id)!,
       batch: (_p: string, b: string) => batches.get(b) ?? [],
       replaceBatch: (_p: string, b: string, _h: string, next: IssueSnapshot[]) => { batches.set(b, next); },

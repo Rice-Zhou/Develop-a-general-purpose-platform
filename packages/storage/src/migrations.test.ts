@@ -44,7 +44,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(7); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(8); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -70,7 +70,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(7);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(8);
   } finally {
     upgraded.close();
   }
@@ -175,4 +175,21 @@ it("migrates actual v6 inline documents and AI choices to shared resources witho
     expect(store.getProject("other").documents[0].id).not.toBe("d");
     expect((await readdir(f.root)).some(name => name.includes("backup-v6"))).toBe(true);
   } finally { store.close(); }
+});
+
+it("backs up v7 and preserves explicit remote project mappings while moving Trinity to one account",async()=>{
+ const f=await legacy();let store=await DataStore.open(f.path);store.close();
+ const db=new Database(f.path);
+ const jira={id:"j",kind:"jira-http",platform:"jira-dc",name:"Jira",baseUrl:"https://jira.example",username:"alice",credentialRef:null,bypassProxy:true};
+ const account={id:"t",kind:"trinity",platform:"trinity",name:"Trinity",baseUrl:"https://trinity.example/trinity",username:"login",credentialRef:null,bypassProxy:true};
+ const project={id:"p",revision:1,name:"Code",enabled:true,documents:[],documentRefs:[],repositories:[],aiProfileId:null,updatedAt:"now",issueBindings:[{id:"j1",connectionId:"j",platform:"jira-dc",instanceUrl:jira.baseUrl,projectKey:"A",owner:"alice",issueTypeIds:["1"]},{id:"t1",connectionId:"t",platform:"trinity",instanceUrl:account.baseUrl,projectKey:"T",owner:"old-manual-owner",issueTypeIds:["BUG"]}]};
+ db.prepare("INSERT INTO settings(key,json) VALUES('issue-connections',?)").run(JSON.stringify([jira,account]));
+ db.prepare("UPDATE projects SET json=? WHERE id='p'").run(JSON.stringify(project));db.pragma("user_version=7");db.close();
+ store=await DataStore.open(f.path);
+ try{
+  expect(store.getProject("p").trinityProjects).toEqual([{instanceUrl:account.baseUrl,projectId:"T"}]);
+  expect(store.getProject("p").issueBindings.find(b=>b.platform==="trinity")).toMatchObject({scopeMode:"account",projectKey:"*",owner:"待重新登录"});
+  expect(store.getSetting<[{jiraProject:unknown}]>("issue-connections")![0].jiraProject).toMatchObject({key:"A",owner:"alice",issueTypeIds:["1"]});
+  expect((await readdir(f.root)).some(name=>name.includes("backup-v7"))).toBe(true);
+ }finally{store.close();}
 });
