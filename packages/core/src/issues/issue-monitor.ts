@@ -3,6 +3,7 @@ import { AppError, errorData } from "../../../contracts/src/error";
 import type { ErrorData, Project } from "../../../contracts/src/models";
 import {
   DEFAULT_ISSUE_MONITOR_CONFIGURATION, IssueMonitorConfigurationSchema,
+  RecipientQuerySchema,
   type IssueMonitorConfiguration, type IssueMonitorStatus, type IssueNotification,
   type IssueNotifier, type IssueSourceState, type NotificationRecipient, type IssueWorkspace,
 } from "../../../contracts/src/issue-monitor";
@@ -43,6 +44,9 @@ export class IssueMonitor {
   private runtimeError: ErrorData | null = null;
   private ticking = false;
   private delivery: Promise<void> | undefined;
+  private readonly candidates = new Map<string, NotificationRecipient>();
+  private searchVersion = 0;
+  private recipientVersion = 0;
   constructor(
     private readonly store: MonitorStore,
     private readonly issues: IssueService,
@@ -57,7 +61,7 @@ export class IssueMonitor {
   private save() { this.store.setSetting(STATE_KEY, this.state); }
   status(): IssueMonitorStatus {
     return {
-      configuration: { ...this.state.configuration }, recipient: this.state.recipient,
+      configuration: { ...this.state.configuration }, recipient: this.state.recipient ? { ...this.state.recipient } : null,
       pendingCount: this.state.pending.length, notificationError: this.state.notificationError,
       lastNotificationAt: this.state.lastNotificationAt, runtimeError: this.runtimeError,
       running: this.running.size > 0,
@@ -68,18 +72,40 @@ export class IssueMonitor {
     this.save();
     return this.status();
   }
+  async searchRecipients(query: string, signal = this.controller.signal) {
+    const keyword=RecipientQuerySchema.parse(query);
+    const version=++this.searchVersion;this.candidates.clear();
+    try {
+      const result=await this.notifier.search(keyword,signal);
+      if(version!==this.searchVersion)throw new AppError("FEISHU_SEARCH_STALE","搜索条件已变化，请使用最新结果");
+      for(const user of result.users)this.candidates.set(user.openId,{...user});
+      return {...result,users:result.users.map(user=>({...user}))};
+    } catch(error) {
+      if(version===this.searchVersion){this.state.notificationError=errorData(error);this.save();}
+      throw error;
+    }
+  }
+  selectRecipient(openId: string): IssueMonitorStatus {
+    const recipient=this.candidates.get(openId);
+    if(!recipient)throw new AppError("FEISHU_RECIPIENT_REQUIRED","请选择姓名搜索返回的接收账号；搜索结果已失效时请重新搜索");
+    this.rememberRecipient(recipient);
+    return this.status();
+  }
+  private rememberRecipient(recipient: NotificationRecipient) {
+    // A new destination must not reuse a message key that may already be accepted for the old destination.
+    if(this.state.recipient && this.state.recipient.openId!==recipient.openId)this.state.pending=this.state.pending.map(event=>({...event,id:randomUUID()}));
+    this.recipientVersion++;
+    this.state.recipient={...recipient};this.state.notificationError=null;this.save();
+  }
   async checkNotification(signal = this.controller.signal): Promise<IssueMonitorStatus> {
+    const version=this.recipientVersion;
     try {
       const recipient = await this.notifier.self(signal);
-      if (this.state.recipient && this.state.recipient.openId !== recipient.openId)
-        throw new AppError("FEISHU_IDENTITY_CHANGED", "飞书 CLI 登录用户已变化，请恢复原通知接收账号后重试");
-      this.state.recipient = recipient;
-      this.state.notificationError = null;
-      this.save();
+      if(version!==this.recipientVersion)throw new AppError("FEISHU_RECIPIENT_CHANGED","接收人已变化，本次当前用户查询未覆盖已保存的账号");
+      this.rememberRecipient(recipient);
       return this.status();
     } catch (error) {
-      this.state.notificationError = errorData(error);
-      this.save();
+      if(version===this.recipientVersion){this.state.notificationError = errorData(error);this.save();}
       throw error;
     }
   }
@@ -187,13 +213,16 @@ export class IssueMonitor {
     if (!events.length) return;
     try {
       const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(30000)]);
-      await this.checkNotification(signal);
+      if(!this.state.recipient)await this.checkNotification(signal);
+      const recipient={...this.state.recipient!};
+      const version=this.recipientVersion;
       for (const event of events) {
         if (!this.state.configuration.enabled || !this.state.configuration.notificationsEnabled || this.controller.signal.aborted) return;
         const stillVisible = this.current(event) && this.issues.workspace(event.projectId).issues
           .some(i => i.bindingId === event.bindingId && i.remoteId === event.remoteId);
         if (stillVisible) {
-          await this.notifier.send(event, this.state.recipient!, signal, () => {
+          await this.notifier.send(event, recipient, signal, () => {
+            if(version!==this.recipientVersion)throw new AppError("FEISHU_RECIPIENT_CHANGED","通知接收人已变化，本次未发送；待发通知将按新设置重试");
             if (!this.current(event) || !this.state.configuration.enabled || !this.state.configuration.notificationsEnabled)
               throw new AppError("ISSUE_NOTIFICATION_STALE", "项目或通知设置已变化，本次未发送");
           });

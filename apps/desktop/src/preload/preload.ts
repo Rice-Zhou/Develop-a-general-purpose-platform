@@ -24,6 +24,8 @@ const api: DesktopAPI = {
   getIssueMonitor: () => invoke("getIssueMonitor"),
   saveIssueMonitor: (configuration) => invoke("saveIssueMonitor", { configuration }),
   checkIssueNotifications: () => invoke("checkIssueNotifications"),
+  searchNotificationRecipients: query => invoke("searchNotificationRecipients", {query}),
+  saveNotificationRecipient: openId => invoke("saveNotificationRecipient", {openId}),
   refreshIssues: (projectId, bindingId) =>
     invoke("refreshIssues", { projectId, bindingId }),
   readIssueByKey: (projectId, bindingId, key) =>

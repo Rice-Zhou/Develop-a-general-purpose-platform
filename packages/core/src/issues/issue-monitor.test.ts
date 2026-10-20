@@ -7,6 +7,7 @@ it("baselines all sources, notifies only new arrivals, and persists delivery acr
   const sent: string[] = [];
   let failSend = false;
   const notifier = {
+    search: async () => ({users:[],hasMore:false}),
     self: async () => ({ openId: "ou_self", name: "Local User" }),
     send: async (event: { id: string }) => { if (failSend) throw new Error("notification offline"); sent.push(event.id); },
   };
@@ -43,6 +44,7 @@ it("polls at the configured interval and does not notify first-baseline or uncha
   let now = 0;
   const sent: string[] = [];
   const monitor = new IssueMonitor(f.store, f.service, {
+    search: async () => ({users:[],hasMore:false}),
     self: async () => ({ openId: "ou_self", name: "Self" }),
     send: async event => { sent.push(event.key); },
   }, () => now);
@@ -66,6 +68,7 @@ it("coalesces concurrent manual and timer refresh and drops pending messages for
   let failSend = true;
   const sent: string[] = [];
   const monitor = new IssueMonitor(f.store, f.service, {
+    search: async () => ({users:[],hasMore:false}),
     self: async () => ({ openId: "ou_self", name: "Local User" }),
     send: async (event) => { if (failSend) throw new Error("offline"); sent.push(event.id); },
   });

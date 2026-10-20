@@ -115,7 +115,7 @@ it("notifies once for the shared Trinity account across multiple code projects",
   const projects=["A","B"].map(name=>({id:randomUUID(),name,revision:1,enabled:true,repositories:[],documents:[],issueBindings:[],aiProfileId:null,updatedAt:"now"}));projects.forEach(p=>store.saveProject(p));
   const row=(id:string):RemoteIssue=>({remoteId:id,key:`BUG-${id}`,instanceUrl:c.baseUrl,remoteProjectId:"other",ownerId:"uid1",typeId:"BUG",title:"Bug",description:"",status:"Open",updatedAt:"now",versions:[],comments:[],attachments:[],warnings:[]});
   const rows=[row("1")];const service=new IssueService(store,()=>({list:async()=>rows,get:async(_s,key)=>rows.find(i=>i.key===key)!}));
-  const sent:string[]=[];const monitor=new IssueMonitor(store,service,{self:async()=>({openId:"self",name:"Local"}),send:async event=>{sent.push(event.key);}});
+  const sent:string[]=[];const monitor=new IssueMonitor(store,service,{search:async()=>({users:[],hasMore:false}),self:async()=>({openId:"self",name:"Local"}),send:async event=>{sent.push(event.key);}});
   await monitor.refreshProject(projects[0].id);await monitor.refreshProject(projects[1].id);expect(sent).toEqual([]);
   rows.push(row("2"));await monitor.refreshProject(projects[0].id);await monitor.refreshProject(projects[1].id);expect(sent).toEqual(["BUG-2"]);
   rows.push(row("3"));await Promise.all(projects.map(p=>monitor.refreshProject(p.id)));expect(sent).toEqual(["BUG-2","BUG-3"]);

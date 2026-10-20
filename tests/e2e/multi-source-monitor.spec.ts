@@ -69,7 +69,7 @@ test("aggregates both platforms, isolates failures and periodically notifies the
     await page.getByText(/定时查询与飞书提醒 ·/).click();
     await page.getByLabel("查询间隔（分钟）").fill("1");
     await page.getByRole("button", { name: "保存监控设置", exact: true }).click();
-    await page.getByRole("button", { name: "检查飞书接收人", exact: true }).click();
+    await page.getByRole("button", { name: "使用当前 CLI 用户", exact: true }).click();
     await expect(page.getByText(/通知接收人：Local User/)).toBeVisible();
     jiraCount = 2;
     trinityFailed = true;

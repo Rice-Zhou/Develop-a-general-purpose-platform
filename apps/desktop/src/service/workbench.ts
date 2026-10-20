@@ -395,6 +395,10 @@ export class Workbench implements TaskRuntime {
         return this.monitor.configure(request.params.configuration);
       case "checkIssueNotifications":
         return this.monitor.checkNotification();
+      case "searchNotificationRecipients":
+        return this.monitor.searchRecipients(request.params.query);
+      case "saveNotificationRecipient":
+        return this.monitor.selectRecipient(request.params.openId);
       case "refreshIssues":
         return this.issues.refresh(
           request.params.projectId,

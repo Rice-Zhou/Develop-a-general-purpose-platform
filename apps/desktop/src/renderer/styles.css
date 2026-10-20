@@ -778,7 +778,8 @@ select {
 input::placeholder {
   color: #b0b8c6;
 }
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   display: inline-block;
   width: auto;
   margin: 0 7px 0 0;
@@ -1063,7 +1064,7 @@ input[type="checkbox"] {
   color: #697892;
   margin: 12px 0;
 }
-.work-panel input:not([type="checkbox"]),
+.work-panel input:not([type="checkbox"]):not([type="radio"]),
 .work-panel select,
 .work-panel textarea {
   background: #fbfcff;

@@ -24,7 +24,11 @@ export interface IssueWorkspace {
   issues: IssueListItem[];
   sources: IssueSourceState[];
 }
-export interface NotificationRecipient { openId: string; name: string }
+export const NotificationOpenIdSchema = z.string().regex(/^ou_[A-Za-z0-9_-]+$/).max(200);
+export const NotificationRecipientSchema = z.object({ openId: NotificationOpenIdSchema, name: z.string().min(1).max(200), department: z.string().max(500).optional() }).strict();
+export const RecipientQuerySchema = z.string().trim().min(1).max(50);
+export type NotificationRecipient = z.infer<typeof NotificationRecipientSchema>;
+export interface NotificationRecipientSearch { users: NotificationRecipient[]; hasMore: boolean }
 export interface IssueNotification {
   id: string;
   projectId: string;
@@ -35,6 +39,7 @@ export interface IssueNotification {
   text: string;
 }
 export interface IssueNotifier {
+  search(query: string, signal: AbortSignal): Promise<NotificationRecipientSearch>;
   self(signal: AbortSignal): Promise<NotificationRecipient>;
   send(event: IssueNotification, recipient: NotificationRecipient, signal: AbortSignal, authorize: () => void): Promise<void>;
 }

@@ -4,7 +4,7 @@ import { ProjectDraftSchema, ProjectDocumentsUpdateSchema, ProjectLinksUpdateSch
 import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
 import { RequirementItemSchema } from "./requirements";
 import { IssueConnectionDraftSchema } from "./issues";
-import { IssueMonitorConfigurationSchema } from "./issue-monitor";
+import { IssueMonitorConfigurationSchema, NotificationOpenIdSchema, RecipientQuerySchema } from "./issue-monitor";
 const empty = z.object({}).strict();
 const id = z.uuid();
 const binding = z
@@ -29,6 +29,8 @@ const request = z.discriminatedUnion("method", [
   z.object({ method: z.literal("refreshBugWorkspace"), params: z.object({ projectId: id }).strict() }).strict(),
   ...(["getIssueMonitor", "checkIssueNotifications"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),
   z.object({ method: z.literal("saveIssueMonitor"), params: z.object({ configuration: IssueMonitorConfigurationSchema }).strict() }).strict(),
+  z.object({method:z.literal("searchNotificationRecipients"),params:z.object({query:RecipientQuerySchema}).strict()}).strict(),
+  z.object({method:z.literal("saveNotificationRecipient"),params:z.object({openId:NotificationOpenIdSchema}).strict()}).strict(),
   z.object({ method: z.literal("getJiraCatalogue"), params: z.object({ connectionId: id }).strict() }).strict(),
   z
     .object({

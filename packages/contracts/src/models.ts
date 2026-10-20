@@ -8,7 +8,7 @@ import type {
   IssueSnapshot,
   BugReport,
 } from "./issues";
-import type { IssueMonitorConfiguration, IssueMonitorStatus, IssueWorkspace } from "./issue-monitor";
+import type { IssueMonitorConfiguration, IssueMonitorStatus, IssueWorkspace, NotificationRecipientSearch } from "./issue-monitor";
 import type {
   AnalysisReport,
   AIProfileDraft,
@@ -225,6 +225,8 @@ export interface DesktopAPI {
   getIssueMonitor(): Promise<Result<IssueMonitorStatus>>;
   saveIssueMonitor(configuration: IssueMonitorConfiguration): Promise<Result<IssueMonitorStatus>>;
   checkIssueNotifications(): Promise<Result<IssueMonitorStatus>>;
+  searchNotificationRecipients(query: string): Promise<Result<NotificationRecipientSearch>>;
+  saveNotificationRecipient(openId: string): Promise<Result<IssueMonitorStatus>>;
   refreshIssues(
     projectId: string,
     bindingId: string,
