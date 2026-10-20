@@ -3,6 +3,25 @@ import { TrinityAdapter } from "./trinity";
 import { loginTrinity,readTrinityIdentity } from "./login";
 import type { IssueScope } from "../../../contracts/src/issues";
 const scope:IssueScope={projectId:"code",enabled:true,binding:{id:"b",platform:"trinity",instanceUrl:"https://trinity.example/trinity",connectionId:"c",owner:"uid1",projectKey:"*",scopeMode:"account",issueTypeIds:["BUG"]},connection:{id:"c",kind:"trinity",platform:"trinity",name:"Trinity",baseUrl:"https://trinity.example/trinity",username:"login-name",accountId:"uid1",credentialRef:null,bypassProxy:true}};
+it.each(["server-session-token", "Bearer server-session-token"])("preserves the server-issued X-Token for identity and BUG requests: %s", async token => {
+ const request = (async (url, init) => {
+  if (new Headers(init?.headers).get("X-Token") !== token) return Response.json({code:5002,data:null,success:false,msg:"private response"});
+  if (String(url).endsWith("userinfo")) return Response.json({code:200,data:{uid:"uid1",apiVersion:"v7",isGray:false}});
+  return Response.json({code:200,data:{id:"1",bugId:"BUG-1",projectId:"P",assigneeId:"uid1",title:"Bug",description:"",status:"Open",updateTime:"now"}});
+ }) as typeof fetch;
+ expect(await readTrinityIdentity(scope.connection.baseUrl,token,request)).toEqual({accountId:"uid1"});
+ expect((await new TrinityAdapter(async()=>token,request).get(scope,"BUG-1",new AbortController().signal)).key).toBe("BUG-1");
+});
+it("distinguishes rejected sessions and invalid protocol fields from a missing UID without exposing response content", async () => {
+ for (const [raw,code] of [
+  [{code:5002,data:null,msg:"private-token"},"ISSUE_LOGIN_FAILED"],
+  [{code:200,data:{uid:"uid1"}},"TRINITY_PROTOCOL_INVALID"],
+  [{code:200,data:{uid:"  ",apiVersion:"v7",isGray:false}},"TRINITY_IDENTITY_REQUIRED"],
+ ] as const) {
+  await expect(readTrinityIdentity(scope.connection.baseUrl,"token",(async()=>Response.json(raw)) as typeof fetch)).rejects.toMatchObject({code,message:expect.not.stringContaining("private-token")});
+ }
+ await expect(new TrinityAdapter(async()=>"token",(async()=>Response.json({code:5002,data:null,msg:"private-token"})) as typeof fetch).get(scope,"BUG-1",new AbortController().signal)).rejects.toMatchObject({code:"ISSUE_LOGIN_FAILED",message:expect.not.stringContaining("private-token")});
+});
 it("lists only the authenticated account across remote projects and checks each owner",async()=>{
  let owner="uid1";let repeated=false;
  const adapter=new TrinityAdapter(async()=>"token",(async(url,init)=>{

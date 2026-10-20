@@ -4,6 +4,7 @@ import { AppError } from "../../../contracts/src/error";
 import { trinityApiUrl } from "../../../core/src/issues/scope-policy";
 import { readResponseText } from "../network/response";
 import { curlFetch } from "../network/curl-fetch";
+import { trinityProtocol, trinityUserData } from "./trinity-session";
 
 // Read public protocol parameters from the chosen site's frontend; never execute it
 // or ship a hardcoded encryption key. Unsupported versions fail before sending a password.
@@ -135,11 +136,13 @@ export async function loginTrinity(
 }
 
 export async function readTrinityIdentity(baseUrl: string, token: string, request: typeof fetch = curlFetch as typeof fetch): Promise<{ accountId: string }> {
- const response = await request(trinityApiUrl(baseUrl) + "/sys/user/userinfo", {redirect:"error",signal:AbortSignal.timeout(30000),headers:{"X-Token":`Bearer ${token.replace(/^Bearer\s+/i, "")}`,"X-Platform":"trinity",Accept:"application/json"}});
+ const response = await request(trinityApiUrl(baseUrl) + "/sys/user/userinfo", {redirect:"error",signal:AbortSignal.timeout(30000),headers:{"X-Token":token,"X-Platform":"trinity",Accept:"application/json"}});
  if (!response.ok) { await response.body?.cancel(); throw new AppError("ISSUE_LOGIN_FAILED", `Trinity 账号验证失败（HTTP ${response.status}）`); }
  const text = await readResponseText(response);
  let raw:unknown; try {raw=JSON.parse(text);} catch {throw new AppError("ISSUE_LOGIN_FAILED","Trinity 身份响应不是有效 JSON，未保存正文");}
- const result=z.object({code:z.literal(200),data:z.object({uid:z.union([z.string().min(1),z.number()]).transform(String),apiVersion:z.string().min(1),isGray:z.boolean()})}).safeParse(raw);
+ const data=trinityUserData(raw);
+ const result=z.union([z.string().trim().min(1).max(200),z.number().int().nonnegative()]).transform(String).safeParse(data.uid);
  if (!result.success) throw new AppError("TRINITY_IDENTITY_REQUIRED","Trinity 未返回可验证的账号 UID，未保存连接");
- return {accountId:result.data.data.uid};
+ trinityProtocol(data);
+ return {accountId:result.data};
 }

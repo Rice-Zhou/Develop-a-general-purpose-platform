@@ -79,6 +79,7 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
   const data = await mkdtemp(join(tmpdir(), "platform-logins-"));
   let jiraLogins = 0;
   let trinityLogins = 0;
+  let rejectIdentity = true;
   const server = createServer(async (req, res) => {
     if (req.url === "/") {
       res.end("<script src=static/js/app.js></script>");
@@ -93,7 +94,10 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     res.setHeader("content-type", "application/json");
     if(req.url==="/rest/api/2/project"){res.end(JSON.stringify([{key:"A",name:"Project A"}]));return;}
     if(req.url==="/rest/api/2/issuetype"){res.end(JSON.stringify([{id:"1",name:"Bug"}]));return;}
-    if(req.url==="/trinity/sys/user/userinfo"){res.end(JSON.stringify({code:200,data:{uid:"uid-alice",apiVersion:"v7",isGray:false}}));return;}
+    if(req.url==="/trinity/sys/user/userinfo"){
+      const accepted = !rejectIdentity && req.headers["x-token"] === "fixture-session-token";
+      res.end(JSON.stringify(accepted ? {code:200,data:{uid:"uid-alice",apiVersion:"v7",isGray:false}} : {code:5002,data:null,msg:"private-server-details"}));return;
+    }
     if (req.url === "/rest/api/2/myself") {
       jiraLogins++;
       expect(req.headers.authorization).toBe(
@@ -150,6 +154,14 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     await page
       .getByRole("button", { name: "登录并保存平台连接", exact: true })
       .click();
+    await expect(page.getByRole("alert")).toContainText("ISSUE_LOGIN_FAILED");
+    await expect(page.getByRole("alert")).toContainText("业务码 5002");
+    await expect(page.getByRole("alert")).not.toContainText("private-server-details");
+    expect(await page.evaluate(async()=>{
+      const r=await window.platform.getIssueConnections();if(!r.ok)throw new Error(r.error.message);return r.value.length;
+    })).toBe(1);
+    rejectIdentity = false;
+    await page.getByRole("button", {name:"登录并保存平台连接",exact:true}).click();
     await expect(
       page.getByText("Trinity", { exact: true }).last(),
     ).toBeVisible();
@@ -169,7 +181,7 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
       /fixture-password|fixture-session-token|credentialRef/,
     );
     expect(jiraLogins).toBe(2);
-    expect(trinityLogins).toBe(1);
+    expect(trinityLogins).toBe(2);
     expect(
       (await readFile(join(data, "platform.db"))).includes(
         Buffer.from("fixture-password"),

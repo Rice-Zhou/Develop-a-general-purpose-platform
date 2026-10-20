@@ -20,7 +20,7 @@ test("saves independent Jira project connections and auto-links one Trinity acco
    let body="";for await(const part of req)body+=part;
    return reply({code:200,data:{token:`token-${new URLSearchParams(body).get("uid")}`}});
   }
-  const account=req.headers["x-token"]==="Bearer token-bob"?"uid-bob":"uid-alice";
+  const account=req.headers["x-token"]==="token-bob"?"uid-bob":"uid-alice";
   if(path==="/trinity/sys/user/userinfo")return reply({code:200,data:{uid:account,apiVersion:"v7",isGray:false}});
   if(path==="/trinity/quality/bugRedux/getBugsByMultiProjects"){
    let text="";for await(const part of req)text+=part;const body=JSON.parse(text);

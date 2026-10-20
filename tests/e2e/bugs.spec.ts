@@ -23,7 +23,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       return;
     }
     if (req.url?.startsWith("/trinity/quality/bugRedux/getByBugId")) {
-      expect(req.headers["x-token"]).toBe("Bearer fixture-token");
+      expect(req.headers["x-token"]).toBe("fixture-token");
       res.end(
         JSON.stringify({
           code: 200,

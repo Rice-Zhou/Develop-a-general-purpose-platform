@@ -12,6 +12,7 @@ import {
 import type { IssueAdapter } from "../../../core/src/issues/ports";
 import { readResponseText } from "../network/response";
 import { curlFetch } from "../network/curl-fetch";
+import { trinityProtocol, trinityUserData } from "./trinity-session";
 const id = z.union([z.string(), z.number()]).transform(String);
 const response = z.object({
   code: z.literal(200),
@@ -96,18 +97,16 @@ export class TrinityAdapter implements IssueAdapter {
   }
   private async readProtocol(scope: IssueScope, signal: AbortSignal) {
     const raw = await this.readRequest(scope, "/sys/user/userinfo", signal);
-    const parsed = z.object({ code: z.literal(200), data: z.object({ apiVersion: z.string().min(1).max(200).regex(/^[^\r\n]+$/), isGray: z.boolean() }) }).safeParse(raw);
-    if (!parsed.success) throw new AppError("TRINITY_PROTOCOL_INVALID", "Trinity 未返回当前账号的 API 版本及灰度配置，请重新登录并检查目标实例");
-    return parsed.data.data;
+    return trinityProtocol(trinityUserData(raw));
   }
   private async readRequest(scope: IssueScope, path: string, signal: AbortSignal, body?: unknown, protocol?: { apiVersion: string; isGray: boolean }): Promise<unknown> {
     const base = instanceUrl(scope.connection.baseUrl);
-    const token = (await this.resolveToken()).replace(/^Bearer\s+/i, "");
+    const token = await this.resolveToken();
     const result = await this.request(base + path, {
       method: body === undefined ? "GET" : "POST",
       redirect: "error",
       signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
-      headers: { "X-Token": `Bearer ${token}`, "X-Platform": "trinity", ...(protocol ? { apiVersion: protocol.apiVersion, isGray: String(protocol.isGray) } : {}), Accept: "application/json", "Content-Type": "application/json" },
+      headers: { "X-Token": token, "X-Platform": "trinity", ...(protocol ? { apiVersion: protocol.apiVersion, isGray: String(protocol.isGray) } : {}), Accept: "application/json", "Content-Type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!result.ok) {
