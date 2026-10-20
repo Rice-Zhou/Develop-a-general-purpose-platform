@@ -34,7 +34,7 @@ test("aggregates both platforms, isolates failures and periodically notifies the
       for await (const part of req) text += part;
       const body = JSON.parse(text);
       expect(body.projectIds).toEqual([]);
-      expect(body.userId).toBe("alice");expect(body.mode).toBe("assignToMe");
+      expect(body.bugReduxCustomConditionsQueryBO).toMatchObject({logicalOperator:"and",conditions:[{field:"assigneeId",operation:"EQ",type:"SINGLEUSER",values:["alice"]}]});
       if (trinityFailed) { res.writeHead(503).end("{}"); return; }
       return reply({ code:200, data: { total: trinityCount, records: Array.from({ length: trinityCount }, (_, i) => ({ bugId: `T-${i + 1}` })) } });
     }

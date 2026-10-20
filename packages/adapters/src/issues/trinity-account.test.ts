@@ -28,7 +28,7 @@ it("lists only the authenticated account across remote projects and checks each 
   const path=String(url);
   if(path.endsWith("userinfo"))return Response.json({code:200,data:{apiVersion:"v7",isGray:false}});
   if(path.includes("getBugsByMultiProjects")){
-   const body=JSON.parse(init!.body as string);expect(body).toMatchObject({allProjects:true,mode:"assignToMe",userId:"uid1",projectIds:[]});expect(body.projectId).toBeUndefined();
+   const body=JSON.parse(init!.body as string);expect(body).toMatchObject({allProjects:true,projectIds:[],bugReduxCustomConditionsQueryBO:{logicalOperator:"and",conditions:[{field:"assigneeId",operation:"EQ",values:["uid1"],type:"SINGLEUSER",fieldType:"STRING"}]}});expect(body.projectId).toBeUndefined();
    return Response.json({code:200,data:{page:{total:repeated?2:1,records:[{bugId:"B-1"}]}}});
   }
   return Response.json({code:200,data:{id:"1",bugId:"B-1",projectId:"outside-code-project",assigneeId:owner,title:"Bug",description:"detail",status:"Open",updateTime:"now"}});

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { AppError } from "../../../contracts/src/error";
 import {
-  RemoteIssueSchema,
   type IssueScope,
   type RemoteIssue,
 } from "../../../contracts/src/issues";
@@ -12,22 +11,10 @@ import {
 import type { IssueAdapter } from "../../../core/src/issues/ports";
 import { readResponseText } from "../network/response";
 import { curlFetch } from "../network/curl-fetch";
-import { trinityProtocol, trinityUserData, type TrinityProtocol } from "./trinity-session";
-const id = z.union([z.string(), z.number()]).transform(String);
-const response = z.object({
-  code: z.literal(200),
-  data: z.object({
-    id,
-    bugId: z.string(),
-    projectId: id,
-    assigneeId: id,
-    title: z.string(),
-    description: z.string().nullable(),
-    status: z.union([z.string(), z.number()]).transform(String),
-    updateTime: z.string(),
-    workitemId: id.optional(),
-  }),
-});
+import { trinityData, trinityProtocol, trinityUserData, type TrinityProtocol } from "./trinity-session";
+import { normalizeTrinity, trinityContractError } from "./trinity-format";
+const MAX_ACCOUNT_ISSUES = 10000;
+const ACCOUNT_PAGE_SIZE = 100;
 export class TrinityAdapter implements IssueAdapter {
   private protocol: Promise<TrinityProtocol> | undefined;
   constructor(
@@ -70,19 +57,18 @@ export class TrinityAdapter implements IssueAdapter {
   }
   private async listAccount(scope: IssueScope, signal: AbortSignal): Promise<RemoteIssue[]> {
     const issues: RemoteIssue[] = []; const seen = new Set<string>(); let total: number | undefined;
-    const pageSchema = z.object({total:z.number().int().nonnegative().max(10000),records:z.array(z.object({bugId:z.string().min(1).max(200)})).max(100)});
+    const pageSchema = z.object({total:z.number().int().nonnegative(),current:z.number().int().positive().optional(),records:z.array(z.object({bugId:z.string().min(1).max(200)})).max(ACCOUNT_PAGE_SIZE)});
     for (let pageNum=1;pageNum<=100;pageNum++) {
       const raw = await this.read(scope,"/quality/bugRedux/getBugsByMultiProjects",signal,{
-        fields:["bugId","projectId","title","assigneeId","status"],allProjects:true,projectList:[],projectIds:[],
-        workitemType:"issueList",mode:"assignToMe",userId:scope.binding.owner,pageNum,currentPage:pageNum,pageSize:100,total:0,
-        bugReduxAttributeQueryBO:{title:"",bugIds:[],authorIds:[],statuses:[],assigneeIds:[]},
-        bugReduxMultiKeyWordsQueryBO:{bugId:true,bugTitle:true,assignee:true,author:true,keywords:[""]},
-        bugReduxGroupQueryBO:{},
+        fields:["bugId","projectId","title","assigneeId","status"],allProjects:true,projectIds:[],pageNum,pageSize:ACCOUNT_PAGE_SIZE,
+        bugReduxCustomConditionsQueryBO:{logicalOperator:"and",conditions:[{id:1,field:"assigneeId",operation:"EQ",values:[scope.binding.owner],type:"SINGLEUSER",fieldType:"STRING"}]},
       });
-      const parsed=z.object({code:z.literal(200),data:z.union([pageSchema,z.object({page:pageSchema})])}).safeParse(raw);
-      if(!parsed.success)throw new AppError("ISSUE_REMOTE_FAILED","Trinity 账号问题列表响应契约不符或登录已失效，请重新登录");
-      const page="page" in parsed.data.data?parsed.data.data.page:parsed.data.data;
-      if(total!==undefined&&total!==page.total)throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题总数变化，请重新刷新");
+      const data=trinityData(raw,"账号问题列表");
+      const parsed=pageSchema.safeParse(typeof data==="object"&&data!==null&&"page" in data?data.page:data);
+      if(!parsed.success)throw trinityContractError("账号问题列表",parsed.error);
+      const page=parsed.data;
+      if(page.total>MAX_ACCOUNT_ISSUES)throw new AppError("ISSUE_QUERY_TOO_BROAD",`Trinity 返回问题数超过 ${MAX_ACCOUNT_ISSUES}，负责人筛选可能未生效；未读取详情或发布列表`);
+      if((page.current!==undefined&&page.current!==pageNum)||(total!==undefined&&total!==page.total))throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题分页或总数变化，请重新刷新");
       total=page.total;
       for(const row of page.records){if(seen.has(row.bugId))throw new AppError("ISSUE_PAGINATION_INVALID","Trinity 账号问题分页重复");seen.add(row.bugId);issues.push(await this.get(scope,row.bugId,signal));}
       if(issues.length===total)return issues;
@@ -127,36 +113,6 @@ export class TrinityAdapter implements IssueAdapter {
         "ISSUE_KEY_INVALID",
         "Trinity 编号只允许字母、数字、下划线和连字符",
       );
-    const base = instanceUrl(scope.connection.baseUrl);
-    const parsed = response.safeParse(await this.read(scope, "/quality/bugRedux/getByBugId?" + new URLSearchParams({ bugId: key }), signal));
-    if (!parsed.success)
-      throw new AppError(
-        "ISSUE_REMOTE_FAILED",
-        "Trinity 业务失败或详情字段契约不符，请验证目标实例；未保存错误正文",
-      );
-    const r = parsed.data.data;
-    const issue = RemoteIssueSchema.parse({
-      remoteId: r.id,
-      ...(r.workitemId === undefined ? {} : { workitemId: r.workitemId }),
-      key: r.bugId,
-      instanceUrl: base,
-      remoteProjectId: r.projectId,
-      ownerId: r.assigneeId,
-      typeId: "BUG",
-      title: r.title,
-      description: r.description ?? "",
-      status: r.status,
-      updatedAt: r.updateTime,
-      versions: [],
-      comments: [],
-      attachments: [],
-      warnings: [
-        "Trinity 评论、附件及问题版本字段尚无已验证契约，未读取；仅依据 detail 文本预分析",
-      ],
-    });
-    if (issue.key !== key)
-      throw new AppError("ISSUE_KEY_MISMATCH", "Trinity 返回不同 BUG 编号");
-    ScopePolicy.assert(scope, issue);
-    return issue;
+    return normalizeTrinity(scope,key,await this.read(scope, "/quality/bugRedux/getByBugId?" + new URLSearchParams({ bugId: key }), signal));
   }
 }

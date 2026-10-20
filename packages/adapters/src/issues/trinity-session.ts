@@ -8,12 +8,20 @@ const protocol = z.object({
   isGray: z.union([z.boolean(), z.null()]).transform(String),
 });
 export type TrinityProtocol = z.infer<typeof protocol>;
+const sessionFailureCodes = new Set([401, 403, 5002, 50012]);
+
+export function trinityData(raw: unknown, operation: string): unknown {
+  const result = z.object({ code: z.number().int(), data: z.unknown().optional() }).safeParse(raw);
+  if (!result.success) throw new AppError("ISSUE_REMOTE_FAILED", `Trinity ${operation}响应缺少有效业务码，未保存正文`);
+  if (result.data.code !== 200) {
+    const loginFailed = sessionFailureCodes.has(result.data.code);
+    throw new AppError(loginFailed ? "ISSUE_LOGIN_FAILED" : "ISSUE_REMOTE_FAILED", `Trinity ${operation}失败（业务码 ${result.data.code}）${loginFailed ? "，请重新登录" : ""}；未保存响应正文`);
+  }
+  return result.data.data;
+}
 
 export function trinityUserData(raw: unknown): Record<string, unknown> {
-  const result = z.object({ code: z.number().int(), data: z.unknown().optional() }).safeParse(raw);
-  if (!result.success) throw new AppError("ISSUE_LOGIN_FAILED", "Trinity 账号验证响应契约无效，未保存正文");
-  if (result.data.code !== 200) throw new AppError("ISSUE_LOGIN_FAILED", `Trinity 账号验证失败（业务码 ${result.data.code}），请重新登录；未保存响应正文`);
-  const data = z.record(z.string(), z.unknown()).safeParse(result.data.data);
+  const data = z.record(z.string(), z.unknown()).safeParse(trinityData(raw, "账号验证"));
   if (!data.success) throw new AppError("TRINITY_IDENTITY_REQUIRED", "Trinity 未返回账号信息，未保存连接");
   return data.data;
 }

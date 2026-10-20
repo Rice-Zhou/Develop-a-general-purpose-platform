@@ -162,5 +162,5 @@ it("Trinity detail rejects business and scope errors", async () => {
         ? Response.json({ code: 200, data: { apiVersion: "Trinity V7.5.0", isGray: false } })
         : Response.json({ code: 401, msg: "sensitive" }),
     ).get(trinity, "A-1", new AbortController().signal),
-  ).rejects.toMatchObject({ code: "ISSUE_REMOTE_FAILED" });
+  ).rejects.toMatchObject({ code: "ISSUE_LOGIN_FAILED" });
 });
