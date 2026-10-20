@@ -78,6 +78,8 @@ async function dispatch(request: Request): Promise<unknown> {
       return git.readCurrentBranch(request.params.path);
     case "prepareContext":
       return tasks.enqueue(request.params.projectId, "PREPARE_CONTEXT");
+    case "updateCode":
+      return tasks.enqueue(request.params.projectId, request.params.mode === "ai" ? "RESOLVE_CODE_CONFLICTS" : request.params.mode === "continue" ? "CONTINUE_CODE_UPDATE" : "UPDATE_CODE");
     case "listTasks":
       return tasks.list(request.params.projectId);
     case "getTaskEvents":

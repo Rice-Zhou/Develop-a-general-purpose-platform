@@ -19,6 +19,7 @@ import type { TaskRepository, RepositoryAdapter } from "../ports";
 import type { ProjectService } from "../projects/project-service";
 
 const humanActionCodes = new Set([
+  "GIT_REBASE_CONFLICT", "GIT_NO_REBASE", "CONFLICT_UNSUPPORTED", "CONFLICT_CHANGED",
   "BUG_EVIDENCE_INSUFFICIENT",
   "ISSUE_NOT_CONFIGURED",
   "ISSUE_OUT_OF_SCOPE",
@@ -47,6 +48,7 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
+  resolveCodeConflicts?(project: Project, binding: RepositoryBinding, signal: AbortSignal): Promise<void>;
   configurationHash(project: Project, kind?: Task["kind"]): string;
   prepareIssue?(task: Task, signal: AbortSignal): Promise<string>;
   captureDocuments(
@@ -120,7 +122,7 @@ export class TaskService {
       projectId,
       projectName: project.name,
       projectRevision: project.revision,
-      ...(kind !== "PREPARE_CONTEXT" && this.runtime
+      ...(!["PREPARE_CONTEXT", "UPDATE_CODE", "CONTINUE_CODE_UPDATE"].includes(kind) && this.runtime
         ? {
             executionConfigurationHash: this.runtime.configurationHash(
               project,
@@ -154,7 +156,7 @@ export class TaskService {
     if (
       task.projectRevision !== project.revision ||
       this.projects.get(project.id).revision !== project.revision ||
-      (task.kind !== "PREPARE_CONTEXT" &&
+      (!["PREPARE_CONTEXT", "UPDATE_CODE", "CONTINUE_CODE_UPDATE"].includes(task.kind) &&
         this.runtime &&
         task.executionConfigurationHash !==
           this.runtime.configurationHash(project, task.kind))
@@ -221,6 +223,22 @@ export class TaskService {
         if (!project.enabled)
           throw new AppError("PROJECT_DISABLED", "项目已停用");
         this.assertConfiguration(task, project);
+        if (["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(task.kind)) {
+          if (!this.git.update || !this.git.continueUpdate) throw new AppError("GIT_UPDATE_UNAVAILABLE", "代码更新服务未装配");
+          for (const binding of project.repositories) {
+            this.assertConfiguration(task, project);
+            this.store.event(task.id, "GIT_UPDATE", `更新代码：${binding.canonicalPath} · ${binding.branch}`);
+            if (task.kind === "RESOLVE_CODE_CONFLICTS") {
+              if (!this.runtime?.resolveCodeConflicts) throw new AppError("MODEL_NOT_CONFIGURED", "AI 冲突处理未配置");
+              await this.runtime.resolveCodeConflicts(project, binding, this.controller.signal);
+            }
+            if (task.kind === "UPDATE_CODE") await this.git.update(binding, this.controller.signal);
+            else await this.git.continueUpdate(binding, this.controller.signal);
+          }
+          this.assertConfiguration(task, project);
+          this.transition(this.get(task.id), "SUCCEEDED", "代码更新完成；未读取需求文档或创建分析上下文，未推送远端");
+          continue;
+        }
         let issueSnapshotId: string | undefined;
         if (task.kind === "ANALYZE_BUG") {
           if (!this.runtime?.prepareIssue)

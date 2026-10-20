@@ -37,6 +37,8 @@ export interface TaskRepository {
   ): void;
 }
 export interface RepositoryAdapter {
+  update?(binding: RepositoryBinding, signal: AbortSignal): Promise<void>;
+  continueUpdate?(binding: RepositoryBinding, signal: AbortSignal): Promise<void>;
   inspect(
     binding: RepositoryBinding,
     signal?: AbortSignal,

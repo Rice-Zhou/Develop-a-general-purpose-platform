@@ -161,6 +161,9 @@ export interface Task {
   projectRevision?: number;
   executionConfigurationHash?: string;
   kind:
+    | "UPDATE_CODE"
+    | "CONTINUE_CODE_UPDATE"
+    | "RESOLVE_CODE_CONFLICTS"
     | "PREPARE_CONTEXT"
     | "EXTRACT_REQUIREMENTS"
     | "CHECK_REQUIREMENTS"
@@ -309,6 +312,7 @@ export interface DesktopAPI {
     reportId: string,
   ): Promise<Result<string | null>>;
   listProjects(): Promise<Result<Project[]>>;
+  updateCode(projectId: string, mode?: "update" | "continue" | "ai"): Promise<Result<Task>>;
   saveProjectDocuments(projectId: string, documents: Project["documents"], expectedRevision: number): Promise<Result<Project>>;
   saveProject(
     draft: ProjectDraft,

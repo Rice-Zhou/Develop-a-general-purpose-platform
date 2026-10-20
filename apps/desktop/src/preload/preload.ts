@@ -3,6 +3,7 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
+  updateCode: (projectId, mode = "update") => invoke("updateCode", { projectId, mode }),
   getJiraCatalogue: (connectionId) => invoke("getJiraCatalogue", { connectionId }),
   getIssueConnections: () => invoke("getIssueConnections"),
   inspectLocalJira: () => invoke("inspectLocalJira"),

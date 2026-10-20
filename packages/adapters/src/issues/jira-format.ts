@@ -6,7 +6,6 @@ import {
   RemoteIssueSchema,
   type IssueScope,
   type RemoteIssue,
-  JIRA_INDEXED_STATUSES,
 } from "../../../contracts/src/issues";
 import { AppError } from "../../../contracts/src/error";
 const id = z.union([z.string(), z.number()]).transform(String);
@@ -111,7 +110,7 @@ export const quoteJql = (s: string) =>
 export function jiraQuery(scope: IssueScope): string {
   if (!scope.binding.issueTypeIds?.length)
     throw new AppError("ISSUE_NOT_CONFIGURED", "请配置 BUG 类型 ID");
-  return `project = ${quoteJql(scope.binding.projectKey)} AND assignee = ${quoteJql(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quoteJql).join(",")}) AND status in (${JIRA_INDEXED_STATUSES.map(quoteJql).join(",")})`;
+  return `project = ${quoteJql(scope.binding.projectKey)} AND assignee = ${quoteJql(scope.binding.owner)} AND issuetype in (${scope.binding.issueTypeIds.map(quoteJql).join(",")})`;
 }
 export function assertJiraKey(scope: IssueScope, key: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(key))

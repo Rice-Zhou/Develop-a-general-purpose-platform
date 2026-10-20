@@ -13,6 +13,7 @@ import { RequirementsPage } from "./pages/RequirementsPage";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { IssueConnectionsPage } from "./pages/IssueConnectionsPage";
 import { BugsPage } from "./pages/BugsPage";
+import { CodeConflictDialog } from "./components/CodeConflictDialog";
 const statusLabels: Record<TaskStatus, string> = {
   QUEUED: "排队中",
   PREPARING: "准备中",
@@ -44,6 +45,13 @@ export function App() {
   const [page, setPage] = useState<Page>("overview");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [conflictTaskId, setConflictTaskId] = useState<string | null>(null);
+  const [handledConflicts, setHandledConflicts] = useState<string[]>([]);
+  useEffect(() => {
+    const task = tasks.find(t => t.error?.code === "GIT_REBASE_CONFLICT" && !handledConflicts.includes(t.id) &&
+      !tasks.some(newer => newer.projectId === t.projectId && newer.createdAt > t.createdAt && ["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(newer.kind)));
+    if (task && !conflictTaskId) { setConflictTaskId(task.id); setHandledConflicts(current => [...current, task.id]); }
+  }, [tasks, handledConflicts, conflictTaskId]);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -124,7 +132,7 @@ export function App() {
   }
   async function prepare(projectId: string) {
     await act(async () => {
-      unwrap(await window.platform.prepareContext(projectId));
+      unwrap(await window.platform.updateCode(projectId));
       setPage("tasks");
       setProjectFilter(projectId);
     });
@@ -157,7 +165,7 @@ export function App() {
                 <td>
                   <strong>{task.projectName}</strong>
                   <span className="table-sub">
-                    {task.kind === "PREPARE_CONTEXT"
+                    {["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(task.kind) ? "代码更新" : task.kind === "PREPARE_CONTEXT"
                       ? "上下文准备"
                       : task.kind === "EXTRACT_REQUIREMENTS"
                         ? "需求提取"
@@ -177,6 +185,7 @@ export function App() {
                 </td>
                 <td>
                   <div className="row-actions">
+                    {task.error?.code === "GIT_REBASE_CONFLICT" && <button className="text-button" onClick={() => setConflictTaskId(task.id)}>处理冲突</button>}
                     <button
                       className="text-button"
                       onClick={() => setSelectedTask(task.id)}
@@ -514,7 +523,7 @@ export function App() {
                       }
                       onClick={() => void prepare(project.id)}
                     >
-                      更新并准备上下文
+                      更新代码
                     </button>
                   </div>
                 </section>
@@ -744,7 +753,12 @@ export function App() {
           </section>
         </div>
       )}
-      {activeTask && (
+      {conflictTaskId && (() => {
+        const task = tasks.find(t => t.id === conflictTaskId);
+        const project = projects.find(p => p.id === task?.projectId);
+        return task && project ? <CodeConflictDialog key={task.id} task={task} project={project} onClose={() => setConflictTaskId(null)} onQueued={() => { setConflictTaskId(null); void reload().catch(error => setError(message(error))); }} /> : null;
+      })()}
+      {activeTask && !conflictTaskId && (
         <TaskDetails task={activeTask} onClose={() => setSelectedTask(null)} />
       )}
     </div>

@@ -18,6 +18,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("updateCode"), params: z.object({ projectId: id, mode: z.enum(["update", "continue", "ai"]).default("update") }).strict() }).strict(),
   z.object({ method: z.literal("saveProjectDocuments"), params: ProjectDocumentsUpdateSchema }).strict(),
   z.object({ method: z.literal("refreshBugWorkspace"), params: z.object({ projectId: id }).strict() }).strict(),
   ...(["getIssueMonitor", "checkIssueNotifications"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),

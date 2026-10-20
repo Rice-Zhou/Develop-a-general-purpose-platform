@@ -216,7 +216,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       expect(query).toContain('assignee = "alice"');
       expect(query).toContain('project = "A"');
       expect(query).toContain('issuetype in ("1")');
-      expect(query).toContain('status in ("修复中","分析中","分配中")');
+      expect(query).not.toContain("status in");
     }
     mode = "empty";
     await refresh.click();

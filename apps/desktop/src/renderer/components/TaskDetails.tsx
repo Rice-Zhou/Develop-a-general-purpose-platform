@@ -48,7 +48,7 @@ export function TaskDetails({
             <span className="eyebrow">TASK DETAILS</span>
             <h2 id="task-title">
               {task.projectName} ·{" "}
-              {task.kind === "PREPARE_CONTEXT"
+              {["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(task.kind) ? "代码更新" : task.kind === "PREPARE_CONTEXT"
                 ? "上下文准备"
                 : task.kind === "EXTRACT_REQUIREMENTS"
                   ? "需求提取"

@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, normalize } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { realpath, stat, lstat, readFile as readDiskFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join, normalize, resolve, relative, dirname } from "node:path";
 import { AppError } from "../../../contracts/src/error";
 import type {
   FileEntry,
@@ -14,9 +14,95 @@ import {
   readablePath,
 } from "../../../core/src/context/access-policy";
 import { runGit } from "./git-process";
+import { z } from "zod";
 const hash = (bytes: string | Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 export class GitRepositoryAdapter {
+  private async rebaseDirectory(binding: RepositoryBinding, signal: AbortSignal): Promise<string | null> {
+    await this.readCurrentBranch(binding.canonicalPath, signal);
+    const location = await this.text(binding.canonicalPath, ["rev-parse", "--git-path", "rebase-merge"], signal);
+    const directory = resolve(binding.canonicalPath, location);
+    try { await stat(directory); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+    if ((await readDiskFile(join(directory, "head-name"), "utf8")).trim() !== `refs/heads/${binding.branch}`)
+      throw new AppError("BRANCH_MISMATCH", "进行中的 rebase 不属于配置分支", "git");
+    const markerPath = await this.text(binding.canonicalPath, ["rev-parse", "--git-path", "local-dev-platform-update.json"], signal);
+    let marker;
+    try { marker = z.object({ branch: z.string(), original: z.string(), target: z.string() }).parse(JSON.parse(await readDiskFile(resolve(binding.canonicalPath, markerPath), "utf8"))); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new AppError("GIT_OPERATION_PENDING", "此 rebase 不是平台发起的，请在仓库中自行完成或中止"); throw error; }
+    if (marker.branch !== binding.branch || marker.original !== (await readDiskFile(join(directory, "orig-head"), "utf8")).trim() || marker.target !== (await readDiskFile(join(directory, "onto"), "utf8")).trim())
+      throw new AppError("GIT_OPERATION_PENDING", "Rebase 状态与平台更新记录不符，请自行检查");
+    return directory;
+  }
+  private conflictError(binding: RepositoryBinding): AppError {
+    return new AppError("GIT_REBASE_CONFLICT", `代码更新在 ${binding.canonicalPath} 遇到 rebase 冲突，请选择自行解决或 AI 解决。`, "git", false, "自行解决后执行 git add，再点击继续更新；也可在仓库中 git rebase --abort 放弃本次 rebase。");
+  }
+  async update(binding: RepositoryBinding, signal: AbortSignal): Promise<void> {
+    if (await this.rebaseDirectory(binding, signal)) throw this.conflictError(binding);
+    const { target, relation, inspection } = await this.fetchTarget(binding, signal);
+    if (!relation[1]) return;
+    if (!relation[0]) {
+      await this.text(binding.canonicalPath, ["merge", "--ff-only", "--no-edit", "--no-overwrite-ignore", target], signal);
+    } else {
+      await this.text(binding.canonicalPath, ["update-ref", `refs/local-dev-platform/updates/${randomUUID()}`, inspection.head], signal);
+      const markerPath = await this.text(binding.canonicalPath, ["rev-parse", "--git-path", "local-dev-platform-update.json"], signal);
+      await writeFile(resolve(binding.canonicalPath, markerPath), JSON.stringify({ branch: binding.branch, original: inspection.head, target }), "utf8");
+      const result = await runGit(binding.canonicalPath, ["-c", "commit.gpgSign=false", "-c", "rebase.autoSquash=false", "-c", "rebase.updateRefs=false", "rebase", "--merge", "--no-autostash", target], signal, [0, 1]);
+      if (result.code !== 0) {
+        if (await this.rebaseDirectory(binding, signal)) throw this.conflictError(binding);
+        throw new AppError("GIT_REBASE_FAILED", "Rebase 失败，请检查仓库后重试", "git");
+      }
+    }
+    this.assertReady(await this.inspect(binding, signal));
+  }
+  async continueUpdate(binding: RepositoryBinding, signal: AbortSignal): Promise<void> {
+    if (await this.rebaseDirectory(binding, signal)) {
+      const unresolved = await this.text(binding.canonicalPath, ["diff", "--name-only", "--diff-filter=U"], signal);
+      if (unresolved) throw this.conflictError(binding);
+      const result = await runGit(binding.canonicalPath, ["-c", "core.editor=true", "-c", "commit.gpgSign=false", "rebase", "--continue"], signal, [0, 1]);
+      if (result.code !== 0) throw this.conflictError(binding);
+    }
+    await this.update(binding, signal);
+  }
+  private async conflictPath(binding: RepositoryBinding, path: string): Promise<string> {
+    assertReadablePath(path);
+    const root = await realpath(binding.canonicalPath);
+    const full = resolve(root, path);
+    if (relative(root, full).startsWith("..") || isAbsolute(relative(root, full))) throw new AppError("PATH_DENIED", "冲突路径越界");
+    for (let current = full; current !== root; current = dirname(current)) {
+      const info = await lstat(current);
+      if (info.isSymbolicLink() || (current === full && (!info.isFile() || info.nlink !== 1 || info.size > 128 * 1024)))
+        throw new AppError("CONFLICT_UNSUPPORTED", "AI 仅支持 128 KiB 内的普通文本冲突，其他冲突请自行处理");
+    }
+    return full;
+  }
+  async conflicts(binding: RepositoryBinding, signal: AbortSignal) {
+    const directory = await this.rebaseDirectory(binding, signal);
+    if (!directory) throw new AppError("GIT_NO_REBASE", "当前仓库没有进行中的 rebase");
+    const index = (await runGit(binding.canonicalPath, ["ls-files", "--stage", "-z"], signal)).stdout;
+    const revision = hash((await this.text(binding.canonicalPath, ["rev-parse", "HEAD", "REBASE_HEAD"], signal)) + hash(index) + await readDiskFile(join(directory, "onto"), "utf8"));
+    const paths = (await runGit(binding.canonicalPath, ["diff", "--name-only", "-z", "--diff-filter=U"], signal)).stdout.toString("utf8").split("\0").filter(Boolean);
+    if (!paths.length || paths.length > 10) throw new AppError("CONFLICT_UNSUPPORTED", "AI 需要 1～10 个文本冲突文件，其他情况请自行处理");
+    const files = [];
+    for (const path of paths) {
+      const bytes = await readDiskFile(await this.conflictPath(binding, path));
+      if (bytes.includes(0)) throw new AppError("CONFLICT_UNSUPPORTED", "二进制冲突请自行处理");
+      const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      files.push({ path, content, hash: hash(bytes) });
+    }
+    return { revision, files };
+  }
+  async applyConflicts(binding: RepositoryBinding, original: Awaited<ReturnType<GitRepositoryAdapter["conflicts"]>>, files: { path: string; content: string }[], signal: AbortSignal): Promise<void> {
+    await this.assertNoEffectiveFilters(binding.canonicalPath, signal);
+    const current = await this.conflicts(binding, signal);
+    if (JSON.stringify(current) !== JSON.stringify(original) || files.length !== current.files.length || new Set(files.map(f => f.path)).size !== files.length || files.some(f => !current.files.some(c => c.path === f.path) || /^(<{7}|={7}|>{7}|\|{7})/m.test(f.content)))
+      throw new AppError("CONFLICT_CHANGED", "冲突材料已变化或 AI 返回无效文件，未应用建议");
+    for (const file of files) {
+      if (signal.aborted) throw new AppError("CANCELLED", "已取消冲突处理");
+      await writeFile(await this.conflictPath(binding, file.path), file.content, "utf8");
+      await this.text(binding.canonicalPath, ["--literal-pathspecs", "add", "--", file.path], signal);
+    }
+  }
   private async text(
     path: string,
     args: string[],
@@ -182,46 +268,7 @@ export class GitRepositoryAdapter {
     binding: RepositoryBinding,
     signal: AbortSignal,
   ): Promise<RepositorySnapshot> {
-    const inspection = await this.inspect(binding, signal);
-    this.assertReady(inspection);
-    const before = await this.tree(
-      binding.canonicalPath,
-      inspection.head,
-      signal,
-    );
-    await this.validateCheckout(
-      binding.canonicalPath,
-      inspection.head,
-      before,
-      signal,
-    );
-    await this.text(
-      binding.canonicalPath,
-      [
-        "fetch",
-        "--no-tags",
-        "--no-recurse-submodules",
-        binding.remoteName,
-        `+refs/heads/${binding.branch}:refs/remotes/${binding.remoteName}/${binding.branch}`,
-      ],
-      signal,
-    );
-    const target = await this.text(
-      binding.canonicalPath,
-      ["rev-parse", `refs/remotes/${binding.remoteName}/${binding.branch}`],
-      signal,
-    );
-    const all = await this.tree(binding.canonicalPath, target, signal);
-    await this.validateCheckout(binding.canonicalPath, target, all, signal);
-    const relation = (
-      await this.text(
-        binding.canonicalPath,
-        ["rev-list", "--left-right", "--count", `HEAD...${target}`],
-        signal,
-      )
-    )
-      .split(/\s+/)
-      .map(Number);
+    const { inspection, target, all, relation } = await this.fetchTarget(binding, signal);
     if (relation[0] > 0)
       throw new AppError(
         relation[1] > 0 ? "BRANCH_DIVERGED" : "LOCAL_AHEAD",
@@ -268,6 +315,49 @@ export class GitRepositoryAdapter {
         .filter((file) => !includedPaths.has(file.path))
         .map((file) => file.path),
     };
+  }
+  private async fetchTarget(binding: RepositoryBinding, signal: AbortSignal) {
+    const inspection = await this.inspect(binding, signal);
+    this.assertReady(inspection);
+    const before = await this.tree(
+      binding.canonicalPath,
+      inspection.head,
+      signal,
+    );
+    await this.validateCheckout(
+      binding.canonicalPath,
+      inspection.head,
+      before,
+      signal,
+    );
+    await this.text(
+      binding.canonicalPath,
+      [
+        "fetch",
+        "--no-tags",
+        "--no-recurse-submodules",
+        binding.remoteName,
+        `+refs/heads/${binding.branch}:refs/remotes/${binding.remoteName}/${binding.branch}`,
+      ],
+      signal,
+    );
+    const target = await this.text(
+      binding.canonicalPath,
+      ["rev-parse", `refs/remotes/${binding.remoteName}/${binding.branch}`],
+      signal,
+    );
+    const all = await this.tree(binding.canonicalPath, target, signal);
+    await this.validateCheckout(binding.canonicalPath, target, all, signal);
+    const relation = (
+      await this.text(
+        binding.canonicalPath,
+        ["rev-list", "--left-right", "--count", `HEAD...${target}`],
+        signal,
+      )
+    )
+      .split(/\s+/)
+      .map(Number);
+    return { inspection, target, all, relation };
   }
   private async assertNoEffectiveFilters(
     path: string,

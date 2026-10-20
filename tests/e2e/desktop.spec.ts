@@ -43,12 +43,12 @@ test("real desktop persists projects and prepares a pinned context without expos
       page.getByRole("heading", { name: "A 项目", exact: true }),
     ).toBeVisible();
     await fixture.publish("updated for desktop test\n");
-    await page.getByRole("button", { name: "更新并准备上下文" }).click();
+    await page.getByRole("button", { name: "更新代码" }).click();
     await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible(
       { timeout: 30000 },
     );
     await page.getByRole("button", { name: "查看详情" }).first().click();
-    await expect(page.getByText("代码快照", { exact: true })).toBeVisible();
+    await expect(page.getByText("代码更新完成；未读取需求文档或创建分析上下文，未推送远端", { exact: true })).toBeVisible();
     await page.screenshot({ path: "test-results/desktop-context.png" });
     await page.getByRole("button", { name: "关闭任务详情" }).click();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();
@@ -70,7 +70,7 @@ test("real desktop persists projects and prepares a pinned context without expos
       .filter({
         has: page.getByRole("heading", { name: "B 项目", exact: true }),
       })
-      .getByRole("button", { name: "更新并准备上下文" })
+      .getByRole("button", { name: "更新代码" })
       .click();
     await expect(
       page.getByText("等待处理", { exact: true }).first(),
