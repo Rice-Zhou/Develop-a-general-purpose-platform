@@ -9,9 +9,9 @@ export async function migrateDatabase(
   backupDirectory = dirname(path),
 ): Promise<void> {
   const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > 6)
+  if (version > 7)
     throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
-  if (version >= 1 && version < 6) {
+  if (version >= 1 && version < 7) {
     await mkdir(backupDirectory, { recursive: true });
     await db.backup(
       join(
@@ -20,7 +20,7 @@ export async function migrateDatabase(
       ),
     );
   }
-  if (version === 6) return;
+  if (version === 7) return;
   db.transaction(() => {
     if (version === 0)
       db.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);
@@ -46,6 +46,24 @@ export async function migrateDatabase(
     // Removal is part of the persisted project JSON contract. Older clients must
     // reject this version instead of displaying removed projects again.
     // v6 adds code-update task kinds older clients must not retry as analysis.
-    db.pragma("user_version = 6");
+    // v7 stores shared document references and inherited default AI choices.
+    const existingResources = db.prepare("SELECT json FROM settings WHERE key='document-resources'").get() as { json: string } | undefined;
+    const resources: { id: string; name: string; kind: string; locator: string; required: boolean; revision: number }[] = existingResources ? JSON.parse(existingResources.json) : [];
+    for (const row of db.prepare("SELECT id,json FROM projects").all() as { id: string; json: string }[]) {
+      const project = JSON.parse(row.json);
+      if (project.documentRefs || !Array.isArray(project.documents)) continue;
+      const refs = project.documents.map((doc: { id: string; kind: string; locator: string; required: boolean }) => {
+        const sameId = resources.find(r => r.id === doc.id);
+        const id = sameId && (sameId.locator !== doc.locator || sameId.kind !== doc.kind) ? randomUUID() : doc.id;
+        if (!resources.some(r => r.id === id)) resources.push({ ...doc, id, name: doc.locator.split(/[\\/]/).at(-1) || doc.locator, revision: 1 });
+        return { id, required: doc.required };
+      });
+      db.prepare("UPDATE projects SET json=? WHERE id=?").run(JSON.stringify({ ...project, documents: [], documentRefs: refs }), row.id);
+    }
+    db.prepare("INSERT INTO settings(key,json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET json=excluded.json").run("document-resources", JSON.stringify(resources));
+    const profiles = db.prepare("SELECT json FROM settings WHERE key='profiles'").get() as { json: string } | undefined;
+    const first = profiles ? JSON.parse(profiles.json)[0] : undefined;
+    if (first) db.prepare("INSERT OR IGNORE INTO settings(key,json) VALUES(?,?)").run("default-ai-profile", JSON.stringify(first.id));
+    db.pragma("user_version = 7");
   })();
 }

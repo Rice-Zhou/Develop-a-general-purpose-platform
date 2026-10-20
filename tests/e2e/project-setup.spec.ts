@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitFixture } from "../../packages/testkit/src/git-fixture";
 
-for (const action of ["暂时跳过", "去配置"] as const) {
-  test(`new project offers optional BUG AI setup: ${action}`, async () => {
+{
+  test("creates a code project with optional resource links and no separate BUG AI setup", async () => {
     const data = await mkdtemp(join(tmpdir(), "platform-project-setup-"));
     const fixture = await gitFixture();
     let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
@@ -57,15 +57,8 @@ for (const action of ["暂时跳过", "去配置"] as const) {
         .getByRole("button", { name: "保存项目", exact: true })
         .click();
       const prompt = page.getByRole("dialog", { name: "配置 BUG AI 预分析" });
-      await expect(prompt).toBeVisible();
-      await prompt.getByRole("button", { name: action, exact: true }).click();
+      await expect(editor).toHaveCount(0);
       await expect(prompt).toHaveCount(0);
-      if (action === "去配置") {
-        await expect(
-          page.getByRole("heading", { name: "模型 API 与账号订阅工具" }),
-        ).toBeInViewport();
-        await expect(page.locator("#ai-connections-settings")).toBeFocused();
-      }
       const state = await page.evaluate(async () => {
         const projects = await window.platform.listProjects();
         const tasks = await window.platform.listTasks();

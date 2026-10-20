@@ -40,6 +40,8 @@ export const ProjectDocumentsUpdateSchema = z.object({
   documents: z.array(DocumentBindingSchema).max(100),
   expectedRevision: z.number().int().positive(),
 }).strict();
+export const DocumentResourceDraftSchema = DocumentBindingSchema.omit({ id: true }).extend({ id: z.string().min(1).optional(), name: text });
+export type DocumentResource = z.infer<typeof DocumentBindingSchema> & { name: string; revision: number };
 export const IssueBindingSchema = z
   .object({
     id: z.string(),
@@ -63,6 +65,7 @@ export const ProjectDraftSchema = z
   })
   .strict();
 export type ProjectDraft = z.infer<typeof ProjectDraftSchema>;
+export const ProjectLinksUpdateSchema = z.object({ projectId: z.uuid(), expectedRevision: z.number().int().positive(), documents: ProjectDraftSchema.shape.documents, issueBindings: ProjectDraftSchema.shape.issueBindings, aiProfileId: ProjectDraftSchema.shape.aiProfileId }).strict();
 export interface RepositoryBinding {
   id: string;
   canonicalPath: string;
@@ -80,6 +83,7 @@ export interface Project {
   documents: z.infer<typeof DocumentBindingSchema>[];
   issueBindings: z.infer<typeof IssueBindingSchema>[];
   aiProfileId: string | null;
+  usesDefaultAI?: boolean;
   updatedAt: string;
   deletedAt?: string;
 }
@@ -312,6 +316,12 @@ export interface DesktopAPI {
     reportId: string,
   ): Promise<Result<string | null>>;
   listProjects(): Promise<Result<Project[]>>;
+  getDocumentResources(): Promise<Result<DocumentResource[]>>;
+  saveDocumentResource(draft: z.infer<typeof DocumentResourceDraftSchema>, expectedRevision?: number): Promise<Result<DocumentResource>>;
+  deleteDocumentResource(id: string, expectedRevision: number): Promise<Result<void>>;
+  getDefaultAIProfile(): Promise<Result<string | null>>;
+  setDefaultAIProfile(id: string): Promise<Result<void>>;
+  saveProjectLinks(input: z.infer<typeof ProjectLinksUpdateSchema>): Promise<Result<Project>>;
   updateCode(projectId: string, mode?: "update" | "continue" | "ai"): Promise<Result<Task>>;
   saveProjectDocuments(projectId: string, documents: Project["documents"], expectedRevision: number): Promise<Result<Project>>;
   saveProject(

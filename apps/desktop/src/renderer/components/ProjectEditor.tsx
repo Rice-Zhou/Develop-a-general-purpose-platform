@@ -8,12 +8,16 @@ import type {
 import { message, unwrap } from "../api";
 import { RepositoryBranchField } from "./RepositoryBranchField";
 import { JiraProjectField } from "./JiraProjectField";
-import { DocumentBindingsEditor } from "./DocumentBindingsEditor";
+import { DocumentResourcePicker } from "./DocumentResourcePicker";
 export function ProjectEditor({
   project,
   onClose,
   onSaved,
+  linksOnly = false,
+  initialIssueConnection,
 }: {
+  initialIssueConnection?: PublicIssueConnection;
+  linksOnly?: boolean;
   project: Project | null;
   onClose: () => void;
   onSaved: (saved: Project) => void;
@@ -31,8 +35,8 @@ export function ProjectEditor({
             role: repo.role,
           })),
           documents: project.documents,
-          issueBindings: project.issueBindings,
-          aiProfileId: project.aiProfileId,
+          issueBindings: initialIssueConnection?.platform === "trinity" && !project.issueBindings.some(b => b.connectionId === initialIssueConnection.id) ? [...project.issueBindings, { id: crypto.randomUUID(), platform: "trinity", connectionId: initialIssueConnection.id, instanceUrl: initialIssueConnection.baseUrl, projectKey: "", owner: "", issueTypeIds: ["BUG"] }] : project.issueBindings,
+          aiProfileId: project.usesDefaultAI ? null : project.aiProfileId,
         }
       : {
           name: "",
@@ -47,14 +51,16 @@ export function ProjectEditor({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [jiraEnabled, setJiraEnabled] = useState(Boolean(project?.issueBindings.some((b) => b.platform !== "trinity")));
+  const [jiraEnabled, setJiraEnabled] = useState(Boolean((initialIssueConnection && initialIssueConnection.platform !== "trinity") || project?.issueBindings.some((b) => b.platform !== "trinity")));
   const [jiraReady, setJiraReady] = useState(false);
   const jiraBindings = draft.issueBindings.filter((b) => b.platform !== "trinity");
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
+  const [defaultAIId, setDefaultAIId] = useState<string | null>(null);
   const [issueConnections, setIssueConnections] = useState<
     PublicIssueConnection[]
   >([]);
   useEffect(() => {
+    void window.platform.getDefaultAIProfile().then(r => setDefaultAIId(unwrap(r))).catch(e => setError(message(e)));
     void window.platform
       .getIssueConnections()
       .then((r) => setIssueConnections(unwrap(r)))
@@ -71,9 +77,12 @@ export function ProjectEditor({
     setBusy(true);
     setError("");
     try {
-      if (jiraEnabled && (!jiraReady || !draft.issueBindings.some((b) => b.platform !== "trinity"))) throw new Error("请先读取 Jira 项目列表并选择一个项目及缺陷类型");
+      const jiraChanged = JSON.stringify(draft.issueBindings.filter(b => b.platform !== "trinity")) !== JSON.stringify(project?.issueBindings.filter(b => b.platform !== "trinity") ?? []);
+      const selectingNewJira = initialIssueConnection && initialIssueConnection.platform !== "trinity" && !project?.issueBindings.some(b => b.connectionId === initialIssueConnection.id);
+      const requiresJiraSelection = jiraChanged || selectingNewJira || !project?.issueBindings.some(b => b.platform !== "trinity");
+      if (requiresJiraSelection && jiraEnabled && (!jiraReady || !draft.issueBindings.some((b) => b.platform !== "trinity"))) throw new Error("请先读取 Jira 项目列表并选择一个项目及缺陷类型");
       const saved = unwrap(
-        await window.platform.saveProject(draft, project?.revision),
+        linksOnly && project ? await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents: draft.documents, issueBindings: draft.issueBindings, aiProfileId: draft.aiProfileId }) : await window.platform.saveProject(draft, project?.revision),
       );
       onSaved(saved);
     } catch (err) {
@@ -128,7 +137,7 @@ export function ProjectEditor({
         <div className="modal-heading">
           <div>
             <span className="eyebrow">PROJECT CONFIGURATION</span>
-            <h2 id="editor-title">{project ? "编辑项目" : "添加项目"}</h2>
+            <h2 id="editor-title">{linksOnly ? "管理项目关联" : project ? "编辑项目" : "添加项目"}</h2>
           </div>
           <button
             className="icon-button"
@@ -139,6 +148,8 @@ export function ProjectEditor({
           </button>
         </div>
         <form onSubmit={(event) => void save(event)}>
+          {linksOnly && <p>代码项目：{project?.name}。需求、BUG 来源可稍后关联；BUG 预分析直接使用本项目的 AI 连接。</p>}
+          {!linksOnly && <>
           <div className="form-row">
             <label className="grow">
               项目名称
@@ -257,6 +268,7 @@ export function ProjectEditor({
               </div>
             </div>
           ))}
+          </>}
           <label>
             AI 执行连接
             <select
@@ -265,7 +277,7 @@ export function ProjectEditor({
                 setDraft({ ...draft, aiProfileId: e.target.value || null })
               }
             >
-              <option value="">不关联（可使用本地文档和人工需求）</option>
+              <option value="">使用默认 AI：{profiles.find(p => p.id === defaultAIId)?.name ?? "未配置"}（无单独覆盖）</option>
               {profiles.map((profile) => (
                 <option value={profile.id} key={profile.id}>
                   {profile.name} ·{" "}
@@ -282,7 +294,7 @@ export function ProjectEditor({
             <summary>
               关联需求文档 <span>{draft.documents.length} 份</span>
             </summary>
-            <DocumentBindingsEditor documents={draft.documents} onError={setError} disabled={busy} onChange={update => setDraft(current => ({ ...current, documents: typeof update === "function" ? update(current.documents) : update }))} />
+            <DocumentResourcePicker documents={draft.documents} onError={setError} disabled={busy} onChange={update => setDraft(current => ({ ...current, documents: typeof update === "function" ? update(current.documents) : update }))} />
           </details>
           <details className="config-details" open>
             <summary>
@@ -294,6 +306,7 @@ export function ProjectEditor({
             {jiraBindings.length > 1 && <p className="coverage-warning">旧配置包含多个 Jira 范围，请从列表重新选择一个 Jira 项目后保存。</p>}
             {jiraEnabled && <>
               <JiraProjectField
+                initialConnectionId={initialIssueConnection?.platform !== "trinity" ? initialIssueConnection?.id : undefined}
                 binding={jiraBindings.length === 1 ? jiraBindings[0] : undefined}
                 connections={issueConnections}
                 onReadinessChange={setJiraReady}
@@ -446,7 +459,7 @@ export function ProjectEditor({
               取消
             </button>
             <button className="primary" disabled={busy}>
-              {busy ? "正在保存…" : "保存项目"}
+              {busy ? "正在保存…" : linksOnly ? "保存关联" : "保存项目"}
             </button>
           </div>
         </form>

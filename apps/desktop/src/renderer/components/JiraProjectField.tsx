@@ -6,14 +6,15 @@ import { IssueConnectionsPage } from "../pages/IssueConnectionsPage";
 import { JiraProjectPicker } from "./JiraProjectPicker";
 
 type Binding = Project["issueBindings"][number];
-export function JiraProjectField({ binding, connections, onConnectionSaved, onChange, onReadinessChange }: {
+export function JiraProjectField({ binding, connections, onConnectionSaved, onChange, onReadinessChange, initialConnectionId }: {
+  initialConnectionId?: string;
   binding?: Binding;
   connections: PublicIssueConnection[];
   onConnectionSaved: (connection: PublicIssueConnection) => void;
   onChange: (binding: Binding | null) => void;
   onReadinessChange: (ready: boolean) => void;
 }) {
-  const [connectionId, setConnectionId] = useState(binding?.connectionId ?? "");
+  const [connectionId, setConnectionId] = useState(initialConnectionId ?? binding?.connectionId ?? "");
   const [catalogue, setCatalogue] = useState<JiraCatalogue | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -38,9 +39,8 @@ export function JiraProjectField({ binding, connections, onConnectionSaved, onCh
       setCatalogue(next);
       onReadinessChange(true);
       const previous = bindingRef.current;
-      if (previous?.connectionId === connectionId && next.projects.some((p) => p.key === previous.projectKey)) {
-        const types = previous.issueTypeIds?.filter((id) => next.issueTypes.some((t) => t.id === id));
-        select(previous.projectKey, next, types?.length ? types : undefined);
+      if (previous?.connectionId === connectionId) {
+        if (previous.owner !== next.owner || !next.projects.some(p => p.key === previous.projectKey)) setError("当前登录身份或可访问项目已变化。原范围保持不变；如需调整，请重新选择 Jira 项目。");
       } else onChangeRef.current(null);
     } catch (e) { if (request === sequence.current) setError(message(e)); }
     finally { if (request === sequence.current) setLoading(false); }

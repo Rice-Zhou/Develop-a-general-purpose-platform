@@ -5,7 +5,7 @@ import type {
   LocalJiraConfiguration,
 } from "../../../../../packages/contracts/src/issues";
 import { message, unwrap } from "../api";
-export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?: boolean; onSaved?: (connection: PublicIssueConnection) => void } = {}) {
+export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { embedded?: boolean; onSaved?: (connection: PublicIssueConnection) => void; onLink?: (connection: PublicIssueConnection) => void } = {}) {
   const formEdited = useRef(false);
   const [connections, setConnections] = useState<PublicIssueConnection[]>([]);
   const [editingId, setEditingId] = useState<string>();
@@ -316,6 +316,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved }: { embedded?:
             </p>
           </div>
           <button className="secondary" disabled={busy || checking} onClick={() => edit(c)}>编辑 / 重新登录</button>
+          {onLink && <button className="secondary" disabled={busy} onClick={() => onLink(c)}>关联项目</button>}
           <button
             disabled={busy}
             className="text-button danger-text"

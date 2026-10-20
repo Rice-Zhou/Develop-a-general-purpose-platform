@@ -1,0 +1,120 @@
+import { test, expect, _electron as electron } from "@playwright/test";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { gitFixture } from "../../packages/testkit/src/git-fixture";
+
+test("associates independently saved Jira and documents later and inherits a shared default AI", async () => {
+  test.setTimeout(150000);
+  const data = await mkdtemp(join(tmpdir(), "resource-associations-")); const f = await gitFixture();
+  let offline = false; let delayCatalogue = false;
+  const server = createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    const path = new URL(req.url!, "http://localhost").pathname;
+    if (offline) { res.writeHead(503).end("{}"); return; }
+    if (path === "/") res.end('<script src="static/js/app.js"></script>');
+    else if (path === "/static/js/app.js") res.end('a=r.enc.Utf8.parse("0123456789abcdef"),b=r.enc.Utf8.parse("fedcba9876543210");function x(t){return r.AES.encrypt(t,a)}');
+    else if (path === "/trinity/security/login/ldap") res.end(JSON.stringify({ code: 200, data: { token: "fixture-session-token" } }));
+    else if (path.endsWith("/myself")) res.end(JSON.stringify({ name: "alice" }));
+    else if (path.endsWith("/project")) { const respond = () => res.end(JSON.stringify([{ key: "A", name: "项目甲" }])); if (delayCatalogue) setTimeout(respond, 1000); else respond(); }
+    else if (path.endsWith("/issuetype")) res.end(JSON.stringify([{ id: "1", name: "Bug" }]));
+    else if (path.endsWith("/search")) res.end(JSON.stringify({ startAt: 0, total: 1, issues: [{ id: "1", key: "A-1", self: base + "/rest/api/2/issue/A-1", fields: { project: { key: "A" }, assignee: { name: "alice" }, issuetype: { id: "1" }, summary: "Pending bug", description: "fixture", status: { name: "待处理" }, updated: "now", versions: [], comment: { total: 0, comments: [] }, attachment: [] } }] }));
+    else res.writeHead(404).end("{}");
+  }); server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  try {
+    app = await electron.launch({ executablePath: process.env.PLATFORM_EXECUTABLE!, args: [], env: { ...process.env, HOME: data, USERPROFILE: data, APPDATA: data, PLATFORM_DATA_DIR: data, PLATFORM_E2E: "1" } });
+    const page = await app.firstWindow();
+    await page.getByRole("button", { name: "项目管理", exact: true }).click();
+    await page.getByRole("button", { name: "添加项目", exact: true }).click();
+    const create = page.getByRole("dialog", { name: "添加项目", exact: true });
+    await create.getByLabel("项目名称").fill("代码项目 A"); await create.getByLabel("分析目录", { exact: true }).fill(f.analysis); await create.getByLabel("分析分支").fill("main");
+    await create.getByRole("button", { name: "保存项目", exact: true }).click(); await expect(create).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "配置 BUG AI 预分析", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const login = page.locator("section.work-panel").filter({ has: page.getByRole("heading", { name: "Jira 与 Trinity 登录", exact: true }) });
+    await login.getByLabel("Jira 登录方式").selectOption("account"); await login.getByLabel("连接名称", { exact: true }).fill("独立 Jira");
+    await login.getByLabel("平台地址", { exact: true }).fill(base); await login.getByLabel("登录账号", { exact: true }).fill("alice"); await login.getByLabel("登录密码", { exact: true }).fill("fixture-password");
+    await login.getByRole("button", { name: "登录并保存平台连接", exact: true }).click();
+    const card = login.locator(".report-list-item").filter({ hasText: "独立 Jira" });
+    await card.getByRole("button", { name: "关联项目", exact: true }).click();
+    const choose = page.getByRole("dialog", { name: "选择关联项目", exact: true });
+    await choose.getByLabel("代码项目").selectOption({ label: "代码项目 A" }); await choose.getByRole("button", { name: "配置关联", exact: true }).click();
+    const links = page.getByRole("dialog", { name: "管理项目关联", exact: true });
+    await expect(links.getByLabel("分析目录", { exact: true })).toHaveCount(0);
+    const picker = links.getByRole("combobox", { name: "Jira 项目", exact: true }); await expect(picker).toBeEnabled(); await picker.fill("甲");
+    await links.getByRole("option", { name: "项目甲（A）", exact: true }).click(); await links.getByRole("button", { name: "保存关联", exact: true }).click(); await expect(links).toHaveCount(0);
+    await page.getByRole("button", { name: "需求资料库", exact: true }).click(); await page.getByRole("button", { name: "添加需求文档资源", exact: true }).click();
+    const doc = page.getByRole("dialog", { name: "添加需求文档资源", exact: true });
+    await doc.getByLabel("需求文档名称").fill("需求 B"); await doc.getByLabel("文档路径或链接").fill(resolve("packages/testkit/fixtures/documents/requirements.docx")); await doc.getByRole("button", { name: "保存需求文档资源", exact: true }).click(); await expect(doc).toHaveCount(0);
+    offline = true;
+    await page.getByRole("button", { name: "关联项目", exact: true }).click(); await choose.getByLabel("代码项目").selectOption({ label: "代码项目 A" }); await choose.getByRole("button", { name: "配置关联", exact: true }).click();
+    const docs = page.getByRole("dialog", { name: "管理需求文档", exact: true }); await expect(docs.getByRole("checkbox", { name: "需求 B", exact: true })).toBeChecked();
+    await docs.getByRole("button", { name: "保存文档配置", exact: true }).click(); await expect(docs.getByRole("alert")).toHaveCount(0); await expect(docs).toHaveCount(0).catch(async error => { throw new Error(await docs.innerText() + String(error)); });
+    const profileIds = await page.evaluate(async base => {
+      const ids = [];
+      for (const name of ["默认模型一", "模型二"]) { const r = await window.platform.saveAIProfile({ name, kind: "api", baseUrl: base + "/v1", model: "fixture", outboundEnabled: true }, "fixture-token"); if (!r.ok) throw new Error(r.error.message); ids.push(r.value.id); }
+      return ids;
+    }, base);
+    await page.reload();
+    const state = () => page.evaluate(async () => { const r = await window.platform.listProjects(); if (!r.ok) throw new Error(r.error.message); return r.value[0]; });
+    expect(await state()).toMatchObject({ aiProfileId: profileIds[0], usesDefaultAI: true });
+    expect((await state()).documents).toHaveLength(1); expect((await state()).issueBindings).toHaveLength(1);
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "设为默认 AI", exact: true }).click();
+    await expect.poll(async () => (await state()).aiProfileId).toBe(profileIds[1]);
+    await page.reload(); await page.getByRole("button", { name: "项目管理", exact: true }).click(); await page.getByRole("button", { name: "管理关联", exact: true }).click();
+    await links.getByLabel("AI 执行连接").selectOption(profileIds[0]); await links.getByRole("button", { name: "保存关联", exact: true }).click(); await expect(links).toHaveCount(0);
+    expect((await state()).aiProfileId).toBe(profileIds[0]); expect((await state()).usesDefaultAI).not.toBe(true);
+    offline = false;
+    await page.getByRole("button", { name: "BUG 工作台", exact: true }).click(); await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
+    await expect(page.getByRole("link", { name: "A-1", exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "更新代码并预分析", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await login.getByLabel("BUG 平台").selectOption("trinity");
+    await login.getByLabel("连接名称", { exact: true }).fill("独立 Trinity");
+    await login.getByLabel("平台地址", { exact: true }).fill(base + "/trinity");
+    await login.getByLabel("登录账号", { exact: true }).fill("alice");
+    await login.getByLabel("登录密码", { exact: true }).fill("fixture-password");
+    await login.getByRole("button", { name: "登录并保存平台连接", exact: true }).click();
+    await expect(login.locator(".report-list-item").filter({ hasText: "独立 Trinity" })).toBeVisible().catch(async error => { throw new Error(await login.innerText() + String(error)); });
+    offline = true;
+    await login.locator(".report-list-item").filter({ hasText: "独立 Trinity" }).getByRole("button", { name: "关联项目", exact: true }).click();
+    await choose.getByLabel("代码项目").selectOption({ label: "代码项目 A" }); await choose.getByRole("button", { name: "配置关联", exact: true }).click();
+    await links.getByLabel("项目 Key", { exact: true }).fill("T"); await links.getByLabel("负责人", { exact: true }).fill("alice");
+    await links.getByLabel("AI 执行连接").selectOption("");
+    await links.getByRole("button", { name: "保存关联", exact: true }).click(); await expect(links).toHaveCount(0);
+    expect(await state()).toMatchObject({ aiProfileId: profileIds[1], usesDefaultAI: true });
+    expect((await state()).issueBindings.map(b => b.platform)).toEqual(expect.arrayContaining(["jira-dc", "trinity"]));
+    await login.locator(".report-list-item").filter({ hasText: "独立 Trinity" }).getByRole("button", { name: "关联项目", exact: true }).click();
+    await choose.getByLabel("代码项目").selectOption({ label: "代码项目 A" }); await choose.getByRole("button", { name: "配置关联", exact: true }).click();
+    await expect(links.getByLabel("项目 Key", { exact: true })).toHaveCount(1);
+    await links.getByRole("button", { name: "取消", exact: true }).click();
+
+    await page.getByRole("button", { name: "项目管理", exact: true }).click();
+    await page.getByRole("button", { name: "添加项目", exact: true }).click();
+    await create.getByLabel("项目名称").fill("代码项目 C"); await create.getByLabel("分析目录", { exact: true }).fill(f.seed); await create.getByLabel("分析分支").fill("main");
+    await create.getByRole("button", { name: "保存项目", exact: true }).click(); await expect(create).toHaveCount(0);
+    const inherited = await page.evaluate(async () => { const r = await window.platform.listProjects(); if (!r.ok) throw new Error(r.error.message); return r.value.find(p => p.name === "代码项目 C"); });
+    expect(inherited).toMatchObject({ aiProfileId: profileIds[1], usesDefaultAI: true, documents: [], issueBindings: [] });
+    offline = false;
+    await page.evaluate(async base => { const r = await window.platform.saveIssueConnection({ kind: "jira-http", platform: "jira-dc", name: "替换 Jira", baseUrl: base, username: "alice", bypassProxy: true }, "fixture-password"); if (!r.ok) throw new Error(r.error.message); }, base);
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    delayCatalogue = true;
+    await login.locator(".report-list-item").filter({ hasText: "替换 Jira" }).getByRole("button", { name: "关联项目", exact: true }).click();
+    await choose.getByLabel("代码项目").selectOption({ label: "代码项目 A" }); await choose.getByRole("button", { name: "配置关联", exact: true }).click();
+    await expect(links.getByRole("combobox", { name: "Jira 项目", exact: true })).toBeDisabled();
+    await links.getByRole("button", { name: "保存关联", exact: true }).click();
+    await expect(links.getByRole("alert").filter({ hasText: "请先读取 Jira 项目列表" })).toBeVisible();
+    await expect(links.getByRole("combobox", { name: "Jira 项目", exact: true })).toBeEnabled();
+    await links.getByRole("combobox", { name: "Jira 项目", exact: true }).fill("甲");
+    await links.getByRole("option", { name: "项目甲（A）", exact: true }).click();
+    await links.getByRole("button", { name: "保存关联", exact: true }).click(); await expect(links).toHaveCount(0);
+    const connections = await page.evaluate(async () => { const r = await window.platform.getIssueConnections(); if (!r.ok) throw new Error(r.error.message); return r.value; });
+    expect((await state()).issueBindings.find(b => b.platform === "jira-dc")?.connectionId).toBe(connections.find(c => c.name === "替换 Jira")!.id);
+    await page.screenshot({ path: test.info().outputPath("resource-associations.png") });
+
+  } finally { await app?.close(); server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); await f.dispose(); await rm(data, { recursive: true, force: true }); }
+});

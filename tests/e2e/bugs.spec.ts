@@ -217,7 +217,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
               },
             ],
             documents: [],
-            aiProfileId: ai.id,
+            aiProfileId: null,
             issueBindings: [
               {
                 id: j,
@@ -240,6 +240,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
             ],
           }),
         );
+        if (project.aiProfileId !== ai.id || !project.usesDefaultAI) throw new Error("BUG 项目未继承默认 AI");
         return { projectId: project.id, j, t };
       },
       { base, exe, config: join(data, "jira.yml"), repo: f.analysis },

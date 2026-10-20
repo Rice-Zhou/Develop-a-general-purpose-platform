@@ -202,10 +202,10 @@ export function BugsPage({
         )}
         {project && !project.aiProfileId && (
           <div className="notice">
-            <p>当前项目未关联 AI 执行连接。请先在设置创建连接，再在项目配置中选择。</p>
+            <p>当前项目尚无可用 AI。配置默认 AI 后，代码、需求和 BUG 预分析会共同使用；项目覆盖请在项目管理中设置。</p>
             <div className="row-actions">
               <button className="secondary" onClick={onConfigureAI}>配置 AI 连接</button>
-              <button className="secondary" onClick={() => onEditProject(project)}>关联 AI 连接</button>
+
             </div>
           </div>
         )}

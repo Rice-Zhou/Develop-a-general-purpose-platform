@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { IssueAdapter } from "./ports";
 import { ScopePolicy, bindingFingerprint, fingerprint } from "./scope-policy";
@@ -70,13 +71,18 @@ export class IssueService {
     return result;
   }
   async validateBindings(bindings: Project["issueBindings"], signal: AbortSignal): Promise<void> {
-    for (const binding of bindings.filter((b) => b.platform !== "trinity")) {
+    for (const binding of bindings) {
       if (!binding.connectionId) throw new AppError("ISSUE_NOT_CONFIGURED", "请登录 Jira 并选择项目");
-      const catalogue = await this.catalogue(binding.connectionId, signal);
       ScopePolicy.validate({ projectId: "configuration", enabled: true, binding, connection: this.connection(binding.connectionId) });
+      if (!binding.issueTypeIds?.length) throw new AppError("ISSUE_NOT_CONFIGURED", "请选择缺陷类型");
+      if (binding.platform === "trinity") continue;
+      const catalogue = await this.catalogue(binding.connectionId, signal);
       if (binding.owner !== catalogue.owner || !catalogue.projects.some((p) => p.key === binding.projectKey) || !binding.issueTypeIds?.length || binding.issueTypeIds.some((id) => !catalogue.issueTypes.some((t) => t.id === id)))
         throw new AppError("JIRA_SELECTION_INVALID", "Jira 项目、负责人或缺陷类型与当前登录信息不符，请重新读取并选择");
     }
+  }
+  async validateBindingChanges(previous: Project["issueBindings"], next: Project["issueBindings"], signal: AbortSignal): Promise<void> {
+    await this.validateBindings(next.filter(b => !previous.some(old => isDeepStrictEqual(old, b))), signal);
   }
   saveConnection(value: unknown): PublicIssueConnection {
     const input = z

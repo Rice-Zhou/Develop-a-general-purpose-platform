@@ -233,10 +233,12 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       page.getByText("当前配置项目及负责人范围内无任何问题", { exact: true }),
     ).toHaveCount(0);
     await expect(page.getByText(/刷新失败；.*缓存/).first()).toBeVisible();
-    await page.getByRole("button", { name: "关联 AI 连接", exact: true }).click();
-    const editor = page.getByRole("dialog", { name: "编辑项目", exact: true });
+    await page.getByRole("button", { name: "项目管理", exact: true }).click();
+    await page.getByRole("button", { name: "管理关联", exact: true }).first().click();
+    const editor = page.getByRole("dialog", { name: "管理项目关联", exact: true });
     await expect(editor.getByLabel("AI 执行连接")).toBeVisible();
     await editor.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
     await page.getByRole("button", { name: "配置 AI 连接", exact: true }).click();
     await expect(page.getByRole("heading", { name: "模型 API 与账号订阅工具" })).toBeInViewport();
     await expect(page.locator("#ai-connections-settings")).toBeFocused();

@@ -44,7 +44,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(6); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(7); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -70,7 +70,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(6);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(7);
   } finally {
     upgraded.close();
   }
@@ -151,4 +151,28 @@ it("rolls back the context and successful task when report ownership validation 
   } finally {
     store.close();
   }
+});
+
+it("migrates actual v6 inline documents and AI choices to shared resources without losing overrides", async () => {
+  const f = await legacy();
+  let store = await DataStore.open(f.path);
+  store.close();
+  const old = new Database(f.path);
+  const profiles = [{ id: "first" }, { id: "override" }];
+  old.prepare("DELETE FROM settings WHERE key IN ('document-resources','default-ai-profile')").run();
+  old.prepare("INSERT INTO settings(key,json) VALUES('profiles',?)").run(JSON.stringify(profiles));
+  const base = { id: "p", revision: 1, name: "A", enabled: true, repositories: [], issueBindings: [], updatedAt: "before", aiProfileId: null, documents: [{ id: "d", kind: "docx", locator: "D:/req.docx", required: true }] };
+  old.prepare("UPDATE projects SET json=? WHERE id='p'").run(JSON.stringify(base));
+  old.prepare("INSERT INTO projects VALUES(?,?,?)").run("other", 1, JSON.stringify({ ...base, id: "other", aiProfileId: "override", documents: [{ ...base.documents[0], locator: "D:/different.docx", required: false }] }));
+  old.pragma("user_version=6"); old.close();
+  store = await DataStore.open(f.path);
+  try {
+    expect(store.getProject("p")).toMatchObject({ documents: base.documents, aiProfileId: "first", usesDefaultAI: true });
+    expect(store.getProject("other").aiProfileId).toBe("override");
+    expect(store.getProject("other").usesDefaultAI).not.toBe(true);
+    expect(store.documentResources()).toHaveLength(2);
+    expect(store.getProject("other").documents[0]).toMatchObject({ locator: "D:/different.docx", required: false });
+    expect(store.getProject("other").documents[0].id).not.toBe("d");
+    expect((await readdir(f.root)).some(name => name.includes("backup-v6"))).toBe(true);
+  } finally { store.close(); }
 });

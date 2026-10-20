@@ -21,3 +21,16 @@ it("validates selected project, owner and named type against current login and r
   change = true;
   await expect(service.catalogue("c", new AbortController().signal)).rejects.toMatchObject({ code: "PROJECT_CHANGED" });
 });
+
+it("keeps unchanged offline bindings while validating newly associated sources", async () => {
+  const connection: IssueConnection = { id: "c", kind: "jira-http", platform: "jira-dc", name: "Jira", baseUrl: "https://jira.example", username: "alice", credentialRef: null, bypassProxy: true };
+  const service = new IssueService({
+    getProject: () => { throw new Error("unused"); }, listProjects: () => [],
+    getSetting: <T>() => [connection] as T, setSetting: () => {},
+    issues: { save: () => {}, get: () => { throw new Error("unused"); }, replaceBatch: () => {}, batch: () => [] },
+  }, () => ({ get: async () => { throw new Error("offline"); }, list: async () => [], discover: async () => { throw new Error("offline"); } }));
+  const binding: Project["issueBindings"][number] = { id: "b", connectionId: "c", platform: "jira-dc", instanceUrl: connection.baseUrl, projectKey: "A", owner: "alice", issueTypeIds: ["1"] };
+  const reordered = { issueTypeIds: ["1"], owner: binding.owner, projectKey: binding.projectKey, instanceUrl: binding.instanceUrl, platform: binding.platform, connectionId: binding.connectionId, id: binding.id };
+  await expect(service.validateBindingChanges([binding], [reordered], new AbortController().signal)).resolves.toBeUndefined();
+  await expect(service.validateBindingChanges([binding], [{ ...reordered, projectKey: "B" }], new AbortController().signal)).rejects.toThrow("offline");
+});

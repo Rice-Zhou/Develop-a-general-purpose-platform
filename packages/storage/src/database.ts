@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { migrateDatabase } from "./migrations";
 import { AnalysisRepository } from "./analysis-repository";
 import { AppError } from "../../contracts/src/error";
+import { DocumentResourceDraftSchema, type DocumentResource } from "../../contracts/src/models";
+import { randomUUID } from "node:crypto";
 import type {
   ContextSnapshot,
   Project,
@@ -16,6 +18,61 @@ interface JsonRow {
   json: string;
 }
 export class DataStore extends AnalysisRepository {
+  documentResources(): DocumentResource[] { return this.getSetting<DocumentResource[]>("document-resources") ?? []; }
+  getDefaultAIProfile(): string | null { return this.getSetting<string>("default-ai-profile"); }
+  setDefaultAIProfile(id: string): void {
+    if (!(this.getSetting<{ id: string }[]>("profiles") ?? []).some(p => p.id === id)) throw new AppError("MODEL_NOT_CONFIGURED", "AI 连接不存在");
+    if (id === this.getDefaultAIProfile()) return;
+    this.db.transaction(() => {
+      this.setSetting("default-ai-profile", id);
+      this.touchProjects(p => !p.aiProfileId);
+    })();
+  }
+  private touchProjects(matches: (project: Project & { documentRefs?: { id: string; required: boolean }[] }) => boolean): void {
+    for (const row of this.db.prepare("SELECT json FROM projects WHERE json_extract(json,'$.deletedAt') IS NULL").all() as JsonRow[]) {
+      const project = JSON.parse(row.json) as Project;
+      if (!matches(project)) continue;
+      const updated = { ...project, revision: project.revision + 1, updatedAt: new Date().toISOString() };
+      this.db.prepare("UPDATE projects SET revision=?,json=? WHERE id=?").run(updated.revision, JSON.stringify(updated), updated.id);
+    }
+  }
+  saveDocumentResource(value: unknown, expectedRevision?: number): DocumentResource {
+    const parsed = DocumentResourceDraftSchema.parse(value);
+    return this.db.transaction(() => {
+      const resources = this.documentResources();
+      const previous = parsed.id ? resources.find(d => d.id === parsed.id) : undefined;
+      if (parsed.id && !previous) throw new AppError("DOCUMENT_NOT_FOUND", "需求文档资源不存在");
+      if (!previous && expectedRevision !== undefined) throw new AppError("REVISION_CONFLICT", "需求文档版本不存在");
+      if (previous && previous.revision !== expectedRevision) throw new AppError("REVISION_CONFLICT", "需求文档已被更新，请重新打开后修改");
+      const saved: DocumentResource = { ...parsed, id: previous?.id ?? randomUUID(), revision: (previous?.revision ?? 0) + 1 };
+      this.setSetting("document-resources", [...resources.filter(d => d.id !== saved.id), saved]);
+      if (previous) this.touchProjects(p => Boolean(p.documentRefs?.some(ref => ref.id === saved.id)));
+      return saved;
+    })();
+  }
+  deleteDocumentResource(id: string, expectedRevision: number): void {
+    this.db.transaction(() => {
+      const resources = this.documentResources(); const resource = resources.find(r => r.id === id);
+      if (!resource) throw new AppError("DOCUMENT_NOT_FOUND", "需求文档资源不存在");
+      if (resource.revision !== expectedRevision) throw new AppError("REVISION_CONFLICT", "需求文档已被更新");
+      if (this.listProjects().some(p => p.documents.some(d => d.id === id))) throw new AppError("DOCUMENT_IN_USE", "需求文档仍有关联项目，请先解除关联");
+      this.setSetting("document-resources", resources.filter(r => r.id !== id));
+    })();
+  }
+  private hydrateProject(raw: string): Project {
+    const { documentRefs, ...project } = JSON.parse(raw) as Project & { documentRefs?: { id: string; required: boolean }[] };
+    if (documentRefs) {
+      const resources = this.documentResources();
+      project.documents = documentRefs.map(ref => {
+        const resource = resources.find(r => r.id === ref.id);
+        if (!resource) throw new AppError("DOCUMENT_NOT_FOUND", "项目关联的需求文档资源不存在");
+        return { id: ref.id, kind: resource.kind, locator: resource.locator, required: ref.required };
+      });
+    }
+    const defaultId = this.getDefaultAIProfile();
+    if (!project.aiProfileId && defaultId) { project.aiProfileId = defaultId; project.usesDefaultAI = true; }
+    return project;
+  }
   private constructor(
     readonly path: string,
     db: Database.Database,
@@ -49,7 +106,7 @@ export class DataStore extends AnalysisRepository {
           "SELECT json FROM projects WHERE json_extract(json,'$.deletedAt') IS NULL ORDER BY rowid",
         )
         .all() as JsonRow[]
-    ).map((row) => JSON.parse(row.json) as Project);
+    ).map((row) => this.hydrateProject(row.json));
   }
   getProject(id: string): Project {
     const row = this.db
@@ -58,7 +115,7 @@ export class DataStore extends AnalysisRepository {
       )
       .get(id) as JsonRow | undefined;
     if (!row) throw new AppError("PROJECT_NOT_FOUND", "项目不存在");
-    return JSON.parse(row.json) as Project;
+    return this.hydrateProject(row.json);
   }
   saveProject(project: Project, expectedRevision?: number): void {
     this.db.transaction(() => {
@@ -95,11 +152,20 @@ export class DataStore extends AnalysisRepository {
             "分析目录已经关联到其他项目，请使用独立目录",
           );
       }
+      const resources = this.documentResources();
+      for (const document of project.documents) {
+        const previous = resources.find(r => r.id === document.id);
+        if (previous && (previous.kind !== document.kind || previous.locator !== document.locator)) throw new AppError("DOCUMENT_RESOURCE_CHANGED", "请在需求资料库中修改文档资源，再重新关联");
+        if (!previous) resources.push({ ...document, name: document.locator.split(/[\\/]/).at(-1) || document.locator, revision: 1 });
+      }
+      this.setSetting("document-resources", resources);
+      const { usesDefaultAI, ...persisted } = project;
+      const json = { ...persisted, aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
       this.db
         .prepare(
           "INSERT INTO projects VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, json=excluded.json",
         )
-        .run(project.id, project.revision, JSON.stringify(project));
+        .run(project.id, project.revision, JSON.stringify(json));
       this.db
         .prepare("DELETE FROM repository_paths WHERE project_id = ?")
         .run(project.id);

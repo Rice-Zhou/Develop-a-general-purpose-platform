@@ -6,6 +6,7 @@ import type {
 import { unwrap, message } from "../api";
 export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
+  const [defaultId, setDefaultId] = useState<string | null>(null);
   const [kind, setKind] = useState<AIProfileDraft["kind"]>("api");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -26,6 +27,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
       window.platform.getCliConfiguration(),
     ]);
     setProfiles(unwrap(p));
+    setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
     const config = unwrap(c);
     setLark(config.larkExecutable);
     setIdentity(config.identity);
@@ -68,7 +70,8 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
       setName("");
       setProxyUrl("");
       setProfiles(unwrap(await window.platform.getAIProfiles()));
-      setNotice("连接已保存，请在项目配置中选择使用。");
+      setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
+      setNotice("连接已保存。首个连接自动作为默认 AI，未单独覆盖的项目自动使用默认连接。");
     });
   }
   return (
@@ -85,11 +88,11 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             <span className="eyebrow">EXECUTION CONNECTIONS</span>
             <h2>模型 API 与账号订阅工具</h2>
           </div>
-          <span className="tag">按项目选择</span>
+          <span className="tag">默认继承 · 项目可覆盖</span>
         </div>
         <p className="muted">
           API 使用配置的服务地址和模型名；ChatGPT / Claude Code
-          使用本机工具自己的登录。连接不会自动互相切换。
+          使用本机工具自己的登录。项目默认继承默认 AI，也可单独指定连接；执行失败时不会切换到其他连接。
         </p>
         <form onSubmit={save} className="connection-form">
           <div className="form-row">
@@ -203,7 +206,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             profiles.map((profile) => (
               <div className="connection-item" key={profile.id}>
                 <div>
-                  <strong>{profile.name}</strong>
+                  <strong>{profile.name}{profile.id === defaultId ? " · 默认 AI" : ""}</strong>
                   <p className="muted small">
                     {profile.kind === "api"
                       ? profile.baseUrl
@@ -220,6 +223,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                   </p>
                 </div>
                 <div className="row-actions">
+                  {profile.id !== defaultId && <button className="secondary" disabled={busy} onClick={() => void act(async () => { unwrap(await window.platform.setDefaultAIProfile(profile.id)); setDefaultId(profile.id); setNotice("默认 AI 已更新，继承默认的项目已同步，单独覆盖的项目保持不变。"); })}>设为默认 AI</button>}
                   <button
                     className="secondary"
                     disabled={busy}
@@ -245,6 +249,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                         setProfiles(
                           unwrap(await window.platform.getAIProfiles()),
                         );
+                        setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
                         setNotice("连接已删除，关联项目需要重新选择。");
                       })
                     }

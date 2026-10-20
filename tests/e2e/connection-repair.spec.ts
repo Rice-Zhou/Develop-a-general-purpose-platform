@@ -47,7 +47,7 @@ test("repairs a missing Jira binding explicitly and renews the same connection w
     await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
     await expect(page.getByText(/项目关联的 BUG 来源连接已不存在/)).toBeVisible();
     await page.getByRole("button", { name: "重新关联来源", exact: true }).click();
-    const editor = page.getByRole("dialog", { name: "编辑项目", exact: true });
+    const editor = page.getByRole("dialog", { name: "管理项目关联", exact: true });
     await expect(editor.getByText(/原 Jira 连接已不存在/)).toBeVisible();
     await expect(editor.getByLabel("Jira 登录连接")).toHaveValue(missingId);
     await editor.getByLabel("Jira 登录连接").selectOption(connectionId);
@@ -55,7 +55,7 @@ test("repairs a missing Jira binding explicitly and renews the same connection w
     await expect(picker).toBeEnabled();
     await picker.fill("甲");
     await editor.getByRole("option", { name: "项目甲（A）", exact: true }).click();
-    await editor.getByRole("button", { name: "保存项目", exact: true }).click();
+    await editor.getByRole("button", { name: "保存关联", exact: true }).click();
     await expect(editor).toHaveCount(0);
     await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
     await expect(page.getByRole("link", { name: "A-1", exact: true })).toHaveAttribute("href", base + "/browse/A-1");

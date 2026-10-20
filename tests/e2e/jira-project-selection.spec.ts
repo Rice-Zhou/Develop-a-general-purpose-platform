@@ -88,7 +88,6 @@ for (const mode of ["account", "cli"] as const) test(`project setup via ${mode} 
     });
     expect(invalidOwner.ok).toBe(false);
     if (!invalidOwner.ok) expect(invalidOwner.error.code).toBe("JIRA_SELECTION_INVALID");
-    await page.getByRole("button", { name: "暂时跳过", exact: true }).click();
     await page.getByRole("button", { name: "编辑配置" }).click();
     const edit = page.getByRole("dialog", { name: "编辑项目" });
     const editPicker = edit.getByRole("combobox", { name: "Jira 项目", exact: true });

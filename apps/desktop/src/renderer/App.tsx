@@ -4,6 +4,7 @@ import type {
   Project,
   Task,
   TaskStatus,
+  DocumentResource,
 } from "../../../../packages/contracts/src/models";
 import { message, unwrap } from "./api";
 import { ACTIVE_TASK_STATUSES } from "../../../../packages/contracts/src/models";
@@ -14,6 +15,9 @@ import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { IssueConnectionsPage } from "./pages/IssueConnectionsPage";
 import { BugsPage } from "./pages/BugsPage";
 import { CodeConflictDialog } from "./components/CodeConflictDialog";
+import { DocumentLibraryPage } from "./pages/DocumentLibraryPage";
+import { ProjectDocumentsDialog } from "./components/ProjectDocumentsDialog";
+import type { PublicIssueConnection } from "../../../../packages/contracts/src/issues";
 const statusLabels: Record<TaskStatus, string> = {
   QUEUED: "排队中",
   PREPARING: "准备中",
@@ -31,6 +35,7 @@ type Page =
   | "projects"
   | "tasks"
   | "requirements"
+  | "documents"
   | "bugs"
   | "settings";
 const nav: { id: Page; label: string; icon: string }[] = [
@@ -38,6 +43,7 @@ const nav: { id: Page; label: string; icon: string }[] = [
   { id: "projects", label: "项目管理", icon: "▦" },
   { id: "tasks", label: "任务历史", icon: "◷" },
   { id: "requirements", label: "需求核对", icon: "≡" },
+  { id: "documents", label: "需求资料库", icon: "▤" },
   { id: "bugs", label: "BUG 工作台", icon: "◇" },
   { id: "settings", label: "设置", icon: "⚙" },
 ];
@@ -56,7 +62,10 @@ export function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editor, setEditor] = useState<Project | "new" | null>(null);
-  const [setupProject, setSetupProject] = useState<Project | null>(null);
+  const [linkEditor, setLinkEditor] = useState<{ project: Project; connection?: PublicIssueConnection } | null>(null);
+  const [documentEditor, setDocumentEditor] = useState<{ project: Project; document: DocumentResource } | null>(null);
+  const [association, setAssociation] = useState<{ source: "bug"; connection: PublicIssueConnection } | { source: "document"; document: DocumentResource } | null>(null);
+  const [associationProjectId, setAssociationProjectId] = useState("");
   const [focusAISettings, setFocusAISettings] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
@@ -515,6 +524,7 @@ export function App() {
                     >
                       编辑配置
                     </button>
+                    <button className="secondary" onClick={() => setLinkEditor({ project })}>管理关联</button>
                     <button
                       className="primary"
                       disabled={
@@ -562,6 +572,7 @@ export function App() {
               onChanged={reload}
             />
           )}
+          {page === "documents" && <DocumentLibraryPage projects={projects} onChanged={reload} onLink={document => { setAssociationProjectId(""); setAssociation({ source: "document", document }); }} />}
           {page === "bugs" && (
             <BugsPage
               projects={projects}
@@ -571,20 +582,21 @@ export function App() {
                 setPage("settings");
                 setFocusAISettings(true);
               }}
-              onEditProject={setEditor}
+              onEditProject={project => setLinkEditor({ project })}
             />
           )}
           {page === "settings" && (
             <>
-              <IssueConnectionsPage />
+              <IssueConnectionsPage onLink={connection => { setAssociationProjectId(""); setAssociation({ source: "bug", connection }); }} />
               <div id="ai-connections-settings" tabIndex={-1}>
                 <ConnectionsPage
-                  onChanged={() =>
+                  onChanged={() => {
+                    void reload().catch(error => setError(message(error)));
                     void window.platform
                       .getAppInfo()
                       .then((value) => setInfo(unwrap(value)))
-                      .catch((error) => setError(message(error)))
-                  }
+                      .catch((error) => setError(message(error)));
+                  }}
                 />
               </div>
               <section className="panel settings-panel">
@@ -647,8 +659,7 @@ export function App() {
         <ProjectEditor
           project={editor === "new" ? null : editor}
           onClose={() => setEditor(null)}
-          onSaved={(saved) => {
-            if (editor === "new") setSetupProject(saved);
+          onSaved={() => {
             setEditor(null);
             void act(reload);
           }}
@@ -699,8 +710,6 @@ export function App() {
                         setProjectFilter("");
                       if (activeTask?.projectId === deleteTarget.id)
                         setSelectedTask(null);
-                      if (setupProject?.id === deleteTarget.id)
-                        setSetupProject(null);
                       setDeleteTarget(null);
                       await reload();
                       setNotice("项目已移除，本地代码与历史分析数据已保留。");
@@ -718,41 +727,19 @@ export function App() {
           </section>
         </div>
       )}
-      {setupProject && (
-        <div className="modal-backdrop">
-          <section
-            className="editor modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="bug-ai-setup-title"
-          >
-            <h2 id="bug-ai-setup-title">配置 BUG AI 预分析</h2>
-            <p>
-              项目“{setupProject.name}”已保存。现在配置 AI
-              连接，之后可在项目中关联并手动发起 BUG 预分析。
-            </p>
-            <div className="form-footer">
-              <button
-                className="secondary"
-                autoFocus
-                onClick={() => setSetupProject(null)}
-              >
-                暂时跳过
-              </button>
-              <button
-                className="primary"
-                onClick={() => {
-                  setSetupProject(null);
-                  setPage("settings");
-                  setFocusAISettings(true);
-                }}
-              >
-                去配置
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      {association && <div className="modal-backdrop"><section className="editor modal" role="dialog" aria-modal="true" aria-labelledby="resource-association-title">
+        <h2 id="resource-association-title">选择关联项目</h2>
+        <label>代码项目<select value={associationProjectId} onChange={e => setAssociationProjectId(e.target.value)}><option value="">请选择代码项目</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        {!projects.length && <p>请先创建代码项目，再关联已保存的资源。</p>}
+        <div className="form-footer"><button className="secondary" onClick={() => setAssociation(null)}>取消</button><button className="primary" disabled={!associationProjectId} onClick={() => {
+          const project = projects.find(p => p.id === associationProjectId); if (!project) return;
+          if (association.source === "bug") setLinkEditor({ project, connection: association.connection });
+          else setDocumentEditor({ project, document: association.document });
+          setAssociation(null);
+        }}>配置关联</button></div>
+      </section></div>}
+      {linkEditor && <ProjectEditor linksOnly project={linkEditor.project} initialIssueConnection={linkEditor.connection} onClose={() => setLinkEditor(null)} onSaved={() => { setLinkEditor(null); void act(reload); }} />}
+      {documentEditor && <ProjectDocumentsDialog project={documentEditor.project} initialDocument={documentEditor.document} onClose={() => setDocumentEditor(null)} onSaved={() => { setDocumentEditor(null); void act(reload); }} />}
       {conflictTaskId && (() => {
         const task = tasks.find(t => t.id === conflictTaskId);
         const project = projects.find(p => p.id === task?.projectId);

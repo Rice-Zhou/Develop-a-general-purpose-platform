@@ -41,7 +41,6 @@ test("branch detection requires confirmation and preserves manual configuration 
     await expect(page.getByLabel("分析分支")).toHaveValue("main");
     await page.getByLabel("分析分支").fill("release/custom");
     await page.getByRole("button", { name: "保存项目", exact: true }).click();
-    await page.getByRole("button", { name: "暂时跳过", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "分支确认项目", exact: true }),
     ).toBeVisible();

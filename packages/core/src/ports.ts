@@ -1,6 +1,7 @@
 import type {
   ContextSnapshot,
   Project,
+  DocumentResource,
   RepositoryBinding,
   RepositoryInspection,
   RepositorySnapshot,
@@ -11,6 +12,7 @@ import type { RequirementSet } from "../../contracts/src/requirements";
 import type { AnalysisReport } from "../../contracts/src/analysis";
 import type { BugReport } from "../../contracts/src/issues";
 export interface ProjectRepository {
+  documentResources(): DocumentResource[];
   listProjects(): Project[];
   getProject(id: string): Project;
   saveProject(project: Project, expectedRevision?: number): void;

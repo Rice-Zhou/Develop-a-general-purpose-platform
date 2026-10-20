@@ -164,14 +164,21 @@ export class Workbench implements TaskRuntime {
       ...this.profiles().filter((p) => p.id !== profile.id),
       profile,
     ]);
+    if (!this.store.getDefaultAIProfile()) this.store.setDefaultAIProfile(profile.id);
     return publicProfile(profile);
   }
   deleteProfile(id: string): void {
     this.profile(id);
+    if (this.store.listProjects().some(p => p.aiProfileId === id)) throw new AppError("MODEL_IN_USE", "AI 连接仍被项目使用，请先更换默认连接或项目覆盖配置");
     this.store.setSetting(
       "profiles",
       this.profiles().filter((p) => p.id !== id),
     );
+    if (this.store.getDefaultAIProfile() === id) {
+      const next = this.profiles()[0];
+      if (next) this.store.setDefaultAIProfile(next.id);
+      else this.store.setSetting("default-ai-profile", null);
+    }
   }
   configurationHash(project: Project, kind?: Task["kind"]): string {
     if (!project.aiProfileId)

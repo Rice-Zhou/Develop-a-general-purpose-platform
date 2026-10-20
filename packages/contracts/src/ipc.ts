@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AppError } from "./error";
-import { ProjectDraftSchema, ProjectDocumentsUpdateSchema } from "./models";
+import { ProjectDraftSchema, ProjectDocumentsUpdateSchema, ProjectLinksUpdateSchema, DocumentResourceDraftSchema } from "./models";
 import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
 import { RequirementItemSchema } from "./requirements";
 import { IssueConnectionDraftSchema } from "./issues";
@@ -18,6 +18,11 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({ method: z.literal("saveProjectLinks"), params: ProjectLinksUpdateSchema }).strict(),
+  ...(["getDocumentResources", "getDefaultAIProfile"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),
+  z.object({ method: z.literal("saveDocumentResource"), params: z.object({ draft: DocumentResourceDraftSchema, expectedRevision: z.number().int().positive().optional() }).strict() }).strict(),
+  z.object({ method: z.literal("deleteDocumentResource"), params: z.object({ id: z.string().min(1), expectedRevision: z.number().int().positive() }).strict() }).strict(),
+  z.object({ method: z.literal("setDefaultAIProfile"), params: z.object({ id }).strict() }).strict(),
   z.object({ method: z.literal("updateCode"), params: z.object({ projectId: id, mode: z.enum(["update", "continue", "ai"]).default("update") }).strict() }).strict(),
   z.object({ method: z.literal("saveProjectDocuments"), params: ProjectDocumentsUpdateSchema }).strict(),
   z.object({ method: z.literal("refreshBugWorkspace"), params: z.object({ projectId: id }).strict() }).strict(),

@@ -5,6 +5,7 @@ import { AppError } from "../../../contracts/src/error";
 import {
   ProjectDraftSchema,
   ProjectDocumentsUpdateSchema,
+  ProjectLinksUpdateSchema,
   type ProjectDraft,
   type Project,
 } from "../../../contracts/src/models";
@@ -34,7 +35,16 @@ export class ProjectService {
     const previous = this.store.getProject(update.projectId);
     const project = { ...previous, documents: update.documents, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
     this.store.saveProject(project, update.expectedRevision);
-    return project;
+    return this.store.getProject(project.id);
+  }
+  saveLinks(input: { projectId: string; documents: Project["documents"]; issueBindings: Project["issueBindings"]; aiProfileId: string | null; expectedRevision: number }): Project {
+    const update = ProjectLinksUpdateSchema.parse(input);
+    const resources = this.store.documentResources();
+    if (update.documents.some(d => !resources.some(r => r.id === d.id && r.kind === d.kind && r.locator === d.locator))) throw new AppError("DOCUMENT_RESOURCE_CHANGED", "需求文档资源不存在或已修改，请重新选择");
+    const previous = this.store.getProject(update.projectId);
+    const project = { ...previous, documents: update.documents, issueBindings: update.issueBindings, aiProfileId: update.aiProfileId, usesDefaultAI: false, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
+    this.store.saveProject(project, update.expectedRevision);
+    return this.store.getProject(project.id);
   }
   async save(input: ProjectDraft, expectedRevision?: number): Promise<Project> {
     const draft = ProjectDraftSchema.parse(input);
@@ -70,6 +80,6 @@ export class ProjectService {
       updatedAt: new Date().toISOString(),
     };
     this.store.saveProject(project, expectedRevision);
-    return project;
+    return this.store.getProject(project.id);
   }
 }

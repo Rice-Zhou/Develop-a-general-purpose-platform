@@ -59,6 +59,14 @@ async function dispatch(request: Request): Promise<unknown> {
   switch (request.method) {
     case "listProjects":
       return projects.list();
+    case "getDocumentResources": return store.documentResources();
+    case "saveDocumentResource": return store.saveDocumentResource(request.params.draft, request.params.expectedRevision);
+    case "deleteDocumentResource": return store.deleteDocumentResource(request.params.id, request.params.expectedRevision);
+    case "getDefaultAIProfile": return store.getDefaultAIProfile();
+    case "setDefaultAIProfile": return store.setDefaultAIProfile(request.params.id);
+    case "saveProjectLinks":
+      await workbench.issues.validateBindingChanges(store.getProject(request.params.projectId).issueBindings, request.params.issueBindings, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
+      return projects.saveLinks(request.params);
     case "saveProjectDocuments":
       return projects.saveDocuments(request.params);
     case "deleteProject":
@@ -67,7 +75,7 @@ async function dispatch(request: Request): Promise<unknown> {
         request.params.expectedRevision,
       );
     case "saveProject":
-      await workbench.issues.validateBindings(request.params.draft.issueBindings, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
+      await workbench.issues.validateBindingChanges(request.params.draft.id ? store.getProject(request.params.draft.id).issueBindings : [], request.params.draft.issueBindings, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
       return projects.save(
         request.params.draft,
         request.params.expectedRevision,

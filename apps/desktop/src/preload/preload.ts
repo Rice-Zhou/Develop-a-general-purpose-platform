@@ -3,6 +3,12 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
+  getDocumentResources: () => invoke("getDocumentResources"),
+  saveDocumentResource: (draft, expectedRevision) => invoke("saveDocumentResource", { draft, expectedRevision }),
+  deleteDocumentResource: (id, expectedRevision) => invoke("deleteDocumentResource", { id, expectedRevision }),
+  getDefaultAIProfile: () => invoke("getDefaultAIProfile"),
+  setDefaultAIProfile: id => invoke("setDefaultAIProfile", { id }),
+  saveProjectLinks: input => invoke("saveProjectLinks", input),
   updateCode: (projectId, mode = "update") => invoke("updateCode", { projectId, mode }),
   getJiraCatalogue: (connectionId) => invoke("getJiraCatalogue", { connectionId }),
   getIssueConnections: () => invoke("getIssueConnections"),
