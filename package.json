@@ -1,7 +1,7 @@
 {
   "name": "local-dev-platform",
   "productName": "本地研发辅助平台",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "本地项目与代码分析工作台",
   "type": "module",

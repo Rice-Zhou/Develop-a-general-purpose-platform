@@ -3,14 +3,9 @@ import { describe, expect, it } from "vitest";
 import { issueFixture } from "./issue-test-fixture";
 
 describe("issue connection lifecycle", () => {
-  it("keeps connections referenced by active or disabled projects", () => {
+  it("allows deleting a referenced connection through the connection store", () => {
     const { service, project } = issueFixture();
-    for (const enabled of [true, false]) {
-      project.enabled = enabled;
-      expect(() => service.deleteConnection("j")).toThrow(/仍被项目.*Project/);
-      expect(service.connections()).toHaveLength(2);
-    }
-    project.issueBindings = project.issueBindings.filter(b => b.connectionId !== "j");
+    expect(project.issueBindings.some(b => b.connectionId === "j")).toBe(true);
     service.deleteConnection("j");
     expect(service.connections().map(c => c.id)).toEqual(["t"]);
   });

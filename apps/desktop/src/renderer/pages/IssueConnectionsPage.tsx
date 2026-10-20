@@ -355,11 +355,16 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
             onClick={() => {
               setBusy(true);
               setError("");
+              setNotice("");
               void window.platform
                 .deleteIssueConnection(c.id)
                 .then((r) => {
                   unwrap(r);
                   return reload();
+                })
+                .then(() => {
+                  if (editingId === c.id) addNew();
+                  setNotice("平台连接已删除，所有代码项目的对应关联已解除；代码项目和历史材料已保留。");
                 })
                 .catch((e) => setError(message(e)))
                 .finally(() => setBusy(false));

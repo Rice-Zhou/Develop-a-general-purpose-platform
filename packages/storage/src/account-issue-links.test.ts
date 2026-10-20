@@ -3,11 +3,53 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import Database from "better-sqlite3";
 import { DataStore } from "./database";
 import { IssueMonitor } from "../../core/src/issues/issue-monitor";
 import { IssueService } from "../../core/src/issues/issue-service";
 import type { Project } from "../../contracts/src/models";
 import type { IssueConnection, RemoteIssue } from "../../contracts/src/issues";
+
+it("deletes linked Jira connections and detaches active and disabled projects while preserving history", async () => {
+ const dir = await mkdtemp(join(tmpdir(), "delete-jira-")); const store = await DataStore.open(join(dir, "app.db"));
+ try {
+  const jira: IssueConnection = {id:randomUUID(),kind:"jira-http",platform:"jira-dc",name:"Jira",baseUrl:"https://jira.example",username:"alice",credentialRef:null,bypassProxy:true,jiraProject:{key:"A",name:"Alpha",owner:"alice",issueTypeIds:["1"]}};
+  const other = {...jira,id:randomUUID(),name:"Other Jira"};
+  const trinity: IssueConnection = {id:randomUUID(),kind:"trinity",platform:"trinity",name:"Trinity",baseUrl:"https://trinity.example/trinity",accountId:"uid1",credentialRef:null,bypassProxy:true};
+  store.setSetting("issue-connections",[jira,other,trinity]);
+  const binding = {id:randomUUID(),connectionId:jira.id,platform:"jira-dc" as const,instanceUrl:jira.baseUrl,projectKey:"A",owner:"alice",issueTypeIds:["1"]};
+  const base:Project = {id:randomUUID(),name:"Active",revision:1,enabled:true,repositories:[],documents:[{id:randomUUID(),kind:"docx",locator:"D:/requirements.docx",required:true}],issueBindings:[binding,{...binding,id:randomUUID(),connectionId:other.id}],aiProfileId:null,updatedAt:"now"};
+  store.saveProject(base); const disabled = {...base,id:randomUUID(),name:"Disabled",enabled:false}; store.saveProject(disabled);
+  const unrelated = {...base,id:randomUUID(),name:"Unrelated",issueBindings:[]};store.saveProject(unrelated);
+  const issue:RemoteIssue = {remoteId:"1",key:"A-1",instanceUrl:jira.baseUrl,remoteProjectId:"A",ownerId:"alice",typeId:"1",title:"Bug",description:"Evidence",status:"Open",updatedAt:"now",versions:[],comments:[],attachments:[],warnings:[]};
+  const service = new IssueService(store,()=>({list:async()=>[issue],get:async()=>issue}));
+  const [snapshot] = await service.refresh(base.id,binding.id,undefined,new AbortController().signal);
+  const db = new Database(join(dir,"app.db"));
+  try {
+   db.exec("CREATE TRIGGER reject_project_update BEFORE UPDATE ON projects BEGIN SELECT RAISE(ABORT, 'test project update failure'); END");
+   expect(()=>service.deleteConnection(jira.id)).toThrow(/test project update failure/);
+   expect(service.connections()).toHaveLength(3);
+   expect(store.getProject(base.id).revision).toBe(1);
+   expect(store.getProject(base.id).issueBindings[0].connectionId).toBe(jira.id);
+   db.exec("DROP TRIGGER reject_project_update");
+  } finally {db.close();}
+  service.deleteConnection(jira.id);
+  expect(service.connections().map(c=>c.id)).toEqual([other.id,trinity.id]);
+  for (const project of [base,disabled]) {
+   const saved=store.getProject(project.id);
+   expect(saved.revision).toBe(2);
+   expect(saved.issueBindings.map(b=>b.connectionId)).toEqual([other.id,trinity.id]);
+   expect(saved.documents).toEqual(project.documents);expect(saved.enabled).toBe(project.enabled);
+   expect(()=>store.saveProject({...project,revision:2},1)).toThrow(/配置已被更新/);
+  }
+  expect(store.getProject(unrelated.id).revision).toBe(1);
+  expect(store.issues.get(base.id,snapshot.id).description).toBe("Evidence");
+  expect(service.workspace(base.id).sources.some(s=>s.bindingId===binding.id)).toBe(false);
+  expect(()=>service.analysisInput(base.id,snapshot.id)).toThrow();
+  store.close();const reopened=await DataStore.open(join(dir,"app.db"));
+  try {expect(reopened.getProject(base.id).issueBindings.some(b=>b.connectionId===jira.id)).toBe(false);} finally {reopened.close();}
+ } finally {store.close();await rm(dir,{recursive:true,force:true});}
+});
 
 it("inherits one verified Trinity account for existing and future projects and routes only mapped bugs", async () => {
  const dir = await mkdtemp(join(tmpdir(), "account-issues-")); const store = await DataStore.open(join(dir,"app.db"));

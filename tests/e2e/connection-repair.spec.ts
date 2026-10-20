@@ -58,13 +58,6 @@ test("repairs a missing Jira binding explicitly and renews the same connection w
     await expect(editor).toHaveCount(0);
     await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
     await expect(page.getByRole("link", { name: "A-1", exact: true })).toHaveAttribute("href", base + "/browse/A-1");
-    // Main-process rejection must preserve the original credential as well as metadata.
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.getByRole("button", { name: "删除平台连接", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("仍被项目「待修复项目」使用");
-    await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
-    await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
-    await expect(page.getByRole("link", { name: "A-1", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await page.getByRole("button", { name: "编辑 / 重新登录", exact: true }).click();
     await expect(page.getByLabel("登录密码", { exact: true })).toHaveValue("");
@@ -77,7 +70,28 @@ test("repairs a missing Jira binding explicitly and renews the same connection w
     await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
     await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
     await expect(page.getByRole("link", { name: "A-1", exact: true })).toBeVisible();
+    const snapshotIds = await page.evaluate(async (projectId) => {
+      const r = await window.platform.getBugWorkspace(projectId);
+      if (!r.ok) throw new Error(r.error.message);
+      return r.value.issues.map(i => i.id);
+    }, projectId);
+    expect(snapshotIds.length).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "删除平台连接", exact: true }).click();
+    await expect(page.getByText("平台连接已删除，所有代码项目的对应关联已解除；代码项目和历史材料已保留。", {exact:true})).toBeVisible();
+    await expect(page.getByRole("button", { name: "删除平台连接", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "BUG 工作台", exact: true }).click();
+    await expect(page.getByRole("link", { name: "A-1", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/项目关联的 BUG 来源连接已不存在/)).toHaveCount(0);
+    await page.bringToFront();
     await page.screenshot({ path: test.info().outputPath("repaired-workspace.png") });
+    await app.close(); app = undefined;
+    const verified = await DataStore.open(join(data, "platform.db"));
+    try {
+      expect(verified.getProject(projectId).issueBindings).toEqual([]);
+      expect(verified.getProject(projectId).repositories[0].canonicalPath).toBe(fixture.analysis);
+      expect(verified.issues.get(projectId,snapshotIds[0]).key).toBe("A-1");
+    } finally { verified.close(); }
   } finally {
     await app?.close();
     server.closeAllConnections();

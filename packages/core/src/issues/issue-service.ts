@@ -124,7 +124,6 @@ export class IssueService {
   }
   deleteConnection(id: string): void {
     this.connection(id);
-    if (this.connection(id).kind !== "trinity") this.assertUnreferenced(id);
     this.store.setSetting(
       "issue-connections",
       this.connections().filter((c) => c.id !== id),

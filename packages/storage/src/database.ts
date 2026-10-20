@@ -28,9 +28,13 @@ export class DataStore extends AnalysisRepository {
     const previous = this.getSetting<IssueConnection[]>(key) ?? [];
     const accountChanged = !isDeepStrictEqual(previous.find(c => c.platform === "trinity"), next.find(c => c.platform === "trinity"));
     const changed = new Set([...previous, ...next].filter(c => !isDeepStrictEqual(previous.find(p => p.id === c.id), next.find(p => p.id === c.id))).map(c => c.id));
+    const removed = new Set(previous.filter(c => !next.some(n => n.id === c.id)).map(c => c.id));
     this.db.transaction(() => {
       super.setSetting(key, value);
-      this.touchProjects(p => accountChanged || p.issueBindings?.some(b => Boolean(b.connectionId && changed.has(b.connectionId))));
+      this.touchProjects(
+        p => accountChanged || p.issueBindings?.some(b => Boolean(b.connectionId && changed.has(b.connectionId))),
+        p => ({ ...p, issueBindings: p.issueBindings.filter(b => !b.connectionId || !removed.has(b.connectionId)) }),
+      );
     })();
   }
   documentResources(): DocumentResource[] { return this.getSetting<DocumentResource[]>("document-resources") ?? []; }
@@ -43,11 +47,14 @@ export class DataStore extends AnalysisRepository {
       this.touchProjects(p => !p.aiProfileId);
     })();
   }
-  private touchProjects(matches: (project: Project & { documentRefs?: { id: string; required: boolean }[] }) => boolean): void {
+  private touchProjects(
+    matches: (project: Project & { documentRefs?: { id: string; required: boolean }[] }) => boolean,
+    transform: (project: Project) => Project = project => project,
+  ): void {
     for (const row of this.db.prepare("SELECT json FROM projects WHERE json_extract(json,'$.deletedAt') IS NULL").all() as JsonRow[]) {
       const project = JSON.parse(row.json) as Project;
       if (!matches(project)) continue;
-      const updated = { ...project, revision: project.revision + 1, updatedAt: new Date().toISOString() };
+      const updated = { ...transform(project), revision: project.revision + 1, updatedAt: new Date().toISOString() };
       this.db.prepare("UPDATE projects SET revision=?,json=? WHERE id=?").run(updated.revision, JSON.stringify(updated), updated.id);
     }
   }
