@@ -12,7 +12,7 @@ import {
 import type { IssueAdapter } from "../../../core/src/issues/ports";
 import { readResponseText } from "../network/response";
 import { curlFetch } from "../network/curl-fetch";
-import { trinityProtocol, trinityUserData } from "./trinity-session";
+import { trinityProtocol, trinityUserData, type TrinityProtocol } from "./trinity-session";
 const id = z.union([z.string(), z.number()]).transform(String);
 const response = z.object({
   code: z.literal(200),
@@ -29,7 +29,7 @@ const response = z.object({
   }),
 });
 export class TrinityAdapter implements IssueAdapter {
-  private protocol: Promise<{ apiVersion: string; isGray: boolean }> | undefined;
+  private protocol: Promise<TrinityProtocol> | undefined;
   constructor(
     private readonly resolveToken: () => Promise<string>,
     private readonly request: typeof fetch = curlFetch as typeof fetch,
@@ -99,14 +99,14 @@ export class TrinityAdapter implements IssueAdapter {
     const raw = await this.readRequest(scope, "/sys/user/userinfo", signal);
     return trinityProtocol(trinityUserData(raw));
   }
-  private async readRequest(scope: IssueScope, path: string, signal: AbortSignal, body?: unknown, protocol?: { apiVersion: string; isGray: boolean }): Promise<unknown> {
+  private async readRequest(scope: IssueScope, path: string, signal: AbortSignal, body?: unknown, protocol?: TrinityProtocol): Promise<unknown> {
     const base = instanceUrl(scope.connection.baseUrl);
     const token = await this.resolveToken();
     const result = await this.request(base + path, {
       method: body === undefined ? "GET" : "POST",
       redirect: "error",
       signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
-      headers: { "X-Token": token, "X-Platform": "trinity", ...(protocol ? { apiVersion: protocol.apiVersion, isGray: String(protocol.isGray) } : {}), Accept: "application/json", "Content-Type": "application/json" },
+      headers: { "X-Token": token, "X-Platform": "trinity", ...protocol, Accept: "application/json", "Content-Type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!result.ok) {

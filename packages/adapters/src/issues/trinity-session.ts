@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { AppError } from "../../../contracts/src/error";
 
+const headerText = z.string().min(1).max(200).regex(/^[\x20-\x7e]+$/).refine(value => value.trim().length > 0);
 const protocol = z.object({
-  apiVersion: z.string().min(1).max(200).regex(/^[^\r\n]+$/),
-  isGray: z.boolean(),
+  apiVersion: headerText,
+  // Trinity's XMLHttpRequest client sends an explicit null as the header value "null".
+  isGray: z.union([z.boolean(), z.null()]).transform(String),
 });
+export type TrinityProtocol = z.infer<typeof protocol>;
 
 export function trinityUserData(raw: unknown): Record<string, unknown> {
   const result = z.object({ code: z.number().int(), data: z.unknown().optional() }).safeParse(raw);
@@ -15,8 +18,21 @@ export function trinityUserData(raw: unknown): Record<string, unknown> {
   return data.data;
 }
 
-export function trinityProtocol(data: unknown): { apiVersion: string; isGray: boolean } {
+export function trinityProtocol(data: unknown): TrinityProtocol {
   const parsed = protocol.safeParse(data);
-  if (!parsed.success) throw new AppError("TRINITY_PROTOCOL_INVALID", "Trinity 未返回有效的 API 版本及灰度配置，请检查目标实例；未保存响应正文");
+  if (!parsed.success) {
+    const fields = z.record(z.string(), z.unknown()).safeParse(data);
+    const shape = fields.success ? ["apiVersion", "isGray"].map(key => `${key}=${fieldShape(fields.data[key])}`).join("，") : `data=${fieldShape(data)}`;
+    throw new AppError("TRINITY_PROTOCOL_INVALID", `Trinity 路由字段无效（${shape}），未选择默认版本或灰度值；未保存响应正文`);
+  }
   return parsed.data;
+}
+
+function fieldShape(value: unknown): string {
+  if (value === undefined) return "missing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value !== "string") return typeof value;
+  if (!value.trim()) return "empty-string";
+  return headerText.safeParse(value).success ? "string" : "invalid-string";
 }

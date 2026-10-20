@@ -21,13 +21,15 @@ test("saves independent Jira project connections and auto-links one Trinity acco
    return reply({code:200,data:{token:`token-${new URLSearchParams(body).get("uid")}`}});
   }
   const account=req.headers["x-token"]==="token-bob"?"uid-bob":"uid-alice";
-  if(path==="/trinity/sys/user/userinfo")return reply({code:200,data:{uid:account,apiVersion:"v7",isGray:false}});
+  if(path==="/trinity/sys/user/userinfo")return reply({code:200,data:{uid:account,apiVersion:"Trinity V8.16.0",isGray:null}});
   if(path==="/trinity/quality/bugRedux/getBugsByMultiProjects"){
+   expect(req.headers.isgray).toBe("null");expect(req.headers.apiversion).toBe("Trinity V8.16.0");
    let text="";for await(const part of req)text+=part;const body=JSON.parse(text);
    expect(body).toMatchObject({mode:"assignToMe",userId:account,allProjects:true,projectIds:[]});
    return reply({code:200,data:{page:{total:2,records:[{bugId:"T-1"},{bugId:"T-2"}]}}});
   }
   if(path==="/trinity/quality/bugRedux/getByBugId"){
+   expect(req.headers.isgray).toBe("null");expect(req.headers.apiversion).toBe("Trinity V8.16.0");
    const key=new URL(req.url!,"http://localhost").searchParams.get("bugId")!;
    return reply({code:200,data:{id:key,bugId:key,workitemId:`W-${key}`,projectId:key==="T-1"?remoteProject:"UNMATCHED",assigneeId:account,title:key==="T-1"?"Mapped bug":"Unmatched bug",description:"fixture",status:"Open",updateTime:"now"}});
   }

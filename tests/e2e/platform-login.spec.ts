@@ -96,7 +96,7 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     if(req.url==="/rest/api/2/issuetype"){res.end(JSON.stringify([{id:"1",name:"Bug"}]));return;}
     if(req.url==="/trinity/sys/user/userinfo"){
       const accepted = !rejectIdentity && req.headers["x-token"] === "fixture-session-token";
-      res.end(JSON.stringify(accepted ? {code:200,data:{uid:"uid-alice",apiVersion:"v7",isGray:false}} : {code:5002,data:null,msg:"private-server-details"}));return;
+      res.end(JSON.stringify(accepted ? {code:200,data:{uid:"uid-alice",apiVersion:"Trinity V8.16.0",isGray:null}} : {code:5002,data:null,msg:"private-server-details"}));return;
     }
     if (req.url === "/rest/api/2/myself") {
       jiraLogins++;
