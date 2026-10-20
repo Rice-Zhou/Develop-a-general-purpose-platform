@@ -11,6 +11,8 @@ const api: DesktopAPI = {
   setDefaultAIProfile: id => invoke("setDefaultAIProfile", { id }),
   saveProjectLinks: input => invoke("saveProjectLinks", input),
   updateCode: (projectId, mode = "update") => invoke("updateCode", { projectId, mode }),
+  getTrinityProjects: connectionId => invoke("getTrinityProjects",{connectionId}),
+  associateTrinityIssue: input => invoke("associateTrinityIssue",input),
   getJiraCatalogue: (connectionId) => invoke("getJiraCatalogue", { connectionId }),
   getIssueConnections: () => invoke("getIssueConnections"),
   inspectLocalJira: () => invoke("inspectLocalJira"),
@@ -30,8 +32,8 @@ const api: DesktopAPI = {
     invoke("refreshIssues", { projectId, bindingId }),
   readIssueByKey: (projectId, bindingId, key) =>
     invoke("readIssueByKey", { projectId, bindingId, key }),
-  analyzeBug: (projectId, issueSnapshotId) =>
-    invoke("analyzeBug", { projectId, issueSnapshotId }),
+  analyzeBug: (projectId, issueSnapshotId, targetProjectId) =>
+    invoke("analyzeBug", { projectId, issueSnapshotId, targetProjectId }),
   getBugReport: (projectId, reportId) =>
     invoke("getBugReport", { projectId, reportId }),
   exportBugReport: (projectId, reportId) =>

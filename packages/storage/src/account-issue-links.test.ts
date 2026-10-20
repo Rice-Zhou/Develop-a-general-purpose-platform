@@ -121,3 +121,25 @@ it("notifies once for the shared Trinity account across multiple code projects",
   rows.push(row("3"));await Promise.all(projects.map(p=>monitor.refreshProject(p.id)));expect(sent).toEqual(["BUG-2","BUG-3"]);
  }finally{store.close();await rm(dir,{recursive:true,force:true});}
 });
+
+it("adds many-to-many Trinity mappings without replacing documents, AI defaults or existing mappings", async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"trinity-mappings-"));const store=await DataStore.open(join(dir,"app.db"));
+ try {
+  const {ProjectService}=await import("../../core/src/projects/project-service");const service=new ProjectService(store);
+  const connection:IssueConnection={id:randomUUID(),kind:"trinity",platform:"trinity",name:"Trinity",baseUrl:"https://trinity.example/trinity",accountId:"uid1",credentialRef:null,bypassProxy:true};store.setSetting("issue-connections",[connection]);
+  const a:Project={id:randomUUID(),name:"空调",revision:1,enabled:true,repositories:[],documents:[],issueBindings:[],aiProfileId:null,updatedAt:"now"};const b={...a,id:randomUUID(),name:"车身"};store.saveProject(a);store.saveProject(b);
+  const defaultAI=randomUUID(),nextAI=randomUUID();store.setSetting("profiles",[defaultAI,nextAI].map(id=>({id})));
+  store.setSetting("default-ai-profile",defaultAI);
+  const mapping={instanceUrl:connection.baseUrl,projectId:"P1",name:"车型项目"};
+  const first=service.associateTrinityProject(a.id,1,mapping);const second=service.associateTrinityProject(first.id,first.revision,{...mapping,projectId:"P2"});
+  expect(second.trinityProjects?.map(m=>m.projectId)).toEqual(["P1","P2"]);
+  const repeated=service.associateTrinityProject(second.id,second.revision,{...mapping,instanceUrl:connection.baseUrl+"/"});
+  expect(repeated.trinityProjects).toHaveLength(2);
+  expect(service.associateTrinityProject(b.id,1,mapping).trinityProjects).toEqual([mapping]);
+  expect(repeated.documents).toEqual(a.documents);expect(repeated.aiProfileId).toBe(defaultAI);expect(repeated.usesDefaultAI).toBe(true);
+  expect(()=>service.associateTrinityProject(a.id,1,mapping)).toThrow(/配置已被更新/);
+  expect(()=>service.associateTrinityProject(a.id,repeated.revision,{...mapping,instanceUrl:"https://other.example"})).toThrow();
+  store.setDefaultAIProfile(nextAI);expect(store.getProject(a.id)).toMatchObject({aiProfileId:nextAI,usesDefaultAI:true});
+  store.close();const reopened=await DataStore.open(join(dir,"app.db"));try{expect(reopened.getProject(a.id).trinityProjects).toHaveLength(2);}finally{reopened.close();}
+ }finally{store.close();await rm(dir,{recursive:true,force:true});}
+});

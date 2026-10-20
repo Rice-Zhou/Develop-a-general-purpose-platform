@@ -1325,3 +1325,12 @@ input[type="radio"] {
     padding: 22px;
   }
 }
+
+.trinity-analysis-actions {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.work-panel .trinity-analysis-actions label {
+  margin: 0;
+}

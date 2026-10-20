@@ -370,6 +370,8 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+      case "getTrinityProjects":
+        return this.issues.trinityProjects(request.params.connectionId,AbortSignal.timeout(ISSUE_REFRESH_TIMEOUT_MS));
       case "getJiraCatalogue":
         return this.issues.catalogue(request.params.connectionId, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
       case "inspectLocalJira": {
@@ -440,7 +442,7 @@ export class Workbench implements TaskRuntime {
         };
       }
       case "analyzeBug": {
-        const input = this.issues.analysisInput(request.params.projectId, request.params.issueSnapshotId);
+        const input = this.issues.analysisInput(request.params.projectId, request.params.issueSnapshotId, request.params.targetProjectId);
         return tasks.enqueue(input.projectId, "ANALYZE_BUG", 1, undefined, input.issueSnapshotId);
       }
       case "getBugReport": {

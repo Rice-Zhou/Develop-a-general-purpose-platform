@@ -76,6 +76,7 @@ export const RemoteIssueSchema = z
     key: atom,
     instanceUrl: z.url(),
     remoteProjectId: atom,
+    remoteProjectName: atom.optional(),
     ownerId: atom,
     typeId: atom,
     title: z.string().min(1).max(10000),

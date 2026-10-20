@@ -31,7 +31,7 @@ test("saves independent Jira project connections and auto-links one Trinity acco
   if(path==="/trinity/quality/bugRedux/getByBugId"){
    expect(req.headers.isgray).toBe("null");expect(req.headers.apiversion).toBe("Trinity V8.16.0");
    const key=new URL(req.url!,"http://localhost").searchParams.get("bugId")!;
-   return reply({code:200,data:{id:key,bugId:key,workitemId:`W-${key}`,projectId:key==="T-1"?remoteProject:"UNMATCHED",assigneeId:account,title:key==="T-1"?"Mapped bug":"Unmatched bug",condition:"",activities:"<p>fixture</p>",expectedResult:"",actualResult:"",status:"Open",modifyTime:"now"}});
+   return reply({code:200,data:{id:key,bugId:key,workitemId:`W-${key}`,projectId:key==="T-1"?remoteProject:"UNMATCHED",projectName:key==="T-1"?"E0V_26款_SCDC_8295_国际左舵":"其他车型项目",assigneeId:account,title:key==="T-1"?"Mapped bug":"Unmatched bug",condition:"",activities:"<p>fixture</p>",expectedResult:"",actualResult:"",status:"Open",modifyTime:"now"}});
   }
   if(path.startsWith("/rest/")){
    if(jiraOffline){res.writeHead(503);return reply({});}
@@ -70,15 +70,35 @@ test("saves independent Jira project connections and auto-links one Trinity acco
   await page.reload();await page.getByRole("button",{name:"项目管理",exact:true}).click();
   await page.locator("section").filter({has:page.getByRole("heading",{name:"Code B",exact:true})}).getByRole("button",{name:"管理关联",exact:true}).click();
   await expect(links.getByRole("heading",{name:"Trinity 账号 · 自动关联",exact:true})).toBeVisible();await expect(links.getByLabel("负责人",{exact:true})).toHaveCount(0);await expect(links.getByRole("button",{name:"添加 Trinity 范围"})).toHaveCount(0);
-  await links.getByLabel("Trinity 项目 ID（逗号分隔）",{exact:true}).fill("P2");await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
+  await links.getByRole("button",{name:"读取 Trinity 项目",exact:true}).click();
+  const trinitySearch=links.getByRole("combobox",{name:"搜索 Trinity 项目",exact:true});await expect(trinitySearch).toBeEnabled();await trinitySearch.fill("E0V_26");await page.screenshot({path:test.info().outputPath("trinity-project-search.png")});
+  await links.getByRole("option",{name:"E0V_26款_SCDC_8295_国际左舵（P2）",exact:true}).click();
+  await expect(links.getByLabel("已关联 Trinity 项目")).toContainText("E0V_26款_SCDC_8295_国际左舵（P2）");await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
   await page.getByRole("button",{name:"BUG 工作台",exact:true}).click();await page.getByLabel("当前 BUG 项目").selectOption(ids[0]);await page.getByRole("button",{name:"刷新问题单",exact:true}).click();
   const mapped=page.locator("article").filter({has:page.getByRole("link",{name:"T-1",exact:true})});const unmatched=page.locator("article").filter({has:page.getByRole("link",{name:"T-2",exact:true})});
   await expect(mapped).toContainText("匹配代码项目：Code B");await expect(mapped.getByRole("button",{name:"更新代码并预分析",exact:true})).toBeEnabled();await expect(unmatched).toContainText("当前问题与所有项目不匹配，无法进行预分析");await expect(unmatched.getByRole("button",{name:"更新代码并预分析",exact:true})).toBeDisabled();
+  // The issue itself offers association; saving maps its real ID and does not start a task.
+  await unmatched.getByRole("button",{name:"关联代码项目",exact:true}).click();
+  const association=page.getByRole("dialog",{name:"关联 Trinity 代码项目",exact:true});
+  await expect(association).toContainText("其他车型项目（UNMATCHED）");await association.getByLabel("代码项目",{exact:true}).selectOption(ids[0]);await association.screenshot({path:test.info().outputPath("trinity-project-association.png")});await association.getByRole("button",{name:"保存关联",exact:true}).click();await expect(association).toHaveCount(0);
+  await expect(unmatched.getByRole("button",{name:"更新代码并预分析",exact:true})).toBeEnabled();
+  await mapped.getByRole("button",{name:"关联代码项目",exact:true}).click();await association.getByLabel("代码项目",{exact:true}).selectOption(ids[0]);await association.getByRole("button",{name:"保存关联",exact:true}).click();await expect(association).toHaveCount(0);
+  await expect(mapped.getByLabel("预分析代码项目",{exact:true})).toHaveValue(ids[0]);
+  let saved=(await state()).find(p=>p.id===ids[0])!;expect(saved.trinityProjects?.map(m=>m.projectId).sort()).toEqual(["P2","UNMATCHED"]);
+  expect((await state()).find(p=>p.id===ids[1])!.trinityProjects?.map(m=>m.projectId)).toEqual(["P2"]);
+  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value.length:-1;})).toBe(0);expect(modelCalls).toBe(0);
+  // Restarted UI retains both sides of the mapping; removing one mapping makes that issue unavailable again.
+  await page.reload();await page.getByRole("button",{name:"项目管理",exact:true}).click();await page.locator("section").filter({has:page.getByRole("heading",{name:"Code A",exact:true})}).getByRole("button",{name:"管理关联",exact:true}).click();
+  await links.getByLabel("已关联 Trinity 项目").locator(".report-list-item").filter({hasText:"UNMATCHED"}).getByRole("button",{name:"移除映射",exact:true}).click();await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
+  saved=(await state()).find(p=>p.id===ids[0])!;expect(saved.trinityProjects?.map(m=>m.projectId)).toEqual(["P2"]);
+  await page.getByRole("button",{name:"BUG 工作台",exact:true}).click();await page.getByLabel("当前 BUG 项目").selectOption(ids[0]);await expect(unmatched.getByRole("button",{name:"更新代码并预分析",exact:true})).toBeDisabled();
+  await mapped.getByLabel("预分析代码项目",{exact:true}).selectOption(ids[1]);await expect(mapped).toContainText("匹配代码项目：Code B");await mapped.screenshot({path:test.info().outputPath("trinity-project-mapping.png")});
   const oldSnapshot=await page.evaluate(async id=>{const r=await window.platform.getBugWorkspace(id);if(!r.ok)throw new Error(r.error.message);const item=r.value.issues.find(i=>i.key==="T-2")!;const rejected=await window.platform.analyzeBug(id,item.id);const tasks=await window.platform.listTasks();if(!tasks.ok)throw new Error(tasks.error.message);return {rejected,tasks:tasks.value,snapshot:r.value.issues.find(i=>i.key==="T-1")!.id};},ids[0]);
   expect(oldSnapshot.rejected.ok).toBe(false);expect(oldSnapshot.tasks).toEqual([]);
   const head=()=>execFileSync("git",["rev-parse","HEAD"],{cwd:f.seed,encoding:"utf8",windowsHide:true}).trim();const before=head();
   remoteProject="changed-after-list";await mapped.getByRole("button",{name:"更新代码并预分析",exact:true}).click();
   await expect.poll(async()=>page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value[0]?.error?.code:"failed";}),{timeout:20000}).toBe("ISSUE_PROJECT_UNMATCHED");
+  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value[0]?.projectId:null;})).toBe(ids[1]);
   expect(head()).toBe(before);expect(modelCalls).toBe(0);
   await page.evaluate(async base=>{const r=await window.platform.saveIssueConnection({kind:"trinity",platform:"trinity",name:"Replacement Trinity",baseUrl:base,username:"bob",bypassProxy:true},"fixture-password");if(!r.ok)throw new Error(r.error.message);},base);
   expect((await state()).every(p=>p.issueBindings.some(b=>b.platform==="trinity"&&b.owner==="uid-bob"))).toBe(true);

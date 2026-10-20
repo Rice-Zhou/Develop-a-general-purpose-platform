@@ -168,9 +168,9 @@ export class ServiceClient {
       { request },
       request.method === "refreshBugWorkspace"
         ? ISSUE_REFRESH_TIMEOUT_MS + 35000
-        : request.method === "checkIssueNotifications"
+        : request.method === "checkIssueNotifications" || request.method === "associateTrinityIssue"
           ? 35000
-          : request.method === "refreshIssues"
+          : request.method === "refreshIssues" || request.method === "getTrinityProjects"
         ? ISSUE_REFRESH_TIMEOUT_MS + 5000
         : request.method === "getJiraCatalogue" || request.method === "saveProject"
           ? JIRA_DISCOVERY_TIMEOUT_MS + 5000

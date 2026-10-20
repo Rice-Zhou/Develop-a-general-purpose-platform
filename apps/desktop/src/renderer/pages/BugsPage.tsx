@@ -9,6 +9,7 @@ import type {
 } from "../../../../../packages/contracts/src/issues";
 import { message, unwrap } from "../api";
 import { BugReportPage } from "./BugReportPage";
+import { TrinityIssueAssociationDialog } from "../components/TrinityIssueAssociationDialog";
 import { IssueMonitorSettings } from "../components/IssueMonitorSettings";
 import type { IssueListItem, IssueSourceState } from "../../../../../packages/contracts/src/issue-monitor";
 type Detail = Extract<
@@ -40,6 +41,8 @@ export function BugsPage({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [associating,setAssociating]=useState<IssueListItem|null>(null);
+  const [analysisTargets,setAnalysisTargets]=useState<Record<string,string>>({});
   const foreground = useRef(false);
   const project = projects.find((p) => p.id === projectId);
   const scope = JSON.stringify([
@@ -61,6 +64,7 @@ export function BugsPage({
   }, [projects, projectId]);
   useEffect(() => {
     setDetail(null);
+    setAnalysisTargets({});
     setKeys({});
     setError("");
     setNotice("");
@@ -114,9 +118,12 @@ export function BugsPage({
       ),
   );
   const busy = loading || active;
+  const targetIdFor=(issue:IssueListItem)=>analysisTargets[issue.id]||issue.analysisProjectId;
   const unavailableFor = (issue: IssueListItem): string => {
-    if(issue.analysisUnavailable)return issue.analysisUnavailable;
-    const target=projects.find(p=>p.id===(issue.analysisProjectId??projectId));
+    const selected=analysisTargets[issue.id];
+    if(selected&&!issue.analysisProjects?.some(p=>p.id===selected))return "所选代码项目的映射已变化，请重新选择。";
+    if(!selected&&issue.analysisUnavailable)return issue.analysisUnavailable;
+    const target=projects.find(p=>p.id===(targetIdFor(issue)??projectId));
     if(!target?.enabled)return "预分析不可用：匹配的代码项目已停用。";
     if(tasks.some(t=>t.projectId===target.id&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status)))return "预分析不可用：匹配项目有任务执行中，请等待完成或到任务历史取消。";
     if(loading)return "预分析不可用：正在读取或提交请求，请稍候。";
@@ -159,6 +166,7 @@ export function BugsPage({
     return <BugReportPage {...detail} onClose={() => setDetail(null)} />;
   return (
     <div className="workspace-stack">
+      {associating&&<TrinityIssueAssociationDialog issue={associating} projects={projects} onClose={()=>setAssociating(null)} onSaved={async saved=>{await onChanged();setAssociating(null);setProjectId(saved.id);setNotice(`已关联代码项目“${saved.name}”，可点击更新代码并预分析。`);}} />}
       <section className="panel work-panel">
         <div className="section-heading">
           <div>
@@ -259,7 +267,7 @@ export function BugsPage({
         {allRefreshed && issues.length === 0 && (
           <p className="muted">当前配置项目及负责人范围内无任何问题</p>
         )}
-        {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); return (
+        {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); const analysisProjectName=projects.find(p=>p.id===targetIdFor(issue))?.name; return (
           <article className="finding-card" key={issue.id}>
             <div className="section-heading">
               <h3>
@@ -272,7 +280,7 @@ export function BugsPage({
               <span className="tag">{issue.status}</span>
             </div>
             <p className="muted small">
-              Trinity / Jira 项目标识：{issue.remoteProjectId} · {issue.analysisProjectName ? `匹配代码项目：${issue.analysisProjectName} · ` : ""}{issue.ownerId} · 问题版本 {issue.versions.join("、") || "未提供"}{" "}
+              来源项目：{issue.remoteProjectName ? `${issue.remoteProjectName}（${issue.remoteProjectId}）` : issue.remoteProjectId} · {analysisProjectName ? `匹配代码项目：${analysisProjectName} · ` : ""}{issue.ownerId} · 问题版本 {issue.versions.join("、") || "未提供"}{" "}
               · 更新 {issue.updatedAt}
             </p>
             <p style={{ whiteSpace: "pre-wrap" }}>{issue.description}</p>
@@ -287,6 +295,12 @@ export function BugsPage({
                 ))}
               </ul>
             </details>
+            {issue.analysisProjects&&<div className="row-actions trinity-analysis-actions">
+              {issue.analysisProjects.length>1&&<label>预分析代码项目<select aria-label="预分析代码项目" value={targetIdFor(issue)??""} disabled={loading} onChange={e=>setAnalysisTargets(previous=>({...previous,[issue.id]:e.target.value}))}>
+                <option value="">请选择已关联的代码项目</option>{issue.analysisProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select></label>}
+              <button className="secondary" disabled={loading} onClick={()=>setAssociating(issue)}>关联代码项目</button>
+            </div>}
             <button
               className="primary"
               disabled={!!analysisUnavailable}
@@ -294,8 +308,8 @@ export function BugsPage({
               aria-describedby={analysisUnavailable ? `analysis-reason-${issue.id}` : undefined}
               onClick={() =>
                 void act(async () => {
-                  unwrap(await window.platform.analyzeBug(projectId, issue.id));
-                }, `预分析任务已加入代码项目“${issue.analysisProjectName??project?.name}”，将重新校验问题并更新代码。`)
+                  unwrap(await window.platform.analyzeBug(projectId, issue.id, targetIdFor(issue)));
+                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将重新校验问题并更新代码。`)
               }
             >
               更新代码并预分析

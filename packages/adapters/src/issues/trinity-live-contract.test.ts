@@ -61,3 +61,8 @@ it("still rejects transferred issues and missing real modification timestamps", 
   value = { ...detail, modifyTime: undefined };
   await expect(adapter.get(scope, "BUG-1", new AbortController().signal)).rejects.toMatchObject({ code: "ISSUE_REMOTE_FAILED" });
 });
+
+it("preserves the returned Trinity project name while keeping the real ID as identity",async()=>{
+ const adapter=new TrinityAdapter(async()=>"token",async url=>Response.json(String(url).endsWith("userinfo")?{code:200,data:{apiVersion:"v8",isGray:null}}:{code:200,data:{...detail,projectName:"E0V_26款_SCDC_8295_国际左舵"}}));
+ expect(await adapter.get(scope,"BUG-1",new AbortController().signal)).toMatchObject({remoteProjectId:"REMOTE",remoteProjectName:"E0V_26款_SCDC_8295_国际左舵"});
+});

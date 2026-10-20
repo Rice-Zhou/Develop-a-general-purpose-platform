@@ -64,6 +64,11 @@ async function dispatch(request: Request): Promise<unknown> {
     case "deleteDocumentResource": return store.deleteDocumentResource(request.params.id, request.params.expectedRevision);
     case "getDefaultAIProfile": return store.getDefaultAIProfile();
     case "setDefaultAIProfile": return store.setDefaultAIProfile(request.params.id);
+    case "associateTrinityIssue": {
+      const {projectId,issueSnapshotId,targetProjectId,expectedRevision}=request.params;
+      const mapping=await workbench.issues.mappingForIssue(projectId,issueSnapshotId,AbortSignal.timeout(30000));
+      return projects.associateTrinityProject(targetProjectId,expectedRevision,mapping);
+    }
     case "saveProjectLinks":
       await workbench.issues.validateBindingChanges(store.getProject(request.params.projectId).issueBindings, request.params.issueBindings, AbortSignal.timeout(JIRA_DISCOVERY_TIMEOUT_MS));
       return projects.saveLinks(request.params);

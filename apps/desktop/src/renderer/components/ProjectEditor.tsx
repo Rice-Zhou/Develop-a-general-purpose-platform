@@ -8,6 +8,7 @@ import type {
 import { message, unwrap } from "../api";
 import { RepositoryBranchField } from "./RepositoryBranchField";
 import { JiraProjectField } from "./JiraProjectField";
+import { TrinityProjectPicker } from "./TrinityProjectPicker";
 import { DocumentResourcePicker } from "./DocumentResourcePicker";
 export function ProjectEditor({
   project,
@@ -305,10 +306,7 @@ export function ProjectEditor({
               ＋ 添加 Jira 范围
             </button>
           </details>
-          {issueConnections.filter(c=>c.kind==="trinity").map(c=><div className="binding-form" key={c.id}><h3>Trinity 账号 · 自动关联</h3><p>{c.name} · {"username" in c?c.username:""}。此账号自动应用于所有代码项目。</p>
-            <label>Trinity 项目 ID（逗号分隔）<input value={(draft.trinityProjects??[]).filter(m=>m.instanceUrl===c.baseUrl).map(m=>m.projectId).join(",")} onChange={e=>setDraft({...draft,trinityProjects:[...(draft.trinityProjects??[]).filter(m=>m.instanceUrl!==c.baseUrl),...e.target.value.split(",").map(id=>id.trim()).filter(Boolean).map(projectId=>({instanceUrl:c.baseUrl,projectId}))]})}/></label>
-            <p className="muted small">填写与本代码项目对应的 Trinity 项目 ID，只在准确匹配时预分析；未匹配的问题仍展示。不填写时不进行本项目的 Trinity BUG 预分析。</p>
-          </div>)}
+          {issueConnections.filter(c=>c.kind==="trinity").map(c=><TrinityProjectPicker key={c.id} connection={c} mappings={draft.trinityProjects??[]} disabled={busy} onChange={trinityProjects=>setDraft(previous=>({...previous,trinityProjects}))} />)}
           {error && (
             <div className="error-panel" role="alert">
               {error}

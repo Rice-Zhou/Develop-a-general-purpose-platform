@@ -6,10 +6,12 @@ import {
   ProjectDraftSchema,
   ProjectDocumentsUpdateSchema,
   ProjectLinksUpdateSchema,
+  TrinityProjectMappingSchema,
   type ProjectDraft,
   type Project,
 } from "../../../contracts/src/models";
 import type { ProjectRepository } from "../ports";
+import { instanceUrl } from "../issues/scope-policy";
 
 export async function canonicalizeRepositoryPath(
   path: string,
@@ -45,6 +47,18 @@ export class ProjectService {
     const project = { ...previous, documents: update.documents, issueBindings: update.issueBindings, aiProfileId: update.aiProfileId, trinityProjects: update.trinityProjects ?? previous.trinityProjects, usesDefaultAI: false, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
     this.store.saveProject(project, update.expectedRevision);
     return this.store.getProject(project.id);
+  }
+  associateTrinityProject(projectId: string, expectedRevision: number, input: NonNullable<Project["trinityProjects"]>[number]): Project {
+    const parsed=TrinityProjectMappingSchema.parse(input);
+    const mapping={...parsed,instanceUrl:instanceUrl(parsed.instanceUrl)};
+    const previous=this.store.getProject(projectId);
+    if(!previous.enabled)throw new AppError("PROJECT_DISABLED","代码项目已停用，请启用后关联");
+    if(!previous.issueBindings.some(b=>b.platform==="trinity"&&b.scopeMode==="account"&&instanceUrl(b.instanceUrl)===mapping.instanceUrl))throw new AppError("ISSUE_OUT_OF_SCOPE","代码项目未关联此 Trinity 账号实例，请刷新后重试");
+    const mappings=previous.trinityProjects??[];
+    const trinityProjects=[...mappings.filter(m=>instanceUrl(m.instanceUrl)!==mapping.instanceUrl||m.projectId!==mapping.projectId),mapping];
+    if(trinityProjects.length>100)throw new AppError("TRINITY_MAPPING_LIMIT","每个代码项目最多关联 100 个 Trinity 项目");
+    this.store.saveProject({...previous,trinityProjects,revision:previous.revision+1,updatedAt:new Date().toISOString()},expectedRevision);
+    return this.store.getProject(projectId);
   }
   async save(input: ProjectDraft, expectedRevision?: number): Promise<Project> {
     const draft = ProjectDraftSchema.parse(input);

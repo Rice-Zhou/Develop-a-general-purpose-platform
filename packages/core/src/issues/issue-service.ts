@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { IssueAdapter } from "./ports";
-import { ScopePolicy, bindingFingerprint, fingerprint } from "./scope-policy";
+import { ScopePolicy, bindingFingerprint, fingerprint, instanceUrl } from "./scope-policy";
 import type { Project, Task } from "../../../contracts/src/models";
 import {
   IssueConnectionDraftSchema,
@@ -17,6 +17,7 @@ import {
 } from "../../../contracts/src/issues";
 import { AppError, errorData } from "../../../contracts/src/error";
 import type { IssueWorkspace } from "../../../contracts/src/issue-monitor";
+import { trinityAccountBinding } from "./bindings";
 import { issueWebUrl } from "./issue-link";
 interface IssueStore {
   getProject(id: string): Project;
@@ -72,6 +73,34 @@ export class IssueService {
     if (signal.aborted) throw new AppError("CANCELLED", "Jira 项目读取已取消");
     if (fingerprint(connection) !== fingerprint(this.connection(connectionId))) throw new AppError("PROJECT_CHANGED", "Jira 连接已变化，请重新读取项目");
     return result;
+  }
+  async trinityProjects(connectionId: string, signal: AbortSignal): Promise<NonNullable<Project["trinityProjects"]>> {
+    const connection=this.connection(connectionId);
+    if(connection.kind!=="trinity")throw new AppError("ISSUE_DISCOVERY_UNAVAILABLE","此入口仅支持 Trinity 项目");
+    const scope:IssueScope={projectId:"trinity-catalogue",enabled:true,connection,binding:trinityAccountBinding(connection)};
+    ScopePolicy.validate(scope);
+    const records=await this.adapter(connection).list(scope,signal);
+    if(signal.aborted)throw new AppError("CANCELLED","Trinity 项目读取已取消");
+    if(fingerprint(connection)!==fingerprint(this.connection(connectionId)))throw new AppError("PROJECT_CHANGED","Trinity 账号已变化，请重新读取项目");
+    const projects=new Map<string,NonNullable<Project["trinityProjects"]>[number]>();
+    for(const issue of records){
+      ScopePolicy.assert(scope,issue);
+      const previous=projects.get(issue.remoteProjectId);
+      projects.set(issue.remoteProjectId,{instanceUrl:instanceUrl(connection.baseUrl),projectId:issue.remoteProjectId,...(issue.remoteProjectName?{name:issue.remoteProjectName}:previous?.name?{name:previous.name}:{})});
+    }
+    return [...projects.values()].sort((a,b)=>(a.name??a.projectId).localeCompare(b.name??b.projectId)||a.projectId.localeCompare(b.projectId));
+  }
+  async mappingForIssue(projectId: string, issueSnapshotId: string, signal: AbortSignal): Promise<NonNullable<Project["trinityProjects"]>[number]> {
+    const issue=this.store.issues.get(projectId,issueSnapshotId);
+    const scope=this.scope(projectId,issue.bindingId);
+    if(scope.connection.kind!=="trinity"||scope.binding.scopeMode!=="account")throw new AppError("ISSUE_OUT_OF_SCOPE","只能关联当前 Trinity 账号的问题项目");
+    if(issue.scopeHash!==bindingFingerprint(scope))throw new AppError("PROJECT_CHANGED","Trinity 来源或账号已变化，请刷新问题列表");
+    ScopePolicy.assert(scope,issue);
+    const latest=await this.adapter(scope.connection).get(scope,issue.key,signal);
+    if(signal.aborted)throw new AppError("CANCELLED","Trinity 项目关联已取消");
+    this.assertCurrent(scope);ScopePolicy.assert(scope,latest);
+    if(latest.remoteProjectId!==issue.remoteProjectId)throw new AppError("ISSUE_CHANGED","问题所属 Trinity 项目已变化，请刷新后重新关联");
+    return {instanceUrl:instanceUrl(latest.instanceUrl),projectId:latest.remoteProjectId,...(latest.remoteProjectName?{name:latest.remoteProjectName}:{})};
   }
   async validateBindings(bindings: Project["issueBindings"], signal: AbortSignal): Promise<void> {
     for (const binding of bindings) {
@@ -234,25 +263,30 @@ export class IssueService {
         "BUG 范围或连接已变化，未保存本次读取",
       );
   }
-  analysisTarget(projectId: string, issue: RemoteIssue): { analysisProjectId?: string; analysisProjectName?: string; analysisUnavailable: string } {
+  analysisTarget(projectId: string, issue: RemoteIssue): { analysisProjectId?: string; analysisProjectName?: string; analysisUnavailable: string; analysisProjects?: {id:string;name:string}[] } {
     const current = this.store.getProject(projectId);
     const accountIssue = current.issueBindings.some(b => b.platform === "trinity" && b.scopeMode === "account" && b.instanceUrl === issue.instanceUrl);
     if (!accountIssue) return {analysisProjectId:projectId,analysisProjectName:current.name,analysisUnavailable:""};
     const candidates = this.store.listProjects().filter(p => p.enabled && p.trinityProjects?.some(m => m.projectId === issue.remoteProjectId && new URL(m.instanceUrl).href.replace(/\/$/, "") === new URL(issue.instanceUrl).href.replace(/\/$/, "")));
     const target = candidates.find(p => p.id === projectId) ?? (candidates.length === 1 ? candidates[0] : undefined);
-    if (!target) return {analysisUnavailable:candidates.length ? "当前问题匹配多个代码项目，请切换至其中一个匹配项目后预分析" : "当前问题与所有项目不匹配，无法进行预分析，请在代码项目配置 Trinity 项目映射"};
-    return {analysisProjectId:target.id,analysisProjectName:target.name,analysisUnavailable:""};
+    const analysisProjects=candidates.map(p=>({id:p.id,name:p.name}));
+    if (!target) return {analysisProjects,analysisUnavailable:candidates.length ? "当前问题匹配多个代码项目，请选择预分析代码项目" : "当前问题与所有项目不匹配，无法进行预分析，请在代码项目配置 Trinity 项目映射"};
+    return {analysisProjects,analysisProjectId:target.id,analysisProjectName:target.name,analysisUnavailable:""};
   }
   assertAnalysisProject(projectId: string, issue: RemoteIssue): void {
     const match = this.analysisTarget(projectId, issue);
     if (match.analysisProjectId !== projectId) throw new AppError("ISSUE_PROJECT_UNMATCHED", match.analysisUnavailable || "当前问题与当前代码项目不匹配，请选择匹配项目重新预分析");
   }
-  analysisInput(projectId: string, issueSnapshotId: string): { projectId: string; issueSnapshotId: string } {
+  analysisInput(projectId: string, issueSnapshotId: string, targetProjectId?: string): { projectId: string; issueSnapshotId: string } {
     const issue = this.store.issues.get(projectId, issueSnapshotId);
     const scope = this.scope(projectId, issue.bindingId);
     if (issue.scopeHash !== bindingFingerprint(scope)) throw new AppError("PROJECT_CHANGED", "BUG 来源或账号已变化，请刷新问题列表");
     ScopePolicy.assert(scope, issue); ScopePolicy.assertActiveStatus(scope, issue.status);
     const match = this.analysisTarget(projectId, issue);
+    if(targetProjectId){
+      if(targetProjectId!==match.analysisProjectId&&!match.analysisProjects?.some(p=>p.id===targetProjectId))throw new AppError("ISSUE_PROJECT_UNMATCHED","所选代码项目未关联此 Trinity 项目，请重新选择");
+      match.analysisProjectId=targetProjectId;
+    }
     if (!match.analysisProjectId) throw new AppError("ISSUE_PROJECT_UNMATCHED", match.analysisUnavailable);
     if (match.analysisProjectId === projectId) return {projectId,issueSnapshotId};
     const targetScope = this.scope(match.analysisProjectId, issue.bindingId);

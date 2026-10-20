@@ -7,7 +7,7 @@ import { trinityData } from "./trinity-session";
 
 const id = z.union([z.string().min(1), z.number()]).transform(String);
 const text = z.string().max(200000).nullable();
-const common = z.object({ id, bugId: z.string().min(1), projectId: id, assigneeId: id, title: z.string(), status: id, workitemId: id.optional() });
+const common = z.object({ id, bugId: z.string().min(1), projectId: id, projectName: z.string().trim().max(2048).nullish(), assigneeId: id, title: z.string(), status: id, workitemId: id.optional() });
 const structured = common.extend({ condition: text, activities: text, expectedResult: text, actualResult: text, causeAnalysis: text.optional(), solvedScheme: text.optional(), modifyTime: z.string().min(1) });
 const legacy = common.extend({ description: text, updateTime: z.string().min(1) });
 
@@ -37,7 +37,7 @@ export function normalizeTrinity(scope: IssueScope, key: string, raw: unknown): 
   ].map(([label, html]) => { const content = plainText(html); return content ? `${label}：\n${content}` : ""; }).filter(Boolean).join("\n\n") : value.description ?? "";
   const result = RemoteIssueSchema.safeParse({
     remoteId: value.id, ...(value.workitemId === undefined ? {} : { workitemId: value.workitemId }), key: value.bugId,
-    instanceUrl: instanceUrl(scope.connection.baseUrl), remoteProjectId: value.projectId, ownerId: value.assigneeId, typeId: "BUG", title: value.title,
+    instanceUrl: instanceUrl(scope.connection.baseUrl), remoteProjectId: value.projectId, ...(value.projectName?{remoteProjectName:value.projectName}:{}), ownerId: value.assigneeId, typeId: "BUG", title: value.title,
     description, status: value.status, updatedAt: "modifyTime" in value ? value.modifyTime : value.updateTime,
     versions: [], comments: [], attachments: [], warnings: ["Trinity 评论、附件及问题版本字段尚无已验证契约，未读取；仅依据详情文本预分析"],
   });

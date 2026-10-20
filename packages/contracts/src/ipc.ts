@@ -31,6 +31,8 @@ const request = z.discriminatedUnion("method", [
   z.object({ method: z.literal("saveIssueMonitor"), params: z.object({ configuration: IssueMonitorConfigurationSchema }).strict() }).strict(),
   z.object({method:z.literal("searchNotificationRecipients"),params:z.object({query:RecipientQuerySchema}).strict()}).strict(),
   z.object({method:z.literal("saveNotificationRecipient"),params:z.object({openId:NotificationOpenIdSchema}).strict()}).strict(),
+  z.object({method:z.literal("getTrinityProjects"),params:z.object({connectionId:id}).strict()}).strict(),
+  z.object({method:z.literal("associateTrinityIssue"),params:z.object({projectId:id,issueSnapshotId:id,targetProjectId:id,expectedRevision:z.number().int().positive()}).strict()}).strict(),
   z.object({ method: z.literal("getJiraCatalogue"), params: z.object({ connectionId: id }).strict() }).strict(),
   z
     .object({
@@ -106,7 +108,7 @@ const request = z.discriminatedUnion("method", [
   z
     .object({
       method: z.literal("analyzeBug"),
-      params: z.object({ projectId: id, issueSnapshotId: id }).strict(),
+      params: z.object({ projectId: id, issueSnapshotId: id, targetProjectId: id.optional() }).strict(),
     })
     .strict(),
   ...(["getBugReport", "exportBugReport"] as const).map((method) =>

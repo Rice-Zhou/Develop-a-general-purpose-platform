@@ -54,7 +54,7 @@ export const IssueBindingSchema = z
     issueTypeIds: z.array(z.string().min(1).max(200)).min(1).max(50).optional(),
   })
   .strict();
-export const TrinityProjectMappingSchema = z.object({ instanceUrl: z.url(), projectId: text }).strict();
+export const TrinityProjectMappingSchema = z.object({ instanceUrl: z.url(), projectId: text, name: text.optional() }).strict();
 export const ProjectDraftSchema = z
   .object({
     id: z.uuid().optional(),
@@ -203,6 +203,8 @@ export interface AppInfo {
 }
 export interface DesktopAPI {
   discoverJiraConnection(draft: IssueConnectionDraft, secret?: string): Promise<Result<import("./issues").JiraCatalogue>>;
+  getTrinityProjects(connectionId: string): Promise<Result<NonNullable<Project["trinityProjects"]>>>;
+  associateTrinityIssue(input: {projectId:string;issueSnapshotId:string;targetProjectId:string;expectedRevision:number}): Promise<Result<Project>>;
   getJiraCatalogue(connectionId: string): Promise<Result<import("./issues").JiraCatalogue>>;
   getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
   inspectLocalJira(): Promise<
@@ -236,7 +238,7 @@ export interface DesktopAPI {
     bindingId: string,
     key: string,
   ): Promise<Result<IssueSnapshot[]>>;
-  analyzeBug(projectId: string, issueSnapshotId: string): Promise<Result<Task>>;
+  analyzeBug(projectId: string, issueSnapshotId: string, targetProjectId?: string): Promise<Result<Task>>;
   getBugReport(
     projectId: string,
     reportId: string,
