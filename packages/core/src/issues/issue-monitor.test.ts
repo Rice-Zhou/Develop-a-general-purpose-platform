@@ -48,7 +48,8 @@ it("polls at the configured interval and does not notify first-baseline or uncha
   }, () => now);
   await monitor.tick();
   expect(sent).toEqual([]);
-  f.rows.get("j")!.push(f.remote(f.connections[0], 2));
+  f.rows.get("j")!.push({ ...f.remote(f.connections[0], 2), status: "待处理" });
+  f.rows.get("j")!.push({ ...f.remote(f.connections[0], 3), status: "完成" });
   now = 4 * 60000;
   await monitor.tick();
   expect(sent).toEqual([]);

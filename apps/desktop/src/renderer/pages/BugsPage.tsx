@@ -182,7 +182,7 @@ export function BugsPage({
         <p className="muted">
           只读操作，始终限制项目与负责人。分析前重新读取
           BUG、安全更新配置分支并固定代码。所有已配置来源统一读取和展示。
-          Jira 仅索引修复中、分析中、分配中的问题。
+          Jira 展示除完成状态外的所有问题。
         </p>
         {error && (
           <div className="error-panel" role="alert">

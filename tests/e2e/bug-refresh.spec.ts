@@ -45,7 +45,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
                 issuetype: { id: "1" },
                 summary: project + " scoped bug",
                 description: "fixture",
-                status: { name: "分析中" },
+                status: { name: "待处理" },
                 updated: "2026-10-19",
                 versions: [],
                 comment: { total: 0, comments: [] },
@@ -53,7 +53,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
               },
             },
           ];
-    if (issues.length) issues.push({ ...issues[0], id: "completed", key: project + "-2", fields: { ...issues[0].fields, status: { name: "已完成" } } });
+    if (issues.length) issues.push({ ...issues[0], id: "completed", key: project + "-2", fields: { ...issues[0].fields, status: { name: "完成" } } });
     res.end(JSON.stringify({ startAt: 0, total: issues.length, issues }));
   });
   server.listen(0, "127.0.0.1");

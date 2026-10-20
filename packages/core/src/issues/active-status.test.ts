@@ -7,7 +7,7 @@ import type {
 } from "../../../contracts/src/issues";
 import type { Project, Task } from "../../../contracts/src/models";
 
-it("indexes only the three requested Jira statuses and rejects completed single reads and analysis", async () => {
+it("indexes every non-completed Jira status and rejects completed single reads and analysis", async () => {
   const connection: IssueConnection = {
     id: "c", kind: "jira-cli", platform: "jira-dc", name: "Jira",
     baseUrl: "https://jira.example", executable: "D:/jira.exe",
@@ -27,7 +27,7 @@ it("indexes only the three requested Jira statuses and rejects completed single 
     description: "fixture", status, updatedAt: "now", versions: [],
     comments: [], attachments: [], warnings: [],
   });
-  const records = ["修复中", "分析中", "分配中", "已完成", "已关闭"].map(issue);
+  const records = ["待处理", "测试中", "已关闭", "修复中", "完成", "已完成"].map(issue);
   let listed = records;
   let current = records[0];
   let batch: IssueSnapshot[] = [];
@@ -49,16 +49,16 @@ it("indexes only the three requested Jira statuses and rejects completed single 
   }, () => ({ list: async () => listed, get: async () => current }));
   const signal = new AbortController().signal;
   const indexed = await service.refresh("p", "b", undefined, signal);
-  expect(indexed.map((i) => i.status)).toEqual(["修复中", "分析中", "分配中"]);
+  expect(indexed.map((i) => i.status)).toEqual(["待处理", "测试中", "已关闭", "修复中"]);
   // Simulate an existing cache from the previous release.
   batch.push({ ...indexed[0], id: "old-completed", status: "已完成" });
-  expect(service.workspace("p").issues.map((i) => i.status)).toEqual(["修复中", "分析中", "分配中"]);
+  expect(service.workspace("p").issues.map((i) => i.status)).toEqual(["待处理", "测试中", "已关闭", "修复中"]);
   current = { ...records[0], status: "已完成" };
   await expect(service.refresh("p", "b", current.key, signal)).rejects.toMatchObject({ code: "ISSUE_STATUS_INACTIVE" });
   await expect(service.prepare({ projectId: "p", issueSnapshotId: indexed[0].id } as Task, signal)).rejects.toMatchObject({ code: "ISSUE_STATUS_INACTIVE" });
   await expect(service.validateFresh(indexed[0], signal)).rejects.toMatchObject({ code: "ISSUE_STATUS_INACTIVE" });
   expect(publications).toBe(1);
-  listed = records.slice(3);
+  listed = records.slice(4);
   expect(await service.refresh("p", "b", undefined, signal)).toEqual([]);
   expect(service.workspace("p").issues).toEqual([]);
   expect(publications).toBe(2);
