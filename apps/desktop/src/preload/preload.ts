@@ -3,6 +3,13 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
+  getUpdateStatus:()=>invoke("getUpdateStatus"),
+  checkForUpdates:()=>invoke("checkForUpdates"),
+  takeStartupUpdatePrompt:()=>invoke("takeStartupUpdatePrompt"),
+  downloadUpdate:offerId=>invoke("downloadUpdate",{offerId}),
+  cancelUpdateDownload:()=>invoke("cancelUpdateDownload"),
+  installUpdate:offerId=>invoke("installUpdate",{offerId}),
+  restartAfterUpdateFailure:()=>invoke("restartAfterUpdateFailure"),
   getBugReportForTask:(projectId,taskId)=>invoke("getBugReportForTask",{projectId,taskId}),
   discoverJiraConnection:(draft,secret)=>invoke("discoverJiraConnection",{draft,secret}),
   getDocumentResources: () => invoke("getDocumentResources"),

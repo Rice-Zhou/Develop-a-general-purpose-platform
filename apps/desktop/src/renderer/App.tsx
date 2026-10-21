@@ -1,3 +1,6 @@
+import {ClientUpdateDialog} from "./components/ClientUpdateDialog";
+import {ClientUpdateSettings} from "./components/ClientUpdateSettings";
+import type {UpdateStatus} from "../../../../packages/contracts/src/updates";
 import {BugReportPage} from "./pages/BugReportPage";
 import type {BugReportView,BugReportSummary} from "../../../../packages/contracts/src/issues";
 import {DeleteTaskButton} from "./components/DeleteTaskButton";
@@ -57,6 +60,18 @@ export function App() {
     try{const view=unwrap(await window.platform.getBugReport(projectId,reportId));setBugReport(previous=>({view,versions,scroll:previous?.scroll??window.scrollY,returnLabel:previous?.returnLabel??(page==="bugs"?"BUG 工作台":"任务历史")}));window.scrollTo(0,0);}catch(e){setError(message(e));}
   }
   const [page, setPage] = useState<Page>("overview");
+  const [updateStatus,setUpdateStatus]=useState<UpdateStatus|null>(null);
+  const [showUpdate,setShowUpdate]=useState(false);
+  useEffect(()=>{let live=true,reading=false;const read=async()=>{if(reading)return;reading=true;try{const status=unwrap(await window.platform.getUpdateStatus());if(!live)return;setUpdateStatus(status);if(status.startupPromptPending){const offer=unwrap(await window.platform.takeStartupUpdatePrompt());if(live&&offer)setShowUpdate(true);}}catch(e){if(live)setError(message(e));}finally{reading=false;}};void read();const timer=setInterval(()=>void read(),1000);return()=>{live=false;clearInterval(timer);};},[]);
+  async function updateAction(action:"check"|"download"|"cancel"|"install"|"restart"){
+    try{if(action==="check")setUpdateStatus(unwrap(await window.platform.checkForUpdates()));
+    else if(action==="download"&&updateStatus?.offer)setUpdateStatus(unwrap(await window.platform.downloadUpdate(updateStatus.offer.id)));
+    else if(action==="cancel")unwrap(await window.platform.cancelUpdateDownload());
+    else if(action==="install"&&updateStatus?.offer)unwrap(await window.platform.installUpdate(updateStatus.offer.id));
+    else if(action==="restart")unwrap(await window.platform.restartAfterUpdateFailure());
+    }catch(e){setError(message(e));}finally{try{setUpdateStatus(unwrap(await window.platform.getUpdateStatus()));}catch(e){setError(message(e));}}
+  }
+  const updateProps=updateStatus?{status:updateStatus,onAction:(action:Parameters<typeof updateAction>[0])=>void updateAction(action),onViewTasks:()=>{setShowUpdate(false);setBugReport(null);setPage("tasks");setIssueFilter("");setProjectFilter("");}}:null;
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [conflictTaskId, setConflictTaskId] = useState<string | null>(null);
@@ -618,6 +633,7 @@ export function App() {
           )}
           {page === "settings" && (
             <>
+              {updateProps&&<ClientUpdateSettings {...updateProps}/>}
               <IssueConnectionsPage onLink={connection => { setAssociationProjectId(""); setAssociation({ source: "bug", connection }); }} />
               <div id="ai-connections-settings" tabIndex={-1}>
                 <ConnectionsPage
@@ -759,6 +775,7 @@ export function App() {
           </section>
         </div>
       )}
+      {showUpdate&&updateProps&&<ClientUpdateDialog {...updateProps} onClose={()=>setShowUpdate(false)}/>}
       {association && <div className="modal-backdrop"><section className="editor modal" role="dialog" aria-modal="true" aria-labelledby="resource-association-title">
         <h2 id="resource-association-title">选择关联项目</h2>
         <label>代码项目<select value={associationProjectId} onChange={e => setAssociationProjectId(e.target.value)}><option value="">请选择代码项目</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>

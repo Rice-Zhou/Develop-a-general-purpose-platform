@@ -224,6 +224,13 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  getUpdateStatus():Promise<Result<import("./updates").UpdateStatus>>;
+  checkForUpdates():Promise<Result<import("./updates").UpdateStatus>>;
+  takeStartupUpdatePrompt():Promise<Result<import("./updates").UpdateOffer|null>>;
+  downloadUpdate(offerId:string):Promise<Result<import("./updates").UpdateStatus>>;
+  cancelUpdateDownload():Promise<Result<null>>;
+  installUpdate(offerId:string):Promise<Result<null>>;
+  restartAfterUpdateFailure():Promise<Result<null>>;
   discoverJiraConnection(draft: IssueConnectionDraft, secret?: string): Promise<Result<import("./issues").JiraCatalogue>>;
   getTrinityProjects(connectionId: string): Promise<Result<NonNullable<Project["trinityProjects"]>>>;
   associateTrinityIssue(input: {projectId:string;issueSnapshotId:string;targetProjectId:string;expectedRevision:number}): Promise<Result<Project>>;

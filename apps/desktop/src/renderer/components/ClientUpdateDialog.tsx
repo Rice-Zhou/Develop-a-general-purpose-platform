@@ -1,0 +1,2 @@
+import {ClientUpdateControls} from "./ClientUpdateSettings";
+export function ClientUpdateDialog({onClose,...props}:Parameters<typeof ClientUpdateControls>[0]&{onClose:()=>void}){return <div className="modal-backdrop"><section className="editor modal" role="dialog" aria-modal="true" aria-labelledby="client-update-title"><h2 id="client-update-title">客户端有新版本</h2><ClientUpdateControls {...props}/><button className="text-button" onClick={onClose}>暂不更新</button></section></div>;}

@@ -20,6 +20,8 @@ const binding = z
   .strict();
 const request = z.discriminatedUnion("method", [
   z.object({method:z.literal("getBugReportForTask"),params:z.object({projectId:id,taskId:id}).strict()}).strict(),
+  ...(["getUpdateStatus","checkForUpdates","takeStartupUpdatePrompt","cancelUpdateDownload","restartAfterUpdateFailure"] as const).map(method=>z.object({method:z.literal(method),params:empty}).strict()),
+  ...(["downloadUpdate","installUpdate"] as const).map(method=>z.object({method:z.literal(method),params:z.object({offerId:z.string().min(1).max(200)}).strict()}).strict()),
   z.object({method:z.literal("discoverCodex"),params:z.object({proxyUrl:AIProxyUrlSchema.optional()}).strict()}).strict(),
   z.object({method:z.literal("discoverJiraConnection"),params:z.object({draft:IssueConnectionDraftSchema,secret:z.string().max(10000).optional()}).strict().refine(p=>p.draft.kind!=="trinity","此入口仅支持 Jira")}).strict(),
   z.object({ method: z.literal("saveProjectLinks"), params: ProjectLinksUpdateSchema }).strict(),

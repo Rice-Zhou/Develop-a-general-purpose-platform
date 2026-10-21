@@ -1,3 +1,8 @@
+import {UpdateService} from "./update-service";
+import {updateSource} from "./update-source";
+import {downloadVerified} from "../../../../packages/adapters/src/updates/update-download";
+import {InstallerHandoff,installationMode,installVerifiedUpdate} from "./update-install";
+import {verifyInstaller,readHandoffResult,type InstallRequest} from "./update-helper";
 import {
   app,
   BrowserWindow,
@@ -67,6 +72,10 @@ else {
           return result.value;
         },
       });
+      const cacheRoot=join(app.getPath("userData"),"updates");
+      const source=updateSource(process.env);
+      const updates=new UpdateService(app.getVersion(),source.provider,(offer,root,signal,progress)=>downloadVerified(offer,root,signal,progress,source.transport),cacheRoot,installationMode(process.execPath,app.isPackaged));
+      const previousUpdate=await readHandoffResult(join(cacheRoot,"handoff-result.json"),app.getVersion());
       let startup:Promise<void>=Promise.resolve();
       let startupError:unknown;
       window = new BrowserWindow({
@@ -108,6 +117,22 @@ else {
             event.senderFrame === window!.webContents.mainFrame,
           );
           const request = parseRequest(input);
+          if(request.method==="getUpdateStatus")return {ok:true,value:updates.getStatus()};
+          if(request.method==="checkForUpdates")return {ok:true,value:await updates.check("manual")};
+          if(request.method==="takeStartupUpdatePrompt")return {ok:true,value:updates.takeStartupPrompt()};
+          if(request.method==="downloadUpdate")return {ok:true,value:await updates.download(request.params.offerId)};
+          if(request.method==="cancelUpdateDownload"){updates.cancelDownload();return {ok:true,value:null};}
+          if(request.method==="restartAfterUpdateFailure"){
+            if(!updates.getStatus().restartRequired)throw new AppError("UPDATE_RESTART_DENIED","当前无需恢复更新后台");app.relaunch();mayExit=true;tray?.destroy();app.exit(0);return {ok:true,value:null};
+          }
+          if(request.method==="installUpdate"){
+            if(process.env.PLATFORM_E2E==="1")throw new AppError("UPDATE_E2E_INSTALL_DISABLED","隔离桌面测试不执行真实安装");
+            await updates.install(request.params.offerId,async(offer,verified)=>{
+              const handoff:InstallRequest={offerId:offer.id,targetVersion:offer.version,cacheRoot,installerPath:verified.path,expectedSize:verified.size,expectedSha256:verified.sha256,parentPid:process.pid,previousClientPath:process.execPath,resultPath:join(cacheRoot,"handoff-result.json")};
+              const control=async()=>{const result=await service.control("freeze-for-update",{});if(!result.ok)throw new AppError(result.error.code,result.error.message);};
+              await installVerifiedUpdate(offer,verified,{verify:()=>verifyInstaller(handoff),freeze:control,stop:()=>service.stop(),prepare:()=>new InstallerHandoff(process.execPath,app.isPackaged?join(process.resourcesPath,"update-helper.cjs"):join(__dirname,"update-helper.cjs")).prepare(handoff),markRestartRequired:()=>updates.markRestartRequired(),quit:()=>{mayExit=true;exiting=true;tray?.destroy();app.quit();}});
+            });return {ok:true,value:null};
+          }
           if(request.method === "getTrinityLoginStatus")return {ok:true,value:trinity.status()};
           await startup;
           if(startupError)throw startupError;
@@ -319,6 +344,7 @@ else {
           window?.hide();
         }
       });
+      if(process.env.PLATFORM_E2E!=="1"||process.env.PLATFORM_UPDATE_E2E_URL)void updates.check("startup");
       startup=(async()=>{await trinity.startup();await service.startIssueMonitor();})().catch(error=>{startupError=error;});
       if (MAIN_WINDOW_VITE_DEV_SERVER_URL)
         await window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -326,6 +352,7 @@ else {
         await window.loadFile(
           join(__dirname, "../renderer/main_window/index.html"),
         );
+      if(previousUpdate)void dialog.showMessageBox(window!,{type:previousUpdate.success?"info":"warning",title:"客户端更新",message:previousUpdate.message});
     })
     .catch((error) => {
       dialog.showErrorBox(
