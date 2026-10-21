@@ -106,7 +106,8 @@ async function migrateLibraryDatabase(db:Database.Database,path:string,backupDir
  const resources=row?JSON.parse(row.json):[];
  const insert=db.prepare("INSERT INTO library_resources VALUES(?,?)");
  for(const r of resources)insert.run(r.id,JSON.stringify({...r,categoryId:null,purpose:"requirement",notes:"",contentRevision:1}));
- for(const row of db.prepare("SELECT id,json FROM projects").all() as {id:string;json:string}[]){
+ // Deleted projects retain their historical JSON; they must not recreate live resource links.
+ for(const row of db.prepare("SELECT id,json FROM projects WHERE json_extract(json,'$.deletedAt') IS NULL").all() as {id:string;json:string}[]){
  const p=JSON.parse(row.json);for(const ref of p.documentRefs??[])db.prepare("INSERT INTO project_resource_links VALUES(?,?,?,?)").run(row.id,ref.id,"requirement",Number(ref.required));delete p.documentRefs;p.documents=[];db.prepare("UPDATE projects SET json=? WHERE id=?").run(JSON.stringify(p),row.id);}
  db.prepare("DELETE FROM settings WHERE key='document-resources'").run();db.pragma("user_version=11");
  })();

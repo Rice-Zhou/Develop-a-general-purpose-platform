@@ -214,6 +214,18 @@ it("backs up actual v10 resources and rolls back invalid links atomically",async
  store=await DataStore.open(path);expect(store.getLibrary().resources).toHaveLength(1);store.close();
 });
 
+it("migrates v10 without reviving deleted projects' dangling document links",async()=>{
+ const root=await mkdtemp(join(tmpdir(),"v10-deleted-links-"));roots.push(root);const path=join(root,"app.db");
+ const initial=await DataStore.open(path);initial.close();const old=new Database(path);
+ old.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories; PRAGMA user_version=10;");
+ const deleted={id:"deleted",name:"Old",revision:1,deletedAt:"2026-10-20",documents:[],documentRefs:[{id:"removed-doc",required:true}],issueBindings:[],aiProfileId:null};
+ const active={id:"active",name:"Current",revision:1,documents:[],documentRefs:[],issueBindings:[],aiProfileId:null};
+ for(const p of [deleted,active])old.prepare("INSERT INTO projects VALUES(?,1,?)").run(p.id,JSON.stringify(p));
+ old.close();const store=await DataStore.open(path);
+ try{expect(store.listProjects().map(p=>p.id)).toEqual(["active"]);expect(store.getLibrary().resources).toEqual([]);}finally{store.close();}
+ const check=new Database(path);try{expect(check.pragma("user_version",{simple:true})).toBe(13);expect(check.prepare("SELECT json FROM projects WHERE id='deleted'").get()).toEqual({json:JSON.stringify(deleted)});expect(check.prepare("SELECT count(*) AS n FROM project_resource_links").get()).toEqual({n:0});}finally{check.close();}
+});
+
 it("backs up v12 before adding decision evidence without inventing a legacy basis",async()=>{
  const f=await legacy();const store=await DataStore.open(f.path);store.close();const db=new Database(f.path);
  try{
