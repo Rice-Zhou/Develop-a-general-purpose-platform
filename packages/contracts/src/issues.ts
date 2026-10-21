@@ -180,3 +180,7 @@ export function publicIssueConnection(connection:IssueConnection):PublicIssueCon
   void passwordRef;
   return {...value,hasCredential:!!credentialRef};
 }
+
+export interface IssueReportIdentity {analysisProjectId:string;connectionId:string;remoteId:string}
+export interface BugReportSummary extends IssueReportIdentity {reportId:string;taskId:string;createdAt:string}
+export interface BugReportView {report:BugReport;issue:IssueSnapshot;context:import("./models").ContextSnapshot}

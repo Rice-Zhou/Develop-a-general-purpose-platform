@@ -245,7 +245,7 @@ export interface DesktopAPI {
   ): Promise<Result<ExecutorDiagnostic>>;
   getBugWorkspace(
     projectId: string,
-  ): Promise<Result<IssueWorkspace & { reports: BugReport[] }>>;
+  ): Promise<Result<Omit<IssueWorkspace,"issues"> & {issues:import("./issue-monitor").BugWorkspaceIssue[]; reports: BugReport[]}>>;
   refreshBugWorkspace(projectId: string): Promise<Result<IssueWorkspace>>;
   getIssueMonitor(): Promise<Result<IssueMonitorStatus>>;
   saveIssueMonitor(configuration: IssueMonitorConfiguration): Promise<Result<IssueMonitorStatus>>;
@@ -275,6 +275,7 @@ export interface DesktopAPI {
       context: ContextSnapshot;
     }>
   >;
+  getBugReportForTask(projectId:string,taskId:string):Promise<Result<import("./issues").BugReportView>>;
   exportBugReport(
     projectId: string,
     reportId: string,

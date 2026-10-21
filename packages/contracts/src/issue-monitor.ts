@@ -52,3 +52,5 @@ export interface IssueMonitorStatus {
   runtimeError: ErrorData | null;
   running: boolean;
 }
+
+export type BugWorkspaceIssue = IssueListItem & {reportSummaries:import("./issues").BugReportSummary[]};

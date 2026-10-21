@@ -19,6 +19,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({method:z.literal("getBugReportForTask"),params:z.object({projectId:id,taskId:id}).strict()}).strict(),
   z.object({method:z.literal("discoverCodex"),params:z.object({proxyUrl:AIProxyUrlSchema.optional()}).strict()}).strict(),
   z.object({method:z.literal("discoverJiraConnection"),params:z.object({draft:IssueConnectionDraftSchema,secret:z.string().max(10000).optional()}).strict().refine(p=>p.draft.kind!=="trinity","此入口仅支持 Jira")}).strict(),
   z.object({ method: z.literal("saveProjectLinks"), params: ProjectLinksUpdateSchema }).strict(),

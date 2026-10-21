@@ -5,6 +5,8 @@ import {
   BugReportSchema,
   type IssueSnapshot,
   type BugReport,
+  type IssueReportIdentity,
+  type BugReportSummary,
 } from "../../contracts/src/issues";
 export class IssueRepository {
   constructor(private readonly db: Database.Database) {}
@@ -79,6 +81,23 @@ export class IssueRepository {
     this.db
       .prepare("INSERT INTO bug_reports VALUES(?,?,?,?)")
       .run(value.id, value.projectId, value.taskId, JSON.stringify(value));
+  }
+  reportSummariesForIssues(identities:IssueReportIdentity[]):BugReportSummary[] {
+    if(!identities.length)return [];
+    const rows=this.db.prepare(`SELECT r.id reportId,r.task_id taskId,r.project_id analysisProjectId,
+      json_extract(i.json,'$.connectionId') connectionId,i.remote_id remoteId,
+      json_extract(r.json,'$.createdAt') createdAt FROM bug_reports r
+      JOIN issue_snapshots i ON i.id=json_extract(r.json,'$.issueSnapshotId') AND i.project_id=r.project_id
+      WHERE EXISTS(SELECT 1 FROM json_each(?) q WHERE json_extract(q.value,'$.analysisProjectId')=r.project_id
+        AND json_extract(q.value,'$.connectionId')=json_extract(i.json,'$.connectionId')
+        AND json_extract(q.value,'$.remoteId')=i.remote_id)
+      ORDER BY createdAt DESC,r.rowid DESC`).all(JSON.stringify(identities));
+    return rows as BugReportSummary[];
+  }
+  reportForTask(projectId:string,taskId:string):BugReport {
+    const row=this.db.prepare("SELECT json FROM bug_reports WHERE project_id=? AND task_id=? ORDER BY rowid DESC LIMIT 1").get(projectId,taskId) as {json:string}|undefined;
+    if(!row)throw new AppError("REPORT_NOT_FOUND","该任务尚无成功分析报告");
+    return BugReportSchema.parse(JSON.parse(row.json));
   }
   reports(projectId: string): BugReport[] {
     return (

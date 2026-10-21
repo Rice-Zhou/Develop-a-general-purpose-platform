@@ -156,6 +156,13 @@ export class Workbench implements TaskRuntime {
   private withLogs(workspace:import("../../../../packages/contracts/src/issue-monitor").IssueWorkspace) {
     return {...workspace,issues:workspace.issues.map(issue=>({...issue,logs:this.store.materials.latest(logScope(this.issues.scope(issue.projectId,issue.bindingId),issue))??undefined}))};
   }
+  private bugWorkspace(projectId:string) {
+    const workspace=this.withLogs(this.monitor.workspace(projectId));
+    const targetsFor=(issue:import("../../../../packages/contracts/src/issue-monitor").IssueListItem)=>issue.analysisProjects??(issue.analysisProjectId?[{id:issue.analysisProjectId}]:[]);
+    const identities=workspace.issues.flatMap(issue=>targetsFor(issue).map(target=>({analysisProjectId:target.id,connectionId:issue.connectionId,remoteId:issue.remoteId})));
+    const summaries=this.store.issues.reportSummariesForIssues(identities);
+    return {...workspace,issues:workspace.issues.map(issue=>({...issue,reportSummaries:summaries.filter(summary=>summary.connectionId===issue.connectionId&&summary.remoteId===issue.remoteId&&targetsFor(issue).some(target=>target.id===summary.analysisProjectId))})),reports:this.store.issues.reports(projectId)};
+  }
   reader(projectId: string, contextId: string): ContextReader {
     const context = this.store.getContext(contextId);
     if (context.projectId !== projectId)
@@ -472,10 +479,7 @@ export class Workbench implements TaskRuntime {
       case "getIssueConnections":
         return this.issues.publicConnections();
       case "getBugWorkspace":
-        return {
-          ...this.withLogs(this.monitor.workspace(request.params.projectId)),
-          reports: this.store.issues.reports(request.params.projectId),
-        };
+        return this.bugWorkspace(request.params.projectId);
       case "refreshBugWorkspace":
         return this.withLogs(await this.monitor.refreshProject(request.params.projectId));
       case "getIssueMonitor":
@@ -543,6 +547,10 @@ export class Workbench implements TaskRuntime {
         const input = this.issues.analysisInput(request.params.projectId, request.params.issueSnapshotId, request.params.targetProjectId);
         const issue=this.store.issues.get(input.projectId,input.issueSnapshotId);
         return tasks.enqueue(input.projectId, "ANALYZE_BUG", 1, undefined, input.issueSnapshotId,request.params.options,{key:issue.key,identity:`${issue.bindingId}:${issue.remoteId}`});
+      }
+      case "getBugReportForTask": {
+        const report=this.store.issues.reportForTask(request.params.projectId,request.params.taskId);
+        return {report,issue:this.store.issues.get(report.projectId,report.issueSnapshotId),context:this.store.getContext(report.contextSnapshotId)};
       }
       case "getBugReport": {
         const { projectId, reportId } = request.params;
