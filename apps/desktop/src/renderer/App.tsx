@@ -1,3 +1,5 @@
+import {BugReportPage} from "./pages/BugReportPage";
+import type {BugReportView,BugReportSummary} from "../../../../packages/contracts/src/issues";
 import {DeleteTaskButton} from "./components/DeleteTaskButton";
 import { useCallback, useEffect, useState } from "react";
 import type {
@@ -50,6 +52,10 @@ const nav: { id: Page; label: string; icon: string }[] = [
   { id: "settings", label: "设置", icon: "⚙" },
 ];
 export function App() {
+  const [bugReport,setBugReport]=useState<{view:BugReportView;versions:BugReportSummary[];scroll:number;returnLabel:string}|null>(null);
+  async function openBugReport(projectId:string,reportId:string,versions:BugReportSummary[]){
+    try{const view=unwrap(await window.platform.getBugReport(projectId,reportId));setBugReport(previous=>({view,versions,scroll:previous?.scroll??window.scrollY,returnLabel:previous?.returnLabel??(page==="bugs"?"BUG 工作台":"任务历史")}));window.scrollTo(0,0);}catch(e){setError(message(e));}
+  }
   const [page, setPage] = useState<Page>("overview");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -214,6 +220,7 @@ export function App() {
                     >
                       查看详情
                     </button>
+                    {task.kind==="ANALYZE_BUG"&&task.status==="SUCCEEDED"&&<button className="text-button" onClick={()=>void act(async()=>{const view=unwrap(await window.platform.getBugReportForTask(task.projectId,task.id));setBugReport({view,versions:[],scroll:window.scrollY,returnLabel:"任务历史"});window.scrollTo(0,0);})}>打开分析报告</button>}
                     {["QUEUED", "PREPARING", "RUNNING", "VALIDATING"].includes(
                       task.status,
                     ) && (
@@ -275,7 +282,7 @@ export function App() {
             <button
               aria-label={item.label}
               className={`nav-item ${page === item.id || (item.id==="tasks"&&page==="task-history") ? "active" : ""}`}
-              onClick={() => {setPage(item.id);if(item.id==="tasks"){setIssueFilter("");setProjectFilter("");}}}
+              onClick={() => {setBugReport(null);setPage(item.id);if(item.id==="tasks"){setIssueFilter("");setProjectFilter("");}}}
             >
               <span className="nav-icon" aria-hidden="true">
                 {item.icon}
@@ -311,6 +318,8 @@ export function App() {
           </div>
         </header>
         <main>
+          {bugReport&&<BugReportPage key={bugReport.view.report.id} {...bugReport.view} versions={bugReport.versions} onSelectVersion={id=>void openBugReport(bugReport.view.report.projectId,id,bugReport.versions)} returnLabel={bugReport.returnLabel} onClose={()=>{const scroll=bugReport.scroll;setBugReport(null);requestAnimationFrame(()=>window.scrollTo(0,scroll));}}/>}
+          <div hidden={!!bugReport}>
           <div className="page-heading">
             <div>
               <span className="eyebrow">
@@ -602,6 +611,7 @@ export function App() {
                 setPage("settings");
                 setFocusAISettings(true);
               }}
+              onViewBugReport={(projectId,reportId,versions)=>void openBugReport(projectId,reportId,versions)}
               onViewTasks={filter=>{setProjectFilter(filter.projectId??"");setIssueFilter(filter.issueIdentity??"");setPage("tasks");}}
               onEditProject={project => setLinkEditor({ project })}
             />
@@ -670,6 +680,7 @@ export function App() {
               </section>
             </>
           )}
+          </div>
         </main>
         <footer className="main-footer">
           <span>LOCAL FIRST · EVIDENCE BASED</span>

@@ -2,22 +2,14 @@ import {ACTIVE_TASK_STATUSES} from "../../../../../packages/contracts/src/models
 import {IssueLogMaterials} from "../components/IssueLogMaterials";
 import { useEffect, useRef, useState } from "react";
 import type {
-  DesktopAPI,
   Project,
   Task,
 } from "../../../../../packages/contracts/src/models";
-import type {
-  BugReport,
-} from "../../../../../packages/contracts/src/issues";
+import type {BugReportSummary} from "../../../../../packages/contracts/src/issues";
 import { message, unwrap } from "../api";
-import { BugReportPage } from "./BugReportPage";
 import { TrinityIssueAssociationDialog } from "../components/TrinityIssueAssociationDialog";
 import { IssueMonitorSettings } from "../components/IssueMonitorSettings";
 import type { IssueListItem, IssueSourceState } from "../../../../../packages/contracts/src/issue-monitor";
-type Detail = Extract<
-  Awaited<ReturnType<DesktopAPI["getBugReport"]>>,
-  { ok: true }
->["value"];
 export function BugsPage({
   projects,
   tasks,
@@ -25,26 +17,27 @@ export function BugsPage({
   onConfigureAI,
   onEditProject,
   onViewTasks,
+  onViewBugReport,
 }: {
   projects: Project[];
   tasks: Task[];
   onChanged: () => Promise<void>;
   onConfigureAI: () => void;
   onEditProject: (project: Project) => void;
+  onViewBugReport:(projectId:string,reportId:string,versions:BugReportSummary[])=>void;
   onViewTasks: (filter:{projectId?:string;issueIdentity?:string})=>void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [workspace, setWorkspace] = useState<{
     scope: string;
-    issues: IssueListItem[];
+    issues: import("../../../../../packages/contracts/src/issue-monitor").BugWorkspaceIssue[];
     sources: IssueSourceState[];
-    reports: BugReport[];
-  }>({ scope: "", issues: [], reports: [], sources: [] });
+  }>({ scope: "", issues: [], sources: [] });
   const [logPreview,setLogPreview]=useState<string>();
   const [keys, setKeys] = useState<Record<string, string>>({});
-  const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [reportNotices,setReportNotices]=useState<Record<string,string>>({});
   const [loading, setLoading] = useState(false);
   const [associating,setAssociating]=useState<IssueListItem|null>(null);
   const [analysisTargets,setAnalysisTargets]=useState<Record<string,string>>({});
@@ -70,7 +63,6 @@ export function BugsPage({
       setProjectId(projects[0]?.id ?? "");
   }, [projects, projectId]);
   useEffect(() => {
-    setDetail(null);
     setAnalysisTargets({});
     setKeys({});
     setError("");
@@ -81,7 +73,7 @@ export function BugsPage({
   }, [scope]);
   useEffect(() => {
     if (!projectId) {
-      setWorkspace({ scope: "", issues: [], reports: [], sources: [] });
+      setWorkspace({ scope: "", issues: [], sources: [] });
       return;
     }
     let live = true;
@@ -113,7 +105,6 @@ export function BugsPage({
       issue.projectId === projectId &&
       project?.issueBindings.some((binding) => binding.id === issue.bindingId),
   );
-  const reports = workspace.scope === scope ? workspace.reports : [];
   const sources = workspace.scope === scope ? workspace.sources : [];
   const allRefreshed = sources.length > 0 && sources.every(source => source.status === "success");
   const refreshFailed = sources.some(source => source.status === "failed");
@@ -188,8 +179,6 @@ export function BugsPage({
       if (mounted.current) setSubmittingKeys([...submitting.current]);
     }
   }
-  if (detail && detail.report.projectId === projectId)
-    return <BugReportPage {...detail} onClose={() => setDetail(null)} />;
   return (
     <div className="workspace-stack">
       {associating&&<TrinityIssueAssociationDialog issue={associating} projects={projects} onClose={()=>setAssociating(null)} onSaved={async saved=>{await onChanged();setAssociating(null);setProjectId(saved.id);setNotice(`已关联代码项目“${saved.name}”，可点击基于当前代码预分析。`);}} />}
@@ -338,6 +327,14 @@ export function BugsPage({
             >
               {analysisLabel}
             </button>
+            <button className="secondary" onClick={()=>{
+              const versions=issue.reportSummaries.filter(r=>r.analysisProjectId===(targetIdFor(issue)??projectId));
+              if(versions.length){onViewBugReport(versions[0].analysisProjectId,versions[0].reportId,versions);return;}
+              const task=tasks.find(t=>t.kind==="ANALYZE_BUG"&&t.projectId===(targetIdFor(issue)??projectId)&&t.issueIdentity===`${issue.bindingId}:${issue.remoteId}`);
+              const text=analysisTask?"当前问题处于分析列表中，可通过查看任务了解进度。":task?.status==="FAILED"?"最近一次分析失败，尚无成功报告，请查看任务详情。":"当前问题还未分析，暂无分析报告。";
+              setReportNotices(previous=>({...previous,[issue.id]:text}));
+            }}>打开分析报告</button>
+            {reportNotices[issue.id]&&<p className="notice" role="status">{reportNotices[issue.id]}</p>}
             <button className="secondary" disabled={!!analysisUnavailable} onClick={()=>void analyze(issue,true)}>仅按代码和问题描述分析</button>
             <button className="text-button" onClick={()=>onViewTasks({projectId:targetIdFor(issue)??projectId,issueIdentity:`${issue.bindingId}:${issue.remoteId}`})}>查看任务</button>
             {analysisUnavailable && (
@@ -347,34 +344,6 @@ export function BugsPage({
         );})}
       </section>
 
-      <section className="panel work-panel">
-        <h2>BUG 报告历史</h2>
-        {reports.length === 0 && (
-          <p className="muted">暂无已加载的成功预分析报告。</p>
-        )}
-        {reports.map((r) => (
-          <div className="report-list-item" key={r.id}>
-            <span>{new Date(r.createdAt).toLocaleString()} · 静态预分析</span>
-            <button
-              className="secondary"
-              disabled={loading}
-              onClick={() =>
-                void act(
-                  async () => {
-                    return unwrap(
-                      await window.platform.getBugReport(projectId, r.id),
-                    );
-                  },
-                  "",
-                  (value) => setDetail(value as Detail),
-                )
-              }
-            >
-              查看 BUG 报告
-            </button>
-          </div>
-        ))}
-      </section>
     </div>
   );
 }

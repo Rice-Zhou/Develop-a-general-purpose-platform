@@ -245,7 +245,7 @@ export interface DesktopAPI {
   ): Promise<Result<ExecutorDiagnostic>>;
   getBugWorkspace(
     projectId: string,
-  ): Promise<Result<Omit<IssueWorkspace,"issues"> & {issues:import("./issue-monitor").BugWorkspaceIssue[]; reports: BugReport[]}>>;
+  ): Promise<Result<Omit<IssueWorkspace,"issues"> & {issues:import("./issue-monitor").BugWorkspaceIssue[]}>>;
   refreshBugWorkspace(projectId: string): Promise<Result<IssueWorkspace>>;
   getIssueMonitor(): Promise<Result<IssueMonitorStatus>>;
   saveIssueMonitor(configuration: IssueMonitorConfiguration): Promise<Result<IssueMonitorStatus>>;

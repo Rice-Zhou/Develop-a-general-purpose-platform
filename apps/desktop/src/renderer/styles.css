@@ -1336,3 +1336,4 @@ input[type="radio"] {
 }
 
 .nav-group{width:100%}.nav-parent{display:flex;align-items:center}.nav-parent .nav-item{flex:1;min-width:0}.nav-toggle{background:transparent;color:inherit;border:0;padding:10px;cursor:pointer}.nav-child{padding-left:54px!important;font-size:13px}
+.bug-report-page>details{margin-top:18px;border-top:1px solid var(--line,#e4e9f4);padding-top:14px}.bug-evidence-item{border-bottom:1px solid #e4e9f4}.evidence-content{padding:0 12px 14px}.bug-evidence-item .code-preview{max-height:420px;overflow:auto}

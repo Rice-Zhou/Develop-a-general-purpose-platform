@@ -161,7 +161,7 @@ export class Workbench implements TaskRuntime {
     const targetsFor=(issue:import("../../../../packages/contracts/src/issue-monitor").IssueListItem)=>issue.analysisProjects??(issue.analysisProjectId?[{id:issue.analysisProjectId}]:[]);
     const identities=workspace.issues.flatMap(issue=>targetsFor(issue).map(target=>({analysisProjectId:target.id,connectionId:issue.connectionId,remoteId:issue.remoteId})));
     const summaries=this.store.issues.reportSummariesForIssues(identities);
-    return {...workspace,issues:workspace.issues.map(issue=>({...issue,reportSummaries:summaries.filter(summary=>summary.connectionId===issue.connectionId&&summary.remoteId===issue.remoteId&&targetsFor(issue).some(target=>target.id===summary.analysisProjectId))})),reports:this.store.issues.reports(projectId)};
+    return {...workspace,issues:workspace.issues.map(issue=>({...issue,reportSummaries:summaries.filter(summary=>summary.connectionId===issue.connectionId&&summary.remoteId===issue.remoteId&&targetsFor(issue).some(target=>target.id===summary.analysisProjectId))}))};
   }
   reader(projectId: string, contextId: string): ContextReader {
     const context = this.store.getContext(contextId);
