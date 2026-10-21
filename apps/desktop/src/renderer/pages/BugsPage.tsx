@@ -1,3 +1,4 @@
+import {ACTIVE_TASK_STATUSES} from "../../../../../packages/contracts/src/models";
 import {BugTaskQueue} from "../components/BugTaskQueue";
 import {IssueLogMaterials} from "../components/IssueLogMaterials";
 import { useEffect, useRef, useState } from "react";
@@ -46,6 +47,8 @@ export function BugsPage({
   const [loading, setLoading] = useState(false);
   const [associating,setAssociating]=useState<IssueListItem|null>(null);
   const [analysisTargets,setAnalysisTargets]=useState<Record<string,string>>({});
+  const submitting = useRef(new Set<string>());
+  const [submittingKeys, setSubmittingKeys] = useState<string[]>([]);
   const foreground = useRef(false);
   const project = projects.find((p) => p.id === projectId);
   const scope = JSON.stringify([
@@ -116,13 +119,18 @@ export function BugsPage({
   const busy = loading;
   const active=tasks.some(t=>t.projectId===projectId&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status));
   const targetIdFor=(issue:IssueListItem)=>analysisTargets[issue.id]||issue.analysisProjectId;
+  const analysisKeyFor = (issue: IssueListItem) => `${targetIdFor(issue) ?? projectId}:${issue.bindingId}:${issue.remoteId}`;
+  const analysisTaskFor = (issue: IssueListItem) => tasks.find(task =>
+    task.kind === "ANALYZE_BUG" && task.projectId === (targetIdFor(issue) ?? projectId) &&
+    task.issueIdentity === `${issue.bindingId}:${issue.remoteId}` && ACTIVE_TASK_STATUSES.includes(task.status));
   const unavailableFor = (issue: IssueListItem): string => {
     const selected=analysisTargets[issue.id];
     if(selected&&!issue.analysisProjects?.some(p=>p.id===selected))return "所选代码项目的映射已变化，请重新选择。";
     if(!selected&&issue.analysisUnavailable)return issue.analysisUnavailable;
     const target=projects.find(p=>p.id===(targetIdFor(issue)??projectId));
     if(!target?.enabled)return "预分析不可用：匹配的代码项目已停用。";
-    if(loading)return "预分析不可用：正在读取或提交请求，请稍候。";
+    if(submittingKeys.includes(analysisKeyFor(issue)))return "该问题正在提交预分析任务，请勿重复提交。";
+    if(analysisTaskFor(issue))return "该问题已有预分析任务，可在任务列表查看或取消。";
     if(!target.aiProfileId)return "预分析不可用：匹配的代码项目未配置可用 AI 执行连接。";
     return "";
   };
@@ -156,6 +164,27 @@ export function BugsPage({
       if (valid()) setError(message(e));
     } finally {
       if (valid()) { foreground.current = false; setLoading(false); }
+    }
+  }
+  async function analyze(issue: IssueListItem, codeOnly = false) {
+    const key = analysisKeyFor(issue);
+    if (submitting.current.has(key) || unavailableFor(issue)) return;
+    submitting.current.add(key);
+    setSubmittingKeys([...submitting.current]);
+    setError("");
+    setNotice("");
+    const valid = () => mounted.current && currentScope.current === scope;
+    try {
+      unwrap(await window.platform.analyzeBug({projectId, issueSnapshotId: issue.id,
+        targetProjectId: targetIdFor(issue), ...(codeOnly ? {options: {logPolicy: "code-only" as const}} : {})}));
+      await onChanged();
+      if (valid()) setNotice(codeOnly ? "已明确跳过日志，任务将只使用当前代码和问题描述。" :
+        "预分析任务已加入队列，将等待独立日志下载完成，再使用当前代码预分析。");
+    } catch (e) {
+      if (valid()) setError(message(e));
+    } finally {
+      submitting.current.delete(key);
+      if (mounted.current) setSubmittingKeys([...submitting.current]);
     }
   }
   if (detail && detail.report.projectId === projectId)
@@ -264,7 +293,7 @@ export function BugsPage({
           <p className="muted">当前配置项目及负责人范围内无任何问题</p>
         )}
         {logPreview!==undefined&&<div className="evidence-reader"><button className="secondary" onClick={()=>setLogPreview(undefined)}>关闭日志预览</button><pre>{logPreview}</pre></div>}
-        {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); const analysisProjectName=projects.find(p=>p.id===targetIdFor(issue))?.name; return (
+        {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); const analysisTask=analysisTaskFor(issue); const analysisLabel=submittingKeys.includes(analysisKeyFor(issue))?"提交中":analysisTask?.status==="QUEUED"?"排队中":analysisTask?.status==="CANCELLING"?"取消中":analysisTask?"分析中":"基于当前代码预分析"; const analysisProjectName=projects.find(p=>p.id===targetIdFor(issue))?.name; return (
           <article className="finding-card" key={issue.id}>
             <div className="section-heading">
               <h3>
@@ -304,15 +333,11 @@ export function BugsPage({
               disabled={!!analysisUnavailable}
               title={analysisUnavailable || undefined}
               aria-describedby={analysisUnavailable ? `analysis-reason-${issue.id}` : undefined}
-              onClick={() =>
-                void act(async () => {
-                  unwrap(await window.platform.analyzeBug({projectId, issueSnapshotId:issue.id,targetProjectId:targetIdFor(issue)}));
-                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将等待独立日志下载完成，再使用当前代码预分析。`)
-              }
+              onClick={() => void analyze(issue)}
             >
-              基于当前代码预分析
+              {analysisLabel}
             </button>
-            <button className="secondary" disabled={!!analysisUnavailable} onClick={()=>void act(async()=>unwrap(await window.platform.analyzeBug({projectId,issueSnapshotId:issue.id,targetProjectId:targetIdFor(issue),options:{logPolicy:"code-only"}})),"已明确跳过日志，任务将只使用当前代码和问题描述。")}>仅按代码和问题描述分析</button>
+            <button className="secondary" disabled={!!analysisUnavailable} onClick={()=>void analyze(issue,true)}>仅按代码和问题描述分析</button>
             {analysisUnavailable && (
               <p id={`analysis-reason-${issue.id}`} className="coverage-warning">{analysisUnavailable}</p>
             )}
