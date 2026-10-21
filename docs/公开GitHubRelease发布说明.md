@@ -1,8 +1,10 @@
 # 公开 GitHub Release 发布说明
 
-更新仓库：https://github.com/Rice-Zhou/Develop-a-general-purpose-platform 。本次仅本地打包，没有上传或发布 Release。
+更新仓库：https://github.com/Rice-Zhou/Develop-a-general-purpose-platform 。
 
-发布者后续获得明确授权后，在该仓库创建正式 Release，标签 `v1.0.1`（之后版本递增）。关闭草稿、预发布标记，并上传同一次 make 生成的两个必需附件：
+1.0.1 已于 2026-10-21 正式发布：[v1.0.1 Release](https://github.com/Rice-Zhou/Develop-a-general-purpose-platform/releases/tag/v1.0.1)。安装包及清单均已上传并核对 GitHub SHA-256。实际安装和当前网络限制见 [发布联调验收](1.0.1GitHubRelease发布与在线更新联调验收.md)。
+
+后续发布者在获得明确授权后，在该仓库创建正式 Release，标签按 `v主.次.修订` 递增。关闭草稿、预发布标记，并上传同一次 make 生成的两个必需附件：
 
 - `LocalDevPlatformSetup.exe`
 - `platform-update.json`
@@ -15,4 +17,4 @@
 
 0.9.3 首次需手动启动或安装 1.0.1。便携版选择在线更新后转为安装版，用户数据目录仍为原 Electron userData。安装前禁止新任务入队并确认无活动任务，随后关闭后台服务；有任务时请等待或自行取消。若交接失败且后台已停止，使用“重启客户端恢复”。启动安装器不等于安装成功；下次启动版本达到目标才确认成功。
 
-尚未执行真实已安装客户端的跨版本覆盖升级；首次实际发布后需在隔离 Windows 用户或虚拟机验证安装和数据保留，不要覆盖用户日常开发环境做测试。
+1.0.1 已经用户授权执行真实安装，安装退出码 0，原项目、连接和报告保留。旧安装版到新安装版的跨版本覆盖升级、客户端自动下载至安装交接的完整闭环仍需在可直连附件的网络中验证。
