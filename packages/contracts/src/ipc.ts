@@ -1,3 +1,4 @@
+import {RequirementDecisionSchema} from "./requirement-review";
 import {LibraryResourceDraftSchema,LibraryCategoryDraftSchema,ProjectResourceLinkSchema} from "./library";
 import { BugAnalysisOptionsSchema } from "./issue-materials";
 import { z } from "zod";
@@ -20,6 +21,9 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+ z.object({method:z.literal("auditRequirements"),params:z.object({projectId:id}).strict()}).strict(),
+ z.object({method:z.literal("getRequirementReviews"),params:z.object({projectId:id}).strict()}).strict(),
+ z.object({method:z.literal("setRequirementReviewDecision"),params:z.object({id,action:RequirementDecisionSchema,expectedRevision:z.number().int().positive()}).strict()}).strict(),
  z.object({method:z.literal("getLibrary"),params:empty}).strict(),
  z.object({method:z.literal("saveLibraryResource"),params:z.object({draft:LibraryResourceDraftSchema,expectedRevision:z.number().int().positive().optional()}).strict()}).strict(),
  z.object({method:z.literal("saveLibraryCategory"),params:z.object({draft:LibraryCategoryDraftSchema,expectedRevision:z.number().int().positive().optional()}).strict()}).strict(),

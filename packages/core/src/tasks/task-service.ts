@@ -50,6 +50,7 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
+  validateContext?(context:ContextSnapshot,signal:AbortSignal):Promise<void>;
   cancelIssueLogTask?(id:string):Promise<void>;
   retryIssueLogTask?(task:Task):Promise<Task>;
   prepareIssueMaterials?(task:Task,issueSnapshotId:string,signal:AbortSignal):Promise<import("../../../contracts/src/issue-materials").IssueLogSetRef|undefined>;
@@ -70,6 +71,7 @@ export interface TaskRuntime {
   ): Promise<
     | { kind: "extraction"; set: RequirementSet }
     | { kind: "report"; report: AnalysisReport }
+    | {kind:"requirement-audit";set:RequirementSet;report:AnalysisReport}
     | { kind: "bug"; report: BugReport }
   >;
 }
@@ -271,6 +273,7 @@ export class TaskService {
           this.transition(this.get(task.id), "SUCCEEDED", "代码更新完成；未读取需求文档或创建分析上下文，未推送远端");
           continue;
         }
+        if(["AUDIT_REQUIREMENTS","CHECK_REQUIREMENTS"].includes(task.kind)&&this.store.reviewRunToken)this.store.saveTask({...this.get(task.id),reviewRunToken:this.store.reviewRunToken(task.projectId)});
         let issueSnapshotId: string | undefined;
         if (task.kind === "ANALYZE_BUG") {
           if (!this.runtime?.prepareIssue)
@@ -296,21 +299,11 @@ export class TaskService {
           const prior = previous?.repositories.find(repo=>repo.bindingId===binding.id);
           return {...binding,remoteUrlFingerprint:binding.remoteUrlFingerprint ?? (prior?.kind !== "worktree" ? prior?.remoteUrlFingerprint : null) ?? null};
         });
-        // Global serial execution is the first-release lock: no two tasks can touch a repository at once.
-        if(task.kind !== "ANALYZE_BUG")for (const binding of bindings)
-          this.git.assertReady(
-            await this.git.inspect(binding, this.controller.signal),
-          );
-        const snapshots = [];
-        for (const binding of bindings) {
-          this.store.event(
-            task.id,
-            task.kind === "ANALYZE_BUG" ? "CODE_SNAPSHOT" : "GIT_SYNC",
-            task.kind === "ANALYZE_BUG" ? `正在捕获当前代码（包含未提交修改）：${binding.role}` : `正在更新 ${binding.role || "代码仓库"}：${binding.branch}`,
-          );
-          snapshots.push(
-            task.kind === "ANALYZE_BUG" ? await this.runtime!.captureCurrentCode!(binding,this.controller.signal) : await this.git.synchronize(binding, this.controller.signal),
-          );
+        if(!this.runtime?.captureCurrentCode)throw new AppError("ANALYSIS_UNAVAILABLE","当前代码快照服务未装配");
+        const snapshots=[];
+        for(const binding of bindings){
+          this.store.event(task.id,"CODE_SNAPSHOT",`正在捕获当前代码（包含未提交修改）：${binding.role}`);
+          snapshots.push(await this.runtime.captureCurrentCode(binding,this.controller.signal));
         }
         if (this.controller.signal.aborted)
           throw new AppError("CANCELLED", "任务已取消");
@@ -374,7 +367,10 @@ export class TaskService {
         if (this.controller.signal.aborted)
           throw new AppError("CANCELLED", "任务已取消");
         this.assertConfiguration(task, project);
-        if (outcome?.kind === "extraction")
+        if(this.runtime?.validateContext&&task.kind!=="ANALYZE_BUG")await this.runtime.validateContext(context,this.controller.signal);
+        this.assertConfiguration(task,project);
+        if(outcome?.kind==="requirement-audit")this.store.completeRequirementAudit({...this.get(task.id),resultId:outcome.report.id},context,outcome.set,outcome.report);
+        else if (outcome?.kind === "extraction")
           this.store.completeExtraction(
             { ...this.get(task.id), resultId: outcome.set.id },
             context,

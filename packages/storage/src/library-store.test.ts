@@ -35,7 +35,11 @@ it("keeps reference associations when the legacy document editor saves and prote
   store.saveProject({...saved,revision:3,documents:[]},2);
   expect(store.getProject(project.id).resourceLinks).toEqual([{resourceId:ref.id,role:"reference",required:false}]);
   expect(()=>store.deleteLibraryResource(ref.id,ref.revision)).toThrow(/关联/);
-  store.saveProjectResources(project.id,[],3);
+  const doc=store.saveLibraryResource({name:"需求",kind:"docx",locator:"D:/req.docx"});
+  const current=store.getProject(project.id);store.saveProjectResources(project.id,[...current.resourceLinks!,{resourceId:doc.id,role:"requirement",required:true}],current.revision);
+  expect(()=>store.saveLibraryResource({...doc,kind:"path",locator:"D:/reference"},doc.revision)).toThrow(/需求|参考/);
+
+  store.saveProjectResources(project.id,[],store.getProject(project.id).revision);
   store.deleteLibraryResource(ref.id,ref.revision);
  }finally{store.close();await rm(dir,{recursive:true,force:true});}
 });

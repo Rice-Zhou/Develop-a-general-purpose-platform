@@ -10,7 +10,6 @@ import { migrateDatabase } from "./migrations";
 import { AnalysisRepository } from "./analysis-repository";
 import { AppError } from "../../contracts/src/error";
 import { DocumentResourceDraftSchema, type DocumentResource } from "../../contracts/src/models";
-import { randomUUID } from "node:crypto";
 import type {
   ContextSnapshot,
   Project,
@@ -189,7 +188,8 @@ export class DataStore extends AnalysisRepository {
         if (!previous) this.db.prepare("INSERT INTO library_resources VALUES(?,?)").run(document.id,JSON.stringify({...document,name:document.locator.split(/[\\/]/).at(-1)||document.locator,revision:1,contentRevision:1,categoryId:null,purpose:"requirement",notes:""}));
       }
 
-      const { usesDefaultAI, resourceLinks: _resourceLinks, ...persisted } = project;
+      const { usesDefaultAI, ...persisted } = project;
+      delete persisted.resourceLinks;
       const trinityProjects = project.trinityProjects ?? project.issueBindings.filter(b => b.platform === "trinity" && b.scopeMode !== "account").map(b => ({ instanceUrl: b.instanceUrl, projectId: b.projectKey }));
       const json = { ...persisted, ...(usesDefaultAI === false ? { usesDefaultAI: false } : {}), ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [] };
       this.db

@@ -46,6 +46,7 @@ describe("project persistence", () => {
     const p = await f.service.save(draft("A", f.repo));
     f.store.close();
     const old = new Database(join(f.root, "app.db"));
+    old.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");
     old.pragma("user_version = 3");
     old.close();
     const upgraded = await DataStore.open(join(f.root, "app.db"));
@@ -59,7 +60,7 @@ describe("project persistence", () => {
     }
     const check = new Database(join(f.root, "app.db"));
     try {
-      expect(check.pragma("user_version", { simple: true })).toBe(10);
+      expect(check.pragma("user_version", { simple: true })).toBe(12);
     } finally {
       check.close();
     }

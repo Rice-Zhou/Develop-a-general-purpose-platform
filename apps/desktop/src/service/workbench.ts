@@ -177,6 +177,13 @@ export class Workbench implements TaskRuntime {
   captureDocuments(project: Project, signal: AbortSignal) {
     return this.documents.captureProject(project, signal);
   }
+  async validateContext(context:ContextSnapshot,signal:AbortSignal){
+    for(const r of context.repositories)if(r.kind==="worktree")await assertWorktreeCurrent(r,signal);
+    const captured=await this.captureDocuments(this.store.getProject(context.projectId),signal);
+    const fingerprint=(docs:ContextSnapshot["documents"])=>JSON.stringify(docs.map(d=>[d.bindingId,d.contentHash]).sort());
+    if(fingerprint(captured.documents)!==fingerprint(context.documents))throw new AppError("DOCUMENT_CHANGED","审核期间需求资料已改变，未保存过期报告");
+    for(const r of context.repositories)if(r.kind==="worktree")await assertWorktreeCurrent(r,signal);
+  }
   indexContext(context: ContextSnapshot, signal: AbortSignal) {
     return this.search.index(this.bound(context), signal);
   }
@@ -339,6 +346,14 @@ export class Workbench implements TaskRuntime {
       if(context.issueLogs){const current=this.store.materials.get(context.issueLogs.id);if(current.manifestHash!==context.issueLogs.manifestHash||this.store.materials.latest(current.scope)?.id!==current.id)throw new AppError("ISSUE_LOG_CHANGED","分析期间日志版本已变化");}
       return { kind: "bug" as const, report };
     }
+    if(task.kind==="AUDIT_REQUIREMENTS"){
+      const latest=this.store.latestRequirementSet(task.projectId);const reader=this.bound(context);
+      const previousContext=latest?this.store.getContext(latest.contextSnapshotId):null;
+      const sameDocuments=previousContext&&JSON.stringify(previousContext.documents.map(d=>[d.bindingId,d.contentHash]).sort())===JSON.stringify(context.documents.map(d=>[d.bindingId,d.contentHash]).sort());
+      const reusable=sameDocuments&&latest?.items.length&&latest.items.every(item=>item.sourceRefs.every(ref=>{const original=this.store.getDocument(task.projectId,ref.documentSnapshotId);return context.documents.some(d=>d.bindingId===original.bindingId&&d.contentHash===original.contentHash);}));
+      const set=reusable?this.requirements.createRevision(reader,latest.items,latest.revision):await pipeline.extract(latest?.revision??0,signal);
+      return {kind:"requirement-audit" as const,set,report:await pipeline.check(task,set,signal)};
+    }
     if (task.kind === "EXTRACT_REQUIREMENTS")
       return {
         kind: "extraction" as const,
@@ -466,6 +481,11 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+ case "auditRequirements":{
+   const project=this.store.getProject(request.params.projectId);if(!project.aiProfileId)throw new AppError("MODEL_NOT_CONFIGURED","请先配置有效的 AI 连接");const profile=this.profile(project.aiProfileId);if(!profile.outboundEnabled)throw new AppError("OUTBOUND_NOT_APPROVED","请先允许 AI 连接读取项目材料");return tasks.enqueue(project.id,"AUDIT_REQUIREMENTS");
+ }
+ case "getRequirementReviews":this.store.getProject(request.params.projectId);return this.store.getRequirementReviews(request.params.projectId);
+ case "setRequirementReviewDecision":return this.store.setRequirementReviewDecision(request.params.id,request.params.action,request.params.expectedRevision);
  case "getLibrary":return this.store.getLibrary();
  case "saveLibraryResource":return this.store.saveLibraryResource(request.params.draft,request.params.expectedRevision);
  case "saveLibraryCategory":return this.store.saveLibraryCategory(request.params.draft,request.params.expectedRevision);

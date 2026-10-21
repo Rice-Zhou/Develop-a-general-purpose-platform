@@ -19,6 +19,8 @@ export interface ProjectRepository {
   deleteProject(id: string, expectedRevision: number): void;
 }
 export interface TaskRepository {
+  reviewRunToken?(projectId:string):import("../../contracts/src/requirement-review").ReviewRunToken;
+  completeRequirementAudit(task:Task,context:ContextSnapshot,set:RequirementSet,report:AnalysisReport):void;
   completeBug(task: Task, context: ContextSnapshot, report: BugReport): void;
   listTasks(projectId?: string): Task[];
   getTask(id: string): Task;

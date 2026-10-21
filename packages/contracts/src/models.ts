@@ -198,6 +198,7 @@ export interface Task {
     | "PREPARE_CONTEXT"
     | "EXTRACT_REQUIREMENTS"
     | "CHECK_REQUIREMENTS"
+    | "AUDIT_REQUIREMENTS"
     | "ANALYZE_BUG"
     | "DOWNLOAD_ISSUE_LOGS";
   issueSnapshotId?: string;
@@ -226,6 +227,9 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  auditRequirements(projectId:string):Promise<Result<Task>>;
+  getRequirementReviews(projectId:string):Promise<Result<import("./requirement-review").RequirementReviewView[]>>;
+  setRequirementReviewDecision(id:string,action:import("./requirement-review").RequirementDecision,expectedRevision:number):Promise<Result<import("./requirement-review").RequirementReviewItem>>;
   getLibrary():Promise<Result<import("./library").Library>>;
   saveLibraryResource(draft:import("./library").LibraryResourceDraft,expectedRevision?:number):Promise<Result<import("./library").LibraryResource>>;
   deleteLibraryResource(id:string,expectedRevision:number):Promise<Result<void>>;

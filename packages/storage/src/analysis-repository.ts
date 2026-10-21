@@ -1,3 +1,7 @@
+import {RequirementReviewStore} from "./requirement-review-store";
+import type {ReviewSourceIndex} from "../../core/src/requirements/review-service";
+import type {RequirementDecision,RequirementReviewView} from "../../contracts/src/requirement-review";
+import {createHash} from "node:crypto";
 import { IssueMaterialRepository } from "./issue-material-repository";
 import type Database from "better-sqlite3";
 import { AppError } from "../../contracts/src/error";
@@ -166,9 +170,10 @@ export abstract class AnalysisRepository {
     context: ContextSnapshot,
     value: AnalysisReport,
   ): void {
-    const report = AnalysisReportSchema.parse(value);
-    this.db.transaction(() => {
-      this.finish(task, context);
+    this.db.transaction(()=>{this.finish(task,context);this.saveAnalysis(task,context,value);})();
+  }
+  private saveAnalysis(task:Task,context:ContextSnapshot,value:AnalysisReport):void{
+    const report=AnalysisReportSchema.parse(value);
       if (
         report.taskId !== task.id ||
         report.projectId !== task.projectId ||
@@ -179,7 +184,18 @@ export abstract class AnalysisRepository {
       this.db
         .prepare("INSERT INTO reports VALUES(?,?,?,?)")
         .run(report.id, report.projectId, task.id, JSON.stringify(report));
-    })();
+      this.reconcileReviews(task,report);
+  }
+  reviewRunToken(projectId:string){return new RequirementReviewStore(this.db).token(projectId);}
+  getRequirementReviews(projectId:string):RequirementReviewView[]{return new RequirementReviewStore(this.db).list(projectId).map(item=>{const report=this.getReport(projectId,item.reportId);const requirement=this.getRequirementSet(projectId,item.requirementSetId).items.find(r=>r.id===item.requirementId);const finding=report.findings.find(f=>f.requirementId===item.requirementId);if(!requirement||!finding)throw new AppError("REVIEW_INVALID","审核待办引用失效");return {...item,requirement,finding,report};});}
+  setRequirementReviewDecision(id:string,action:RequirementDecision,expectedRevision:number){return new RequirementReviewStore(this.db).decide(id,action,expectedRevision);}
+  completeRequirementAudit(task:Task,context:ContextSnapshot,set:RequirementSet,report:AnalysisReport):void{
+    this.db.transaction(()=>{if(report.requirementSetId!==set.id||set.contextSnapshotId!==context.id||set.projectId!==task.projectId)throw new AppError("CONTEXT_MISMATCH","审核需求版本与上下文不一致");this.finish(task,context);this.saveRequirementSet(set,set.revision-1);this.saveAnalysis(task,context,report);})();
+  }
+  private reconcileReviews(task:Task,report:AnalysisReport){
+    const set=this.getRequirementSet(task.projectId,report.requirementSetId);const sources:ReviewSourceIndex={};
+    for(const item of set.items)for(const ref of item.sourceRefs){const doc=this.getDocument(task.projectId,ref.documentSnapshotId);const block=doc.blocks.find(b=>b.id===ref.blockId);if(!block||createHash("sha256").update(block.text).digest("hex")!==ref.quoteHash)throw new AppError("EVIDENCE_INVALID","审核原文引用无效");sources[`${ref.documentSnapshotId}:${ref.blockId}`]={resourceId:doc.bindingId,quoteHash:ref.quoteHash};}
+    new RequirementReviewStore(this.db).reconcile(report,set,sources,task.reviewRunToken??this.reviewRunToken(task.projectId));
   }
   replaceSearchChunks(
     projectId: string,

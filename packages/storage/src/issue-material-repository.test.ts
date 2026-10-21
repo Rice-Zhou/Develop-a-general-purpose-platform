@@ -9,7 +9,7 @@ import type {IssueLogSet} from "../../contracts/src/issue-materials";
 it("backs up v8 and atomically rejects stale generations while keeping referenced history",async()=>{
  const root=await mkdtemp(join(tmpdir(),"materials-")); const path=join(root,"app.db");
  try{
-  (await DataStore.open(path)).close();const old=new Database(path);old.pragma("user_version=8");old.close();(await DataStore.open(path)).close();
+  (await DataStore.open(path)).close();const old=new Database(path);old.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");old.pragma("user_version=8");old.close();(await DataStore.open(path)).close();
   expect((await readdir(root)).some(p=>p.includes("backup-v8"))).toBe(true);
   const db=new Database(path);try{
    const repository=new IssueMaterialRepository(db);

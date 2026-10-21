@@ -1,3 +1,6 @@
+import {captureWorktree} from "../../../adapters/src/git/worktree-snapshot";
+import {SnapshotStore} from "../../../storage/src/snapshot-store";
+import {AppError} from "../../../contracts/src/error";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,7 +42,7 @@ async function setup(runtime?: TaskRuntime) {
     store,
     projects,
     new GitRepositoryAdapter(),
-    runtime,
+    {configurationHash:()=>"fixture",captureDocuments:async()=>({documents:[],sourceGaps:[]}),indexContext:async()=>[],analyze:async()=>{throw new Error("fixture analysis unavailable");},captureCurrentCode:(b,signal)=>captureWorktree(b,new SnapshotStore(join(root,"content")),signal),...runtime},
   );
   cleanup.push(() => tasks.shutdown());
   return { root, f, store, projects, project, tasks };
@@ -129,25 +132,24 @@ describe("persistent preparation tasks", () => {
     );
     expect(tasks.list("another-project")).toEqual([]);
     expect(store.taskEvents(task.id).map((e) => e.sequence)).toEqual([
-      1, 2, 3, 4,
+      1, 2, 3, 4, 5, 6,
     ]);
   });
-  it("blocks dirty worktrees and preserves the user edit", async () => {
-    const { tasks, project, f } = await setup();
-    await writeFile(join(f.analysis, "feature.txt"), "keep");
-    const done = await settled(
-      tasks,
-      (await tasks.enqueue(project.id, "PREPARE_CONTEXT")).id,
-    );
-    expect(done.status).toBe("WAITING_INPUT");
-    expect(done.error?.code).toBe("WORKTREE_DIRTY");
-    expect(done.contextSnapshotId).toBeNull();
+  it.each(["PREPARE_CONTEXT","EXTRACT_REQUIREMENTS","CHECK_REQUIREMENTS"] as const)("captures dirty current code without Git updates for %s", async(kind)=>{
+    const {tasks,project,f,store}=await setup();const head=git(f.analysis,"rev-parse","HEAD");
+    await writeFile(join(f.analysis,"feature.txt"),"keep");await writeFile(join(f.analysis,"new.txt"),"new uncommitted");
+    const done=await settled(tasks,(await tasks.enqueue(project.id,kind)).id);
+    expect(store.taskEvents(done.id).some(e=>e.stage==="GIT_SYNC")).toBe(false);
+    expect(store.taskEvents(done.id).some(e=>e.stage==="CODE_SNAPSHOT")).toBe(true);
+    if(kind==="PREPARE_CONTEXT"){expect(done.status).toBe("SUCCEEDED");const r=store.getContext(done.contextSnapshotId!).repositories[0];expect(r.kind).toBe("worktree");expect(r.files.map(x=>x.path)).toContain("new.txt");}
+    expect(git(f.analysis,"rev-parse","HEAD")).toBe(head);expect(git(f.analysis,"status","--porcelain")).toContain("new.txt");
   });
-  it("keeps successful earlier repository updates but publishes no partial context", async () => {
+  it("captures multiple current repositories even when their remotes are unavailable", async () => {
     const { tasks, project, f, projects, root } = await setup();
     const second = await gitFixture();
     cleanup.push(second.dispose);
-    const updated = await f.publish("new");
+    const before=git(f.analysis,"rev-parse","HEAD");
+    await f.publish("new");
     const configured = await projects.save(
       {
         id: project.id,
@@ -184,18 +186,20 @@ describe("persistent preparation tasks", () => {
       tasks,
       (await tasks.enqueue(configured.id, "PREPARE_CONTEXT")).id,
     );
-    expect(done.status).toBe("FAILED");
-    expect(done.contextSnapshotId).toBeNull();
-    expect(git(f.analysis, "rev-parse", "HEAD")).toBe(updated);
+    expect(done.status).toBe("SUCCEEDED");
+    expect(done.contextSnapshotId).toBeTruthy();
+    expect(git(f.analysis, "rev-parse", "HEAD")).toBe(before);
   });
   it("cancels a queued task and retries a failed attempt as a new task", async () => {
-    const { tasks, project, f } = await setup();
-    await writeFile(join(f.analysis, "feature.txt"), "dirty");
+    let fail=true;
+    const {tasks,project,f}=await setup({captureCurrentCode:async(b,signal)=>{if(fail)throw new AppError("WORKTREE_CHANGED","changed");return captureWorktree(b,new SnapshotStore(join(f.root,"content")),signal);}} as TaskRuntime);
+    await writeFile(join(f.analysis,"feature.txt"),"dirty");
     const first = await tasks.enqueue(project.id, "PREPARE_CONTEXT");
     const second = await tasks.enqueue(project.id, "PREPARE_CONTEXT");
     await tasks.cancel(second.id);
     expect(tasks.get(second.id).status).toBe("CANCELLED");
     await settled(tasks, first.id);
+    fail=false;
     git(f.analysis, "restore", "feature.txt");
     const retried = await tasks.retry(first.id);
     expect(retried.attempt).toBe(2);

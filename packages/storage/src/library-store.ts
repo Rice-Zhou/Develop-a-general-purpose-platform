@@ -16,6 +16,7 @@ export class LibraryStore {
    if(draft.categoryId&&!this.categories().some(c=>c.id===draft.categoryId))throw new AppError("CATEGORY_NOT_FOUND","分类不存在");
    const content=(r:typeof draft)=>JSON.stringify([r.kind,r.kind==="note"?r.text:r.locator]);
    const changed=Boolean(previous&&content(previous)!==content(draft));
+   if(previous&&!["docx","pdf","feishu"].includes(draft.kind)&&this.db.prepare("SELECT 1 FROM project_resource_links WHERE resource_id=? AND role='requirement'").get(previous.id))throw new AppError("RESOURCE_REFERENCE_ONLY","该资料仍作为审核需求关联，请先解除需求关联再改为参考类型");
    const resource={...draft,id:previous?.id??randomUUID(),revision:(previous?.revision??0)+1,contentRevision:(previous?.contentRevision??1)+(changed?1:0)};
    this.db.prepare("INSERT INTO library_resources(id,json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json").run(resource.id,JSON.stringify(resource));
    if(changed){for(const row of this.db.prepare("SELECT p.id,p.json FROM projects p JOIN project_resource_links l ON l.project_id=p.id WHERE l.resource_id=? AND l.role='requirement'").all(resource.id) as {id:string;json:string}[]){const p=JSON.parse(row.json);p.revision++;p.updatedAt=new Date().toISOString();this.db.prepare("UPDATE projects SET revision=?,json=? WHERE id=?").run(p.revision,JSON.stringify(p),p.id);}}

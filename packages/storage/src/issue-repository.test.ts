@@ -13,7 +13,7 @@ it("upgrades v2 with backup and atomically stores immutable scoped issue batches
   store.close();
   const db = new Database(path);
   db.exec(
-    "DROP TABLE IF EXISTS issue_snapshots; DROP TABLE IF EXISTS issue_batches; DROP TABLE IF EXISTS bug_reports; PRAGMA user_version=2",
+    "DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories; DROP TABLE IF EXISTS issue_snapshots; DROP TABLE IF EXISTS issue_batches; DROP TABLE IF EXISTS bug_reports; PRAGMA user_version=2",
   );
   db.close();
   store = await DataStore.open(path);

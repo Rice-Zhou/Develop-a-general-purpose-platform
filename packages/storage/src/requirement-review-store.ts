@@ -12,7 +12,7 @@ export class RequirementReviewStore{
  decide(id:string,action:RequirementDecision,expected:number):RequirementReviewItem{return this.db.transaction(()=>{
  const row=this.db.prepare("SELECT json FROM requirement_reviews WHERE id=?").get(id) as {json:string}|undefined;if(!row)throw new AppError("REVIEW_NOT_FOUND","需求待办不存在");const item=JSON.parse(row.json) as RequirementReviewItem;
  if(item.revision!==expected)throw new AppError("REVISION_CONFLICT","该需求待办已更新，请刷新后处理");
- const allowed=action==="restore"?["FALSE_POSITIVE","DONE"]:action==="complete"?["CONFIRMED_MISSING"]:["PENDING"];
+ const allowed=action==="restore"?["FALSE_POSITIVE","DONE"]:action==="complete"?["CONFIRMED_MISSING"]:action==="false-positive"?["PENDING","CONFIRMED_MISSING"]:["PENDING"];
  if(!allowed.includes(item.state))throw new AppError("REVIEW_TRANSITION_INVALID","请按未完成确认和完成步骤处理");
  const states:Record<RequirementDecision,ReviewState>={"false-positive":"FALSE_POSITIVE","confirm-missing":"CONFIRMED_MISSING",complete:"DONE",restore:"PENDING"};
  const saved={...item,state:states[action],revision:item.revision+1,updatedAt:new Date().toISOString()};this.save(saved);

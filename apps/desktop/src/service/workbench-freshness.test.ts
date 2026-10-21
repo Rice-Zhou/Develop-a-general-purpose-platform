@@ -14,3 +14,14 @@ for(const change of ["code","logs"])it(`rejects ${change} changes while final re
  const outcome=result.then(()=>"accepted",error=>(error as AppError).code);await remote;state.changed=true;release();
  expect(await outcome).toBe(change==="code"?"WORKTREE_CHANGED":"ISSUE_LOG_CHANGED");
 });
+
+it("rejects worktree changes during requirement document verification",async()=>{
+ state.changed=false;
+ const runtime=Object.assign(Object.create(Workbench.prototype),{store:{getProject:()=>({})},captureDocuments:async()=>{state.changed=true;return {documents:[],sourceGaps:[]};}}) as Workbench;
+ await expect(runtime.validateContext({projectId:"p",repositories:[{kind:"worktree"}],documents:[]} as unknown as ContextSnapshot,new AbortController().signal)).rejects.toMatchObject({code:"WORKTREE_CHANGED"});state.changed=false;
+});
+it("rejects changed requirement source content before saving a report",async()=>{
+ state.changed=false;
+ const runtime=Object.assign(Object.create(Workbench.prototype),{store:{getProject:()=>({})},captureDocuments:async()=>({documents:[{id:"new",bindingId:"resource",contentHash:"new"}],sourceGaps:[]})}) as Workbench;
+ await expect(runtime.validateContext({projectId:"p",repositories:[],documents:[{id:"old",bindingId:"resource",contentHash:"old"}]} as unknown as ContextSnapshot,new AbortController().signal)).rejects.toMatchObject({code:"DOCUMENT_CHANGED"});
+});
