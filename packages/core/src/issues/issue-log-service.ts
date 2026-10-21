@@ -8,11 +8,16 @@ const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).d
 interface MaterialRepository {get(id:string):IssueLogSet;latest(scope:IssueLogScope):IssueLogSet|null;create(set:IssueLogSet):void;update(set:IssueLogSet):boolean}
 export class IssueLogService {
  private active=0;private queue:(()=>Promise<void>)[]=[];private readonly jobs=new Map<string,Promise<void>>();private readonly controller=new AbortController();
+ private readonly discoveries=new Map<string,object>();
  constructor(private readonly repository:MaterialRepository,private readonly adapter:(scope:IssueScope)=>Pick<IssueAdapter,"listAttachments">,private readonly download:(scope:IssueScope,issue:RemoteIssue,attachments:AttachmentDescriptor[],signal:AbortSignal,progress:(files:LogFile[])=>void)=>Promise<LogFile[]>,private readonly assertCurrent:(scope:IssueScope)=>void){}
  async enqueue(scope:IssueScope,issue:RemoteIssue,force=false):Promise<IssueLogSet> {
-  const source=logScope(scope,issue);let attachments:AttachmentDescriptor[]=[];let failure:unknown;
-  try {const adapter=this.adapter(scope);if(!adapter.listAttachments)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","当前 Jira CLI 不支持附件下载；请使用账号密码连接读取日志，或明确选择仅按代码分析");attachments=await adapter.listAttachments(scope,issue,this.controller.signal);this.assertCurrent(scope);}
+  const source=logScope(scope,issue);const key=hash(source);const request={};this.discoveries.set(key,request);
+  let attachments:AttachmentDescriptor[]=[];let failure:unknown;
+  try {const adapter=this.adapter(scope);if(!adapter.listAttachments)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","当前 Jira CLI 不支持附件下载；请使用账号密码连接读取日志，或明确选择仅按代码分析");attachments=await adapter.listAttachments(scope,issue,this.controller.signal);}
   catch(error){failure=error;}
+  // Discovery can finish out of order; only its current request may publish any outcome.
+  if(this.discoveries.get(key)!==request)throw new AppError("ISSUE_LOG_CHANGED","较新的日志发现请求已开始，请使用最新刷新结果");
+  this.discoveries.delete(key);this.assertCurrent(scope);
   const version=hash({issue:issue.updatedAt,attachments,adapterKind:scope.connection.kind});const previous=this.repository.latest(source);
   if(!force&&!failure&&previous?.issueVersion===version)return previous;
   const now=new Date().toISOString();

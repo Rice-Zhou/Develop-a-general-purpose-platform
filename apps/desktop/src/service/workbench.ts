@@ -301,9 +301,9 @@ export class Workbench implements TaskRuntime {
       );
       await this.issues.validateFresh(issue, signal);
       const report = await pipeline.preanalyze(task, issue, signal);
+      await this.issues.validateFresh(issue, signal);
       for(const repository of context.repositories)if(repository.kind === "worktree")await assertWorktreeCurrent(repository,signal);
       if(context.issueLogs){const current=this.store.materials.get(context.issueLogs.id);if(current.manifestHash!==context.issueLogs.manifestHash||this.store.materials.latest(current.scope)?.id!==current.id)throw new AppError("ISSUE_LOG_CHANGED","分析期间日志版本已变化");}
-      await this.issues.validateFresh(issue, signal);
       return { kind: "bug" as const, report };
     }
     if (task.kind === "EXTRACT_REQUIREMENTS")

@@ -1,7 +1,19 @@
 import {expect,it,vi} from "vitest";
 import {IssueLogService} from "./issue-log-service";
+import {AppError} from "../../../contracts/src/error";
 import type {IssueLogSet,IssueLogScope} from "../../../contracts/src/issue-materials";
 import type {IssueScope,RemoteIssue} from "../../../contracts/src/issues";
+for(const rotated of [false,true])it(`discards obsolete attachment discovery before publishing (credential rotation: ${rotated})`,async()=>{
+ const sets:IssueLogSet[]=[];const repository={get:(id:string)=>sets.find(s=>s.id===id)!,latest:()=>sets.at(-1)??null,create:(set:IssueLogSet)=>{sets.push(set);},update:()=>true};
+ let release!:()=>void;const gate=new Promise<void>(r=>release=r);let calls=0;
+ const original={connection:{kind:"trinity",platform:"trinity",baseUrl:"https://t",credentialRef:"old"},binding:{owner:"a"}} as IssueScope;
+ const current={...original,connection:{...original.connection,credentialRef:rotated?"new":"old"}};
+ const service=new IssueLogService(repository,()=>({listAttachments:async()=>{if(++calls===1)await gate;return [];}}),vi.fn(),scope=>{if(scope.connection.credentialRef!==current.connection.credentialRef)throw new AppError("PROJECT_CHANGED","credentials changed");});
+ const issue={remoteId:"b",updatedAt:"1"} as RemoteIssue;
+ const old=service.enqueue(original,issue);const outcome=old.then(()=>"published",error=>(error as AppError).code);
+ const fresh=await service.enqueue(current,{...issue,updatedAt:"2"});release();
+ expect(await outcome).toMatch(/ISSUE_LOG_CHANGED|PROJECT_CHANGED/);expect(repository.latest()?.id).toBe(fresh.id);expect(sets).toHaveLength(1);expect(fresh.status).toBe("NO_LOGS");
+});
 it("deduplicates shared issue generations and never publishes an older completed download",async()=>{
  const sets:IssueLogSet[]=[];let release!:()=>void;const gate=new Promise<void>(r=>release=r);
  const repository={get:(id:string)=>sets.find(s=>s.id===id)!,latest:(_scope:IssueLogScope)=>sets.at(-1)??null,create:(set:IssueLogSet)=>{sets.push(set);},update:(set:IssueLogSet)=>{if(sets.at(-1)?.id!==set.id)return false;sets[sets.length-1]=set;return true;}};

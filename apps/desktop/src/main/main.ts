@@ -192,13 +192,12 @@ else {
             }
             const keep =
               existing &&
-              "baseUrl" in existing &&
-              "baseUrl" in draft &&
               existing.kind === draft.kind &&
+              (!issueConnection || ("baseUrl" in existing && "baseUrl" in draft &&
               existing.baseUrl === draft.baseUrl &&
               (!("username" in draft) ||
                 ("username" in existing &&
-                  existing.username === draft.username));
+                  existing.username === draft.username))));
             const credentialRef = secret
               ? await credentials.save(id, secret)
               : keep
