@@ -17,7 +17,7 @@ import { BugsPage } from "./pages/BugsPage";
 import { CodeConflictDialog } from "./components/CodeConflictDialog";
 import { DocumentLibraryPage } from "./pages/DocumentLibraryPage";
 import { ProjectDocumentsDialog } from "./components/ProjectDocumentsDialog";
-import type { PublicIssueConnection } from "../../../../packages/contracts/src/issues";
+import type { TrinityLoginStatus, PublicIssueConnection } from "../../../../packages/contracts/src/issues";
 const statusLabels: Record<TaskStatus, string> = {
   QUEUED: "排队中",
   PREPARING: "准备中",
@@ -61,6 +61,13 @@ export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [trinityLogin, setTrinityLogin] = useState<TrinityLoginStatus|null>(null);
+  useEffect(()=>{
+    let active=true;let reading=false;
+    const read=async()=>{if(reading)return;reading=true;try{const result=unwrap(await window.platform.getTrinityLoginStatus());if(active)setTrinityLogin(result);}catch(error){if(active)setError(message(error));}finally{reading=false;}};
+    void read();const timer=setInterval(()=>void read(),1500);
+    return ()=>{active=false;clearInterval(timer);};
+  },[]);
   const [editor, setEditor] = useState<Project | "new" | null>(null);
   const [linkEditor, setLinkEditor] = useState<{ project: Project; connection?: PublicIssueConnection } | null>(null);
   const [documentEditor, setDocumentEditor] = useState<{ project: Project; document: DocumentResource } | null>(null);
@@ -323,6 +330,8 @@ export function App() {
               </button>
             )}
           </div>
+          {trinityLogin?.state === "running" && <div className="notice" role="status">{trinityLogin.message}</div>}
+          {trinityLogin?.state === "failed" && <div className="error-panel" role="alert">[{trinityLogin.code}] {trinityLogin.message} <button className="secondary" onClick={()=>setPage("settings")}>前往 Trinity 设置</button></div>}
           {error && (
             <div className="error-panel global-error" role="alert">
               <span>{error}</span>

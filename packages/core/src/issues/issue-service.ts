@@ -14,6 +14,7 @@ import {
   type PublicIssueConnection,
   type JiraCatalogue,
   isIssueStatusIndexed,
+  publicIssueConnection,
 } from "../../../contracts/src/issues";
 import { AppError, errorData } from "../../../contracts/src/error";
 import type { IssueWorkspace } from "../../../contracts/src/issue-monitor";
@@ -61,10 +62,7 @@ export class IssueService {
     return c;
   }
   publicConnections(): PublicIssueConnection[] {
-    return this.connections().map(({ credentialRef, ...c }) => ({
-      ...c,
-      hasCredential: Boolean(credentialRef),
-    }));
+    return this.connections().map(publicIssueConnection);
   }
   async catalogue(connectionId: string, signal: AbortSignal): Promise<JiraCatalogue> {
     const connection = this.connection(connectionId);
@@ -128,6 +126,7 @@ export class IssueService {
       .object({
         id: z.uuid(),
         credentialRef: z.uuid().nullable(),
+        passwordRef: z.uuid().nullable().optional(),
         draft: IssueConnectionDraftSchema,
       })
       .strict()
@@ -136,6 +135,7 @@ export class IssueService {
       ...input.draft,
       id: input.id,
       credentialRef: input.credentialRef,
+      ...(input.draft.kind === "trinity" ? { passwordRef: input.passwordRef ?? null } : {}),
     };
     const previous = this.connections().find(c => c.id === input.id);
     if (previous && (previous.kind !== connection.kind || previous.platform !== connection.platform)) this.assertUnreferenced(input.id);
@@ -149,8 +149,7 @@ export class IssueService {
       ...this.connections().filter((c) => c.id !== input.id),
       connection,
     ]);
-    const { credentialRef, ...c } = connection;
-    return { ...c, hasCredential: Boolean(credentialRef) };
+    return publicIssueConnection(connection);
   }
   deleteConnection(id: string): void {
     this.connection(id);

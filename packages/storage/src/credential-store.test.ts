@@ -50,3 +50,6 @@ describe("credential boundary", () => {
     });
   });
 });
+it("allows retrying deletion of an already removed credential",async()=>{
+ const root=await mkdtemp(join(tmpdir(),"credential-delete-"));roots.push(root);const vault=new FileCredentialStore(root,{available:()=>true,encrypt:v=>Buffer.from(v),decrypt:v=>v.toString()});const ref=await vault.save("c","secret");await vault.remove(ref);await expect(vault.remove(ref)).resolves.toBeUndefined();
+});

@@ -14,6 +14,7 @@ const api: DesktopAPI = {
   getTrinityProjects: connectionId => invoke("getTrinityProjects",{connectionId}),
   associateTrinityIssue: input => invoke("associateTrinityIssue",input),
   getJiraCatalogue: (connectionId) => invoke("getJiraCatalogue", { connectionId }),
+  getTrinityLoginStatus: () => invoke("getTrinityLoginStatus"),
   getIssueConnections: () => invoke("getIssueConnections"),
   inspectLocalJira: () => invoke("inspectLocalJira"),
   saveIssueConnection: (draft, secret, id) =>

@@ -164,6 +164,7 @@ parent.on("message", (event) => {
       request?: unknown;
       dataPath?: string;
       version?: string;
+      startMonitor?: boolean;
       destination?: string;
       requestId?: string;
       result?: {
@@ -207,14 +208,16 @@ parent.on("message", (event) => {
           resolveCredential,
         );
         tasks = new TaskService(store, projects, git, workbench);
-        workbench.monitor.start();
+        if(envelope.startMonitor)workbench.monitor.start();
         parent.postMessage({ type: "ready" });
         return;
       }
       if (envelope.type === "control") {
         if (!store) throw new AppError("SERVICE_NOT_READY", "本地服务尚未就绪");
         let value: unknown;
-        if (envelope.action === "save-issue-connection")
+        if(envelope.action === "start-issue-monitor") {workbench.monitor.start();value=null;}
+        else if(envelope.action === "get-issue-connections")value=workbench.issues.connections();
+        else if (envelope.action === "save-issue-connection")
           value = workbench.issues.saveConnection(envelope.payload);
         else if (envelope.action === "get-issue-connection")
           value = workbench.issues.connection(

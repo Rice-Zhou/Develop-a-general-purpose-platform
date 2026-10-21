@@ -14,6 +14,7 @@ export class ServiceClient {
   private cleanup: Promise<void> = Promise.resolve();
   private fatalError: AppError | null = null;
   private stopping = false;
+  private monitorStarted = false;
   private readonly pending = new Map<
     string,
     {
@@ -59,6 +60,7 @@ export class ServiceClient {
             type: "init",
             dataPath: this.dataPath,
             version: this.version,
+            startMonitor: this.monitorStarted,
           });
         } catch (error) {
           clearTimeout(timer);
@@ -181,12 +183,19 @@ export class ServiceClient {
     await this.ensureReady();
     return this.send({ type: "backup", destination });
   }
+  async startIssueMonitor():Promise<void> {
+    this.monitorStarted=true;
+    const result=await this.control("start-issue-monitor",{});
+    if(!result.ok)throw new AppError(result.error.code,result.error.message);
+  }
   async control(
     action:
       | "save-profile"
       | "get-profile"
       | "delete-profile"
       | "export-report"
+      | "start-issue-monitor"
+      | "get-issue-connections"
       | "save-issue-connection"
       | "get-issue-connection"
       | "delete-issue-connection"

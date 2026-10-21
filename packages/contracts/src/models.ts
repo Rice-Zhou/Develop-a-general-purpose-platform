@@ -223,6 +223,7 @@ export interface DesktopAPI {
   getTrinityProjects(connectionId: string): Promise<Result<NonNullable<Project["trinityProjects"]>>>;
   associateTrinityIssue(input: {projectId:string;issueSnapshotId:string;targetProjectId:string;expectedRevision:number}): Promise<Result<Project>>;
   getJiraCatalogue(connectionId: string): Promise<Result<import("./issues").JiraCatalogue>>;
+  getTrinityLoginStatus(): Promise<Result<import("./issues").TrinityLoginStatus>>;
   getIssueConnections(): Promise<Result<PublicIssueConnection[]>>;
   inspectLocalJira(): Promise<
     Result<import("./issues").LocalJiraConfiguration>

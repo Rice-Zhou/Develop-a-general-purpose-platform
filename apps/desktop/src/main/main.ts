@@ -11,7 +11,7 @@ import {
 import { join, resolve } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { loginTrinity, readTrinityIdentity } from "../../../../packages/adapters/src/issues/login";
+import { TrinityLogin } from "./trinity-login";
 import { JiraCliAdapter } from "../../../../packages/adapters/src/issues/jira-cli";
 import { trinityApiUrl } from "../../../../packages/core/src/issues/scope-policy";
 import { JiraHttpAdapter } from "../../../../packages/adapters/src/issues/jira-http";
@@ -53,6 +53,21 @@ else {
         app.getVersion(),
         credentials,
       );
+      const trinity = new TrinityLogin(credentials, {
+        connections: async () => {
+          const result = await service.control("get-issue-connections", {});
+          if (!result.ok) throw new AppError(result.error.code, result.error.message);
+          return result.value as IssueConnection[];
+        },
+        commit: async (connection) => {
+          const {id,credentialRef,passwordRef,...draft}=connection;
+          const result=await service.control("save-issue-connection",{id,credentialRef,passwordRef,draft});
+          if(!result.ok)throw new AppError(result.error.code,result.error.message);
+          return result.value;
+        },
+      });
+      let startup:Promise<void>=Promise.resolve();
+      let startupError:unknown;
       window = new BrowserWindow({
         title: "本地研发辅助平台",
         width: 1360,
@@ -92,6 +107,9 @@ else {
             event.senderFrame === window!.webContents.mainFrame,
           );
           const request = parseRequest(input);
+          if(request.method === "getTrinityLoginStatus")return {ok:true,value:trinity.status()};
+          await startup;
+          if(startupError)throw startupError;
           if(request.method === "openIssueMaterial") {
             const result=await service.control("get-issue-material-path",request.params);
             if(!result.ok)return result;
@@ -154,33 +172,17 @@ else {
             }
             let draft = request.params.draft;
             if(issueConnection && draft.kind === "trinity") draft={...draft,baseUrl:trinityApiUrl(draft.baseUrl)};
-            let secret = request.params.secret;
+            const secret = request.params.secret;
+            if(issueConnection && draft.kind === "trinity")return {ok:true,value:await trinity.save(draft,secret,existing as IssueConnection|undefined,id)};
             if (
               issueConnection &&
-              (draft.kind === "jira-http" ||
-                (draft.kind === "trinity" && draft.username)) &&
+              draft.kind === "jira-http" &&
               !secret
             )
               throw new AppError(
                 "ISSUE_LOGIN_REQUIRED",
                 "请填写账号密码后登录平台",
               );
-            if (
-              issueConnection &&
-              "kind" in draft &&
-              draft.kind === "trinity" &&
-              draft.username &&
-              secret
-            )
-              secret = await loginTrinity(
-                draft.baseUrl,
-                draft.username,
-                secret,
-              );
-            if(issueConnection && draft.kind === "trinity") {
-              if(!secret)throw new AppError("ISSUE_LOGIN_REQUIRED","请重新登录 Trinity 验证账号");
-              draft={...draft,...await readTrinityIdentity(draft.baseUrl,secret)};
-            }
             if(issueConnection && (draft.kind === "jira-cli" || draft.kind === "jira-http")) {
               if(!draft.jiraProject)throw new AppError("JIRA_SELECTION_REQUIRED","请先读取并选择此连接对应的 Jira 项目及缺陷类型");
               const adapter=draft.kind==="jira-cli"?new JiraCliAdapter(app.getPath("userData")):new JiraHttpAdapter(async()=>secret!);
@@ -198,6 +200,7 @@ else {
               (!("username" in draft) ||
                 ("username" in existing &&
                   existing.username === draft.username))));
+            if(issueConnection&&existing&&"passwordRef" in existing&&existing.passwordRef)await credentials.remove(existing.passwordRef);
             const credentialRef = secret
               ? await credentials.save(id, secret)
               : keep
@@ -216,6 +219,7 @@ else {
                 await credentials.remove(credentialRef);
               return saved;
             }
+            if(issueConnection&&existing?.kind==="trinity")trinity.forget();
             if (
               existing?.credentialRef &&
               existing.credentialRef !== credentialRef
@@ -235,6 +239,8 @@ else {
               },
             );
             if (!prior.ok) return prior;
+            const passwordRef=issueConnection?(prior.value as IssueConnection).passwordRef:null;
+            if(passwordRef)await credentials.remove(passwordRef);
             const removed = await service.control(
               issueConnection ? "delete-issue-connection" : "delete-profile",
               {
@@ -244,6 +250,7 @@ else {
             if (!removed.ok) return removed;
             const ref = (prior.value as AIProfile).credentialRef;
             if (ref) await credentials.remove(ref);
+            if(issueConnection&&(prior.value as IssueConnection).kind==="trinity")trinity.forget();
             return removed;
           }
           if (
@@ -311,6 +318,7 @@ else {
           window?.hide();
         }
       });
+      startup=(async()=>{await trinity.startup();await service.startIssueMonitor();})().catch(error=>{startupError=error;});
       if (MAIN_WINDOW_VITE_DEV_SERVER_URL)
         await window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
       else

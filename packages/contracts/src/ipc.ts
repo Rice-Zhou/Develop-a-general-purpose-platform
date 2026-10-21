@@ -55,6 +55,8 @@ const request = z.discriminatedUnion("method", [
     .strict(),
   z.object({ method: z.literal("inspectLocalJira"), params: empty }).strict(),
   z
+    .object({ method: z.literal("getTrinityLoginStatus"), params: empty }).strict(),
+  z
     .object({ method: z.literal("getIssueConnections"), params: empty })
     .strict(),
   z

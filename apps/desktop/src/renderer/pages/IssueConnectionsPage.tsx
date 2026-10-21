@@ -24,6 +24,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
   );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [autoLogin, setAutoLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -49,11 +50,13 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
       setConfig(connection.configFile);
     }
     setPassword("");
+    setAutoLogin(connection.kind === "trinity" && !!connection.autoLogin);
     setError("");
     setNotice("");
   }
   function addNew() {
     setEditingId(undefined);
+    setAutoLogin(false);
     setName(""); setPassword(""); setNotice(""); setError("");
     setPlatform("jira"); setJiraMode(local?.available ? "cli" : "account");
     setUrl(local?.baseUrl ?? ""); setUsername(local?.username ?? "");
@@ -100,6 +103,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
               name: name || "Trinity",
               baseUrl: url,
               username,
+              autoLogin,
               bypassProxy: true,
             }
           : jiraMode === "cli"
@@ -145,7 +149,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
         if(!selected||!catalogue||!issueTypeIds.length)throw new Error("请先登录并读取 Jira 项目，选择此连接的项目与缺陷类型");
         draft={...draft,jiraProject:{...selected,owner:catalogue.owner,issueTypeIds}};
       }
-      if (draft.kind !== "jira-cli" && !password) throw new Error("请输入登录密码");
+      if (draft.kind !== "jira-cli" && !password && !(draft.kind==="trinity" && editingId && !autoLogin)) throw new Error("请输入登录密码");
       const saved = unwrap(
         await window.platform.saveIssueConnection(
           draft,
@@ -178,7 +182,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
-      {editingId && <p className="notice">正在编辑原连接。账号登录需重新输入密码。Trinity 重新登录会替换所有代码项目使用的当前账号。</p>}
+      {editingId && <p className="notice">正在编辑原连接。重新登录需输入密码；关闭 Trinity 自动登录时可留空。Trinity 重新登录会替换所有代码项目使用的当前账号。</p>}
       <Container
         onSubmit={(e) => void save(e)}
         onChangeCapture={() => {
@@ -194,6 +198,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
               onChange={(e) => {
                 const value = e.target.value as typeof platform;
                 setPlatform(value);
+                setAutoLogin(false);
                 setPassword("");
                 setUsername(value === "jira" ? (local?.username ?? "") : "");
                 setUrl(
@@ -303,16 +308,17 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
             <label>
               登录密码
               <input
-                required
+                required={!(platform==="trinity" && editingId && !autoLogin)}
                 type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </label>
+            {platform === "trinity" && <label className="checkbox-row"><input type="checkbox" disabled={busy} checked={autoLogin} onChange={e=>setAutoLogin(e.target.checked)} />在本机保存账号密码，并在启动时自动登录</label>}
             <p className="muted small">
               {platform === "trinity"
-                ? "登录成功后仅加密保存会话 token，密码不保存。项目范围内的问题可在 BUG 工作台统一刷新。"
+                ? "默认仅加密保存会话 token。勾选后通过系统加密保存账号密码，每次启动登录一次；关闭后清除保存的密码。自动登录失败会提示，不循环重试。"
                 : "登录成功后在本机加密保存密码，不可读回；此方式用于支持账号密码认证的 Server / Data Center。Cloud 请使用本地 CLI 登录。"}
             </p>
           </>
@@ -345,7 +351,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
                   ? `账号 ${c.username}`
                   : "已有会话"}
             </p>
-            {c.kind === "trinity" ? <p className="muted small">当前唯一账号 · 已自动关联所有代码项目{!c.accountId && " · 请重新登录验证身份"}</p> : <p className="muted small">Jira 项目：{c.jiraProject ? `${c.jiraProject.name}（${c.jiraProject.key}）` : "旧连接尚未配置，请编辑并选择 Jira 项目"}</p>}
+            {c.kind === "trinity" ? <p className="muted small">当前唯一账号 · 已自动关联所有代码项目 · 自动登录{c.autoLogin ? "已开启" : "未开启"}{!c.accountId && " · 请重新登录验证身份"}</p> : <p className="muted small">Jira 项目：{c.jiraProject ? `${c.jiraProject.name}（${c.jiraProject.key}）` : "旧连接尚未配置，请编辑并选择 Jira 项目"}</p>}
           </div>
           <button className="secondary" disabled={busy || checking} onClick={() => edit(c)}>编辑 / 重新登录</button>
           {c.platform !== "trinity" && onLink && <button className="secondary" disabled={busy} onClick={() => onLink(c)}>关联项目</button>}

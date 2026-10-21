@@ -48,6 +48,7 @@ export const IssueConnectionDraftSchema = z.discriminatedUnion("kind", [
       platform: z.literal("trinity"),
       username: atom.optional(),
       accountId: atom.optional(),
+      autoLogin: z.boolean().optional(),
     })
     .strict(),
 ]);
@@ -55,6 +56,7 @@ export type IssueConnectionDraft = z.infer<typeof IssueConnectionDraftSchema>;
 export type IssueConnection = IssueConnectionDraft & {
   id: string;
   credentialRef: string | null;
+  passwordRef?: string | null;
 };
 export type PublicIssueConnection = IssueConnectionDraft & {
   id: string;
@@ -166,3 +168,15 @@ export const BugReportSchema = BugProposalSchema.extend({
     .nullable(),
 }).strict();
 export type BugReport = z.infer<typeof BugReportSchema>;
+
+export interface TrinityLoginStatus {
+  state: "running" | "disabled" | "succeeded" | "failed";
+  code?: string;
+  message: string;
+}
+
+export function publicIssueConnection(connection:IssueConnection):PublicIssueConnection {
+  const {credentialRef,passwordRef,...value}=connection;
+  void passwordRef;
+  return {...value,hasCredential:!!credentialRef};
+}

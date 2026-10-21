@@ -49,6 +49,10 @@ export class FileCredentialStore {
     return value.secret;
   }
   async remove(ref: string): Promise<void> {
-    await unlink(this.file(ref));
+    try { await unlink(this.file(ref)); }
+    catch(error) {
+      // Retrying a partially completed cleanup must not fail on an already removed file.
+      if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;
+    }
   }
 }
