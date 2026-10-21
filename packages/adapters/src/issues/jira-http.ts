@@ -1,3 +1,6 @@
+import { attachmentUrl, downloadAttachmentFile } from "./attachment-download";
+import type { AttachmentDescriptor } from "../../../contracts/src/issue-materials";
+import { fingerprint } from "../../../core/src/issues/scope-policy";
 import { z } from "zod";
 import type { IssueAdapter } from "../../../core/src/issues/ports";
 import type { IssueConnection, IssueScope, RemoteIssue, JiraCatalogue } from "../../../contracts/src/issues";
@@ -54,6 +57,22 @@ export class JiraHttpAdapter implements IssueAdapter {
         "Jira 响应不是有效 JSON，未保存正文",
       );
     }
+  }
+  private async attachmentRows(scope:IssueScope,issue:RemoteIssue,signal:AbortSignal) {
+    ScopePolicy.assert(scope,issue);assertJiraKey(scope,issue.key);
+    const parsed=z.object({key:z.literal(issue.key),fields:z.object({attachment:z.array(z.object({id:z.string().min(1),filename:z.string().min(1),mimeType:z.string(),size:z.number().int().nonnegative(),content:z.string()})).max(500)})}).safeParse(await this.json(scope,"/rest/api/2/issue/"+encodeURIComponent(issue.key)+"?fields=attachment",signal));
+    if(!parsed.success)throw new AppError("ISSUE_ATTACHMENTS_INVALID","Jira 附件响应契约不符");
+    return parsed.data.fields.attachment.map(row=>({...row,content:attachmentUrl(row.content,scope.connection.baseUrl)}));
+  }
+  async listAttachments(scope:IssueScope,issue:RemoteIssue,signal:AbortSignal):Promise<AttachmentDescriptor[]> {
+    return (await this.attachmentRows(scope,issue,signal)).map(row=>({id:row.id,name:row.filename,mediaType:row.mimeType,size:row.size,version:fingerprint({id:row.id,size:row.size,name:row.filename,issueVersion:issue.updatedAt})}));
+  }
+  async downloadAttachment(scope:IssueScope,issue:RemoteIssue,attachmentId:string,destination:string,signal:AbortSignal) {
+    const current=await this.get(scope,issue.key,signal);ScopePolicy.assert(scope,current);
+    if(current.updatedAt!==issue.updatedAt)throw new AppError("ISSUE_CHANGED","问题在下载前已变化，请刷新");
+    const file=(await this.attachmentRows(scope,current,signal)).find(row=>row.id===attachmentId);
+    if(!file||scope.connection.kind!=="jira-http")throw new AppError("ISSUE_ATTACHMENT_DENIED","附件不属于当前问题");
+    return downloadAttachmentFile(file.content,scope.connection.baseUrl,{Authorization:"Basic "+Buffer.from(scope.connection.username+":"+await this.password()).toString("base64")},destination,signal);
   }
   async discover(connection: IssueConnection, signal: AbortSignal): Promise<JiraCatalogue> {
     const identity = z.object({ name: z.string().trim().min(1) }).parse(await this.connectionJson(connection, "/rest/api/2/myself", signal));

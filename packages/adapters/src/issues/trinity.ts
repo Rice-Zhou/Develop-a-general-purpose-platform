@@ -1,3 +1,6 @@
+import { downloadAttachmentFile } from "./attachment-download";
+import type { AttachmentDescriptor } from "../../../contracts/src/issue-materials";
+import { fingerprint } from "../../../core/src/issues/scope-policy";
 import { z } from "zod";
 import { AppError } from "../../../contracts/src/error";
 import {
@@ -21,6 +24,23 @@ export class TrinityAdapter implements IssueAdapter {
     private readonly resolveToken: () => Promise<string>,
     private readonly request: typeof fetch = curlFetch as typeof fetch,
   ) {}
+  async listAttachments(scope:IssueScope,issue:RemoteIssue,signal:AbortSignal):Promise<AttachmentDescriptor[]> {
+    ScopePolicy.assert(scope,issue);
+    if(!issue.workitemId)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","Trinity 未返回工作项 ID，无法验证附件范围");
+    const raw=await this.read(scope,"/storage/attachments/findByTypeAndDataId?"+new URLSearchParams({type:"quality-bug-file",dataId:`${issue.remoteProjectId}_${issue.workitemId}`}),signal);
+    const parsed=z.array(z.object({id:z.union([z.string().min(1),z.number().int()]).transform(String),name:z.string().min(1),fileSize:z.number().nonnegative().nullish(),size:z.number().nonnegative().nullish(),createTime:z.string().nullish(),updateTime:z.string().nullish()})).max(500).safeParse(trinityData(raw,"问题附件"));
+    if(!parsed.success)throw new AppError("ISSUE_ATTACHMENTS_INVALID","Trinity 附件列表契约不符，未当作无日志处理");
+    return parsed.data.map(row=>({id:row.id,name:row.name,mediaType:row.name.toLowerCase().endsWith(".zip")?"application/zip":"application/octet-stream",size:row.fileSize??row.size??null,version:fingerprint({row,issueVersion:issue.updatedAt})}));
+  }
+  async downloadAttachment(scope:IssueScope,issue:RemoteIssue,attachmentId:string,destination:string,signal:AbortSignal) {
+    const current=await this.get(scope,issue.key,signal);ScopePolicy.assert(scope,current);
+    if(current.updatedAt!==issue.updatedAt)throw new AppError("ISSUE_CHANGED","问题在下载前已变化，请刷新");
+    const files=await this.listAttachments(scope,current,signal);
+    if(!files.some(file=>file.id===attachmentId))throw new AppError("ISSUE_ATTACHMENT_DENIED","附件不属于当前问题");
+    const protocol=await this.protocol!;
+    const base=instanceUrl(scope.connection.baseUrl);
+    return downloadAttachmentFile(base+"/storage/attachments/download?"+new URLSearchParams({id:attachmentId}),base,{"X-Token":await this.resolveToken(),"X-Platform":"trinity",...protocol},destination,signal,"POST");
+  }
   async list(scope: IssueScope, signal: AbortSignal): Promise<RemoteIssue[]> {
     ScopePolicy.validate(scope);
     if (scope.binding.scopeMode === "account") return this.listAccount(scope, signal);
