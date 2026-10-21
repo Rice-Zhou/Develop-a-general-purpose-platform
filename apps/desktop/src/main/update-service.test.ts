@@ -1,0 +1,11 @@
+import {describe,it,expect,vi} from "vitest";
+import {UpdateService} from "./update-service";
+import type {UpdateOffer} from "../../../../packages/contracts/src/updates";
+const offer:UpdateOffer={id:"1:hash",version:"1.0.2",notes:"",releaseUrl:"https://github.com/release",assetUrl:"https://github.com/file",manifest:{schemaVersion:1,version:"1.0.2",platform:"win32",arch:"x64",assetName:"LocalDevPlatformSetup.exe",size:3,sha256:"a".repeat(64)}};
+function setup(){const check=vi.fn(async()=>({kind:"available" as const,offer}));const download=vi.fn(async()=>({offerId:offer.id,path:"/cache/Setup.exe",size:3,sha256:offer.manifest.sha256}));return {check,download,service:new UpdateService("1.0.1",{check},download,"/cache","portable")};}
+describe("update state",()=>{
+ it("checks startup once and consumes the prompt only once",async()=>{const {service,check,download}=setup();await service.check("startup");expect(service.takeStartupPrompt()).toEqual(offer);expect(service.takeStartupPrompt()).toBeNull();await service.check("startup");await service.check("manual");expect(service.takeStartupPrompt()).toBeNull();expect(check).toHaveBeenCalledTimes(2);expect(download).not.toHaveBeenCalled();});
+ it("shares concurrent checks",async()=>{const {service,check}=setup();await Promise.all([service.check("manual"),service.check("manual")]);expect(check).toHaveBeenCalledTimes(1);});
+ it("requires explicit matching offer and keeps verified package after failed checks",async()=>{const {service,check,download}=setup();await expect(service.download("old")).rejects.toThrow();await service.check("manual");await service.download(offer.id);expect(download).toHaveBeenCalledOnce();check.mockRejectedValueOnce(new Error("403"));await service.check("manual");expect(service.getStatus()).toMatchObject({phase:"ready",error:{message:"403"}});});
+ it("ignores download success arriving after cancellation",async()=>{const {service,download}=setup();let finish!:()=>void;download.mockImplementationOnce(()=>new Promise(resolve=>{finish=()=>resolve({offerId:offer.id,path:"/cache/Setup.exe",size:3,sha256:offer.manifest.sha256});}));await service.check("manual");const pending=service.download(offer.id);service.cancelDownload();finish();await pending;expect(service.getStatus().phase).toBe("available");});
+});
