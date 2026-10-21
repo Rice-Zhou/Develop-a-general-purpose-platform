@@ -185,3 +185,7 @@ Jira 查询只按实例、项目、负责人和缺陷类型取数，不向服务
 启动时检查公开 GitHub Release，每次主进程仅提示一次；设置 → 客户端更新可手动检查、下载、取消及安装。所有更新请求直连本地网络，下载后核验字节数与 SHA-256；有活动任务或排队任务时拒绝安装。便携版在线更新后转为安装版并保留原用户数据。0.9.3 首次需手动启动 1.0.1，此后才能使用本模块更新。
 
 [公开 Release 发布说明](docs/公开GitHubRelease发布说明.md) · [1.0.1 验收记录](docs/1.0.1任务报告与在线更新验收.md)。本地打包不自动上传、发布或创建 Release。
+
+## GitHub 与版本记录
+
+代码仓库：[Rice-Zhou/Develop-a-general-purpose-platform](https://github.com/Rice-Zhou/Develop-a-general-purpose-platform)。迭代变化见 [CHANGELOG.md](CHANGELOG.md)，分支、标签和发行流程见 [GitHub 版本与迭代管理](docs/GitHub版本与迭代管理.md)。版本标签固定实际交付代码；客户端可安装更新通过 GitHub Release 的安装包和清单分发。
