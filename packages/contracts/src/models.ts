@@ -109,7 +109,8 @@ export interface FileEntry {
   blob: string;
   mode: string;
 }
-export interface RepositorySnapshot {
+export interface GitRepositorySnapshot {
+  kind?: "git";
   bindingId: string;
   canonicalPath: string;
   commit: string;
@@ -120,6 +121,19 @@ export interface RepositorySnapshot {
   files: FileEntry[];
   excluded: string[];
 }
+export interface WorktreeRepositorySnapshot {
+  kind: "worktree";
+  bindingId:string;
+  canonicalPath:string;
+  commit:string|null;
+  branch:string|null;
+  capturedAt:string;
+  manifestHash:string;
+  dirty:boolean;
+  files:{path:string;contentHash:string;size:number}[];
+  excluded:string[];
+}
+export type RepositorySnapshot = GitRepositorySnapshot | WorktreeRepositorySnapshot;
 export interface ContextSnapshot {
   issueSnapshotId?: string;
   id: string;

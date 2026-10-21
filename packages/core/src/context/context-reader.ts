@@ -113,7 +113,9 @@ export class ContextReader {
       endLine - startLine >= 400
     )
       throw new AppError("LINE_RANGE_DENIED", "代码读取范围须为 1—400 行");
-    const bytes = await this.git.readFile(repo, path, signal);
+    const entry = repo.files.find(file=>file.path===path);
+    if (!entry) throw new AppError("PATH_DENIED","文件不在此快照的可读清单内");
+    const bytes = repo.kind === "worktree" ? await this.content.get(repo.files.find(file=>file.path===path)!.contentHash) : await this.git.readFile(repo, path, signal);
     if (bytes.includes(0))
       throw new AppError("BINARY_FILE", "该文件不是可检索文本");
     const text = bytes.toString("utf8");
@@ -128,6 +130,10 @@ export class ContextReader {
     const actualEnd = Math.min(endLine, lines.length);
     const excerpt = lines.slice(startLine - 1, actualEnd).join("\n");
     const snippetHash = textHash(excerpt);
+    if(repo.kind === "worktree") {
+      const contentHash=repo.files.find(file=>file.path===path)!.contentHash;
+      return {text:excerpt,evidence:{kind:"worktree-code",id:textHash(`${bindingId}:${repo.manifestHash}:${path}:${startLine}:${actualEnd}:${snippetHash}`),projectId:this.context.projectId,contextSnapshotId:this.context.id,bindingId,manifestHash:repo.manifestHash,contentHash,path,startLine,endLine:actualEnd,snippetHash}};
+    }
     return {
       text: excerpt,
       evidence: {

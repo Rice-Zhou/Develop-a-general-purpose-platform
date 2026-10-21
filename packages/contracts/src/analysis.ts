@@ -53,6 +53,8 @@ export interface ExecutorDiagnostic {
   detail: string;
 }
 export const EvidenceRefSchema = z.discriminatedUnion("kind", [
+  z.object({kind:z.literal("worktree-code"),id:z.string(),projectId:z.string(),contextSnapshotId:z.string(),bindingId:z.string(),manifestHash:z.string(),contentHash:z.string(),path:z.string(),startLine:z.number().int().positive(),endLine:z.number().int().positive(),snippetHash:z.string()}).strict(),
+
   z
     .object({
       kind: z.literal("code"),
@@ -80,6 +82,11 @@ export const EvidenceRefSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
+export function isCodeEvidence(ref: EvidenceRef | undefined): ref is Extract<EvidenceRef,{kind:"code"|"worktree-code"}> {return ref?.kind === "code" || ref?.kind === "worktree-code";}
+export function evidenceLabel(ref:EvidenceRef):string {
+  if(ref.kind === "document")return `文档 ${ref.documentSnapshotId} · ${ref.blockId}`;
+  return `${ref.kind === "code" ? ref.commit : `工作区 ${ref.manifestHash}`} · ${ref.path}:${ref.startLine}-${ref.endLine}`;
+}
 export interface SearchResult {
   method: "trigram" | "bounded-scan";
   results: { text: string; evidence: EvidenceRef | null; path?: string }[];

@@ -108,7 +108,7 @@ export function TaskDetails({
                 <code className="commit">{repo.commit}</code>
                 <p className="path">{repo.canonicalPath}</p>
                 <p className="small muted">
-                  获取于 {new Date(repo.fetchedAt).toLocaleString()}
+                  获取于 {new Date(repo.kind === "worktree" ? repo.capturedAt : repo.fetchedAt).toLocaleString()}
                 </p>
                 {repo.excluded.length > 0 && (
                   <details>

@@ -1,3 +1,4 @@
+import { evidenceLabel } from "../../../../packages/contracts/src/analysis";
 import { resolveAIConnection, resolveAIEndpoint } from "../../../../packages/adapters/src/network/ai-endpoint";
 import { join, delimiter } from "node:path";
 import { createHash } from "node:crypto";
@@ -581,7 +582,7 @@ export class Workbench implements TaskRuntime {
       "静态预分析，未运行验证，候选原因未确认为根因。",
       `问题快照：${issue.id} / ${issue.contentHash}`,
       `问题版本：${issue.versions.map(esc).join("、") || "未提供"}`,
-      `代码：${context.repositories.map((repo) => `${esc(repo.branch)} @ ${repo.commit}`).join("；")}`,
+      `代码：${context.repositories.map((repo) => `${esc(repo.branch ?? "detached/unborn")} @ ${repo.commit}`).join("；")}`,
       `执行器：${esc(r.executorConfiguration.name)} / ${esc(r.executorConfiguration.configuredModel ?? "CLI 默认模型")}`,
       "## 复现条件",
       ...r.reproduction.map((s) => "- " + esc(s)),
@@ -620,9 +621,7 @@ export class Workbench implements TaskRuntime {
       "\n## 证据引用\n\n" +
       report.evidenceRefs
         .map((e) =>
-          e.kind === "code"
-            ? `- ${escape(e.id)}：${escape(e.bindingId)} / ${escape(e.commit)} / ${escape(e.path)}:${e.startLine}-${e.endLine}，SHA256 ${e.snippetHash}`
-            : `- ${escape(e.id)}：文档 ${escape(e.documentSnapshotId)} / ${escape(e.blockId)}，SHA256 ${e.quoteHash}`,
+          `- ${escape(e.id)}：${escape(evidenceLabel(e))}`,
         )
         .join("\n") +
       "\n\n## 限制\n\n" +

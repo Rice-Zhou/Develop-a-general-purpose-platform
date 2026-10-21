@@ -1,3 +1,4 @@
+import { isCodeEvidence } from "../../../contracts/src/analysis";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Task } from "../../../contracts/src/models";
@@ -368,7 +369,7 @@ export class AnalysisPipeline {
       });
       for (const fact of proposal.facts)
         if (
-          !fact.evidenceIds.some((id) => this.evidence.get(id)?.kind === "code")
+          !fact.evidenceIds.some((id) => isCodeEvidence(this.evidence.get(id)))
         )
           throw new AppError(
             "OUTPUT_INVALID",
@@ -379,7 +380,7 @@ export class AnalysisPipeline {
           ![
             ...hypothesis.supportEvidenceIds,
             ...hypothesis.counterEvidenceIds,
-          ].some((id) => this.evidence.get(id)?.kind === "code")
+          ].some((id) => isCodeEvidence(this.evidence.get(id)))
         )
           throw new AppError(
             "OUTPUT_INVALID",
@@ -480,7 +481,7 @@ export class AnalysisPipeline {
           ) ||
           Boolean(this.reader.context.sourceGaps?.length);
         const status = loss ? ("UNKNOWN" as const) : finding.status;
-        if (status !== "UNKNOWN" && !refs.some((ref) => ref.kind === "code"))
+        if (status !== "UNKNOWN" && !refs.some(isCodeEvidence))
           throw new AppError(
             "OUTPUT_INVALID",
             "可确认结论必须取得代码证据，搜索不到不代表缺失",

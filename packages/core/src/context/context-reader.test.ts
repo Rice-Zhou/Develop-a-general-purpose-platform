@@ -10,6 +10,21 @@ import { GitRepositoryAdapter } from "../../../adapters/src/git/repository";
 import { ContextReader } from "./context-reader";
 import { SearchService } from "../search/search-service";
 import { RequirementService } from "../requirements/requirement-service";
+import { captureWorktree } from "../../../adapters/src/git/worktree-snapshot";
+import { EvidenceValidator } from "../analysis/evidence-validator";
+it("reads immutable current-code content and validates worktree evidence without calling Git blob reads",async()=>{
+  const f=await gitFixture();try {
+    const content=new SnapshotStore(join(f.root,"objects"));
+    await writeFile(join(f.analysis,"feature.txt"),"unsaved change\n");
+    const repository=await captureWorktree(f.binding,content,new AbortController().signal);
+    const reader=new ContextReader({id:"context",projectId:"project",configRevision:1,repositories:[repository],documents:[],createdAt:"now",limitations:[]},{getDocument(){throw new Error("unused");}},{async readFile(){throw new Error("must not read Git");}},content);
+    const excerpt=await reader.readCode(f.binding.id,"feature.txt",1,1);
+    expect(excerpt.text).toBe("unsaved change");expect(excerpt.evidence.kind).toBe("worktree-code");
+    if(excerpt.evidence.kind!=="worktree-code")throw new Error("wrong evidence kind");
+    await new EvidenceValidator().validate([excerpt.evidence],reader);
+    await expect(new EvidenceValidator().validate([{...excerpt.evidence,snippetHash:"forged"}],reader)).rejects.toMatchObject({code:"EVIDENCE_INVALID"});
+  }finally{await f.dispose();}
+});
 it("reads and searches pinned project evidence and versions manual requirements without crossing projects", async () => {
   const f = await gitFixture();
   const store = await DataStore.open(join(f.root, "app.db"));

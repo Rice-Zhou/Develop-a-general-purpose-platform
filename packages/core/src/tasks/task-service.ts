@@ -254,17 +254,10 @@ export class TaskService {
           );
         }
         const previous = this.store.latestContext(project.id);
-        const bindings: RepositoryBinding[] = project.repositories.map(
-          (binding) => ({
-            ...binding,
-            remoteUrlFingerprint:
-              binding.remoteUrlFingerprint ??
-              previous?.repositories.find(
-                (repo) => repo.bindingId === binding.id,
-              )?.remoteUrlFingerprint ??
-              null,
-          }),
-        );
+        const bindings: RepositoryBinding[] = project.repositories.map(binding => {
+          const prior = previous?.repositories.find(repo=>repo.bindingId===binding.id);
+          return {...binding,remoteUrlFingerprint:binding.remoteUrlFingerprint ?? (prior?.kind !== "worktree" ? prior?.remoteUrlFingerprint : null) ?? null};
+        });
         // Global serial execution is the first-release lock: no two tasks can touch a repository at once.
         for (const binding of bindings)
           this.git.assertReady(

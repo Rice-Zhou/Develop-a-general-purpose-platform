@@ -1,3 +1,4 @@
+import { evidenceLabel } from "../../../../../packages/contracts/src/analysis";
 import { useState } from "react";
 import type {
   BugReport,
@@ -112,9 +113,7 @@ export function BugReportPage({
       {r.evidenceRefs.map((e) => (
         <div className="report-list-item" key={e.id}>
           <code className="small">
-            {e.kind === "code"
-              ? `${e.path}:${e.startLine}-${e.endLine}`
-              : `文档 ${e.blockId}`}
+            {evidenceLabel(e)}
           </code>
           <button
             className="secondary"

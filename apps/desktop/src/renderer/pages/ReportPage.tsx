@@ -1,3 +1,4 @@
+import { isCodeEvidence, evidenceLabel } from "../../../../../packages/contracts/src/analysis";
 import { useState } from "react";
 import type {
   AnalysisReport,
@@ -112,7 +113,7 @@ export function ReportPage({
                   key={id}
                   onClick={() => void read(ref)}
                 >
-                  {ref.kind === "code" ? "阅读代码证据" : "阅读原文证据"}
+                  {isCodeEvidence(ref) ? "阅读代码证据" : "阅读原文证据"}
                 </button>
               ) : null;
             })}
@@ -123,9 +124,7 @@ export function ReportPage({
         <div className="evidence-reader">
           <h3>固定版本证据</h3>
           <p className="muted small">
-            {excerpt.evidence.kind === "code"
-              ? `${excerpt.evidence.commit} · ${excerpt.evidence.path}:${excerpt.evidence.startLine}-${excerpt.evidence.endLine}`
-              : `文档 ${excerpt.evidence.documentSnapshotId} · ${excerpt.evidence.blockId}`}
+            {evidenceLabel(excerpt.evidence)}
           </p>
           <pre className="evidence-content">{excerpt.text}</pre>
         </div>

@@ -8,6 +8,7 @@ import type {
   RepositoryBranch,
   RepositoryInspection,
   RepositorySnapshot,
+  GitRepositorySnapshot,
 } from "../../../contracts/src/models";
 import {
   assertReadablePath,
@@ -267,7 +268,7 @@ export class GitRepositoryAdapter {
   async synchronize(
     binding: RepositoryBinding,
     signal: AbortSignal,
-  ): Promise<RepositorySnapshot> {
+  ): Promise<GitRepositorySnapshot> {
     const { inspection, target, all, relation } = await this.fetchTarget(binding, signal);
     if (relation[0] > 0)
       throw new AppError(
@@ -440,6 +441,7 @@ export class GitRepositoryAdapter {
     signal?: AbortSignal,
   ): Promise<Buffer> {
     assertReadablePath(path);
+    if(snapshot.kind === "worktree")throw new AppError("SNAPSHOT_KIND_INVALID","工作区内容须通过内容存储读取");
     const entry = snapshot.files.find((file) => file.path === path);
     if (!entry || !["100644", "100755"].includes(entry.mode))
       throw new AppError(
@@ -469,6 +471,7 @@ export class GitRepositoryAdapter {
     ).stdout;
   }
   async listFiles(snapshot: RepositorySnapshot): Promise<FileEntry[]> {
+    if(snapshot.kind === "worktree")throw new AppError("SNAPSHOT_KIND_INVALID","工作区文件不包含 Git blob");
     return snapshot.files.filter((file) => readablePath(file.path));
   }
 }
