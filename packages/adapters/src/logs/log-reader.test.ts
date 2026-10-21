@@ -4,6 +4,16 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {SnapshotStore} from "../../../storage/src/snapshot-store";
 import {parseLogAttachment} from "./zip-reader";
+import {gzipSync} from "node:zlib";
+it("parses the real platform's txt.gz format and rejects corrupted gzip streams",async()=>{
+ const root=await mkdtemp(join(tmpdir(),"gzip-log-"));try{
+  const content=new SnapshotStore(join(root,"content"));const bytes=gzipSync(Buffer.from("observed error\nsecond line"));const path=join(root,"device.txt.gz");await writeFile(path,bytes);const original=await content.put(bytes);
+  const files=await parseLogAttachment(path,{id:"a",name:"device.txt.gz",size:bytes.length,mediaType:"application/gzip",version:"v"},original.hash,content,new AbortController().signal);
+  expect(files[0].status).toBe("PARSED");expect((await content.get(files[0].contentHash!)).toString()).toContain("observed error");
+  bytes[bytes.length-5]^=255;await writeFile(path,bytes);
+  await expect(parseLogAttachment(path,{id:"a",name:"device.txt.gz",size:bytes.length,mediaType:"application/gzip",version:"v"},original.hash,content,new AbortController().signal)).rejects.toThrow();
+ }finally{await rm(root,{recursive:true,force:true});}
+});
 it("parses UTF-8 and BOM UTF-16 while preserving unsupported binary originals",async()=>{
  const root=await mkdtemp(join(tmpdir(),"log-reader-"));try{
   const content=new SnapshotStore(join(root,"content"));

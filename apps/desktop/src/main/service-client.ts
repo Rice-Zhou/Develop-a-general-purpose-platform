@@ -166,7 +166,7 @@ export class ServiceClient {
     await this.ensureReady();
     return this.send(
       { request },
-      request.method === "refreshBugWorkspace"
+      request.method === "probeExecutor" ? 90000 : request.method === "refreshBugWorkspace"
         ? ISSUE_REFRESH_TIMEOUT_MS + 35000
         : request.method === "checkIssueNotifications" || request.method === "associateTrinityIssue"
           ? 35000

@@ -13,8 +13,8 @@ export class IssueLogService {
   const source=logScope(scope,issue);let attachments:AttachmentDescriptor[]=[];let failure:unknown;
   try {const adapter=this.adapter(scope);if(!adapter.listAttachments)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","当前 Jira CLI 不支持附件下载；请使用账号密码连接读取日志，或明确选择仅按代码分析");attachments=await adapter.listAttachments(scope,issue,this.controller.signal);this.assertCurrent(scope);}
   catch(error){failure=error;}
-  const version=hash({issue:issue.updatedAt,attachments});const previous=this.repository.latest(source);
-  if(!force&&!failure&&previous?.issueVersion===version&&["QUEUED","DOWNLOADING","READY","NO_LOGS"].includes(previous.status))return previous;
+  const version=hash({issue:issue.updatedAt,attachments,adapterKind:scope.connection.kind});const previous=this.repository.latest(source);
+  if(!force&&!failure&&previous?.issueVersion===version)return previous;
   const now=new Date().toISOString();
   const set:IssueLogSet={id:randomUUID(),scope:source,issueVersion:version,generation:(previous?.generation??0)+1,status:failure?(failure instanceof AppError&&failure.code==="ISSUE_ATTACHMENTS_UNSUPPORTED"?"UNSUPPORTED":"FAILED"):attachments.length?"QUEUED":"NO_LOGS",attachments,files:[],manifestHash:hash({attachments,files:[]}),error:failure?this.failure(failure):null,updatedAt:now};
   this.repository.create(set);

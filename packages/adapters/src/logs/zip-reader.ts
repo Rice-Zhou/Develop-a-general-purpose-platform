@@ -1,5 +1,7 @@
 import * as yauzl from "yauzl";
-import {crc32} from "node:zlib";
+import {crc32,createGunzip} from "node:zlib";
+import {createReadStream} from "node:fs";
+import {pipeline} from "node:stream/promises";
 import {LOG_BUDGET,type AttachmentDescriptor,type LogFile} from "../../../contracts/src/issue-materials";
 import {AppError} from "../../../contracts/src/error";
 import {readablePath} from "../../../core/src/context/access-policy";
@@ -8,6 +10,16 @@ import {parseTextLog} from "./text-log-reader";
 export async function parseLogAttachment(path:string,attachment:AttachmentDescriptor,originalHash:string,content:SnapshotStore,signal:AbortSignal,budget={bytes:0,files:0}):Promise<LogFile[]> {
  async function parse(filePath:string,name:string,hash:string,size:number,depth:number):Promise<LogFile[]> {
   signal.throwIfAborted();
+  if(name.toLowerCase().endsWith(".gz")) {
+    if(depth>=LOG_BUDGET.nesting||++budget.files>LOG_BUDGET.files)throw new AppError("LOG_GZIP_LIMIT","GZIP 嵌套或文件数超过预算");
+    const decoder=createGunzip();const transfer=pipeline(createReadStream(filePath),decoder,{signal});
+    async function* countedGzip(){for await(const part of decoder){const bytes=part as Buffer;budget.bytes+=bytes.length;if(budget.bytes>LOG_BUDGET.uncompressed)throw new AppError("LOG_GZIP_LIMIT","GZIP 实际解压大小超过 2 GiB");yield bytes;}}
+    const extraction=content.putStream(countedGzip(),LOG_BUDGET.uncompressed,signal);
+    let stored:{hash:string;size:number};
+    try{[stored]=await Promise.all([extraction,transfer]);}
+    catch(error){decoder.destroy();await Promise.allSettled([extraction,transfer]);throw error;}
+    return parse(await content.verifiedPath(stored.hash),name.slice(0,-3),stored.hash,stored.size,depth+1);
+  }
   if(!name.toLowerCase().endsWith(".zip"))return [await parseTextLog(filePath,name,attachment.id,hash,size,content,signal)];
   if(depth>=LOG_BUDGET.nesting)throw new AppError("LOG_ZIP_DEPTH","ZIP 嵌套超过 2 层，未发布不完整日志");
   const zip=await new Promise<yauzl.ZipFile>((resolve,reject)=>yauzl.open(filePath,{lazyEntries:true,validateEntrySizes:true,strictFileNames:true,autoClose:false},(error,value)=>error?reject(error):resolve(value)));

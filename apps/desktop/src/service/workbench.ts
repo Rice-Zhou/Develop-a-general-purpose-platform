@@ -369,7 +369,7 @@ export class Workbench implements TaskRuntime {
   }
   async probe(id: string) {
     const profile = this.profile(id);
-    const signal = AbortSignal.timeout(30000);
+    const signal = AbortSignal.timeout(75000);
     this.store.setSetting(`ai-protocol:${id}`, null);
     await resolveAIConnection(profile, signal, resolveAIEndpoint, detail=>this.recordProtocol(id,detail));
     if (profile.kind === "api") {
@@ -422,7 +422,7 @@ export class Workbench implements TaskRuntime {
     return {
       available: true,
       detail:
-        "已验证本机命令参数能力；登录、订阅额度和实际只读执行仍在分析调用时验证",
+        `${this.store.getSetting<string>(`ai-protocol:${id}`) ?? "直连"}；已验证本机命令参数能力；登录、订阅额度和实际只读执行仍在分析调用时验证`,
     };
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
