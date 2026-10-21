@@ -35,6 +35,7 @@ type Page =
   | "overview"
   | "projects"
   | "tasks"
+  | "task-history"
   | "requirements"
   | "documents"
   | "bugs"
@@ -42,7 +43,7 @@ type Page =
 const nav: { id: Page; label: string; icon: string }[] = [
   { id: "overview", label: "总览", icon: "◫" },
   { id: "projects", label: "项目管理", icon: "▦" },
-  { id: "tasks", label: "任务历史", icon: "◷" },
+  { id: "tasks", label: "任务列表", icon: "◷" },
   { id: "requirements", label: "需求核对", icon: "≡" },
   { id: "documents", label: "需求资料库", icon: "▤" },
   { id: "bugs", label: "BUG 工作台", icon: "◇" },
@@ -77,6 +78,8 @@ export function App() {
   const [focusAISettings, setFocusAISettings] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
+  const [historyExpanded,setHistoryExpanded]=useState(false);
+  const [issueFilter,setIssueFilter]=useState("");
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -162,7 +165,8 @@ export function App() {
   );
   const activeTask = tasks.find((task) => task.id === selectedTask);
   const displayedTasks = tasks.filter(
-    (task) => !projectFilter || task.projectId === projectFilter,
+    task => (!projectFilter || task.projectId === projectFilter) && (!issueFilter || task.issueIdentity===issueFilter) &&
+      (page === "task-history" ? !ACTIVE_TASK_STATUSES.includes(task.status)&&task.status!=="WAITING_INPUT" : ACTIVE_TASK_STATUSES.includes(task.status)||task.status==="WAITING_INPUT"),
   );
   function taskTable(rows: Task[]) {
     return rows.length ? (
@@ -267,10 +271,11 @@ export function App() {
         <div className="workspace-label">个人研发空间</div>
         <nav>
           {nav.map((item) => (
+            <div key={item.id} className="nav-group"><div className="nav-parent">
             <button
-              key={item.id}
-              className={`nav-item ${page === item.id ? "active" : ""}`}
-              onClick={() => setPage(item.id)}
+              aria-label={item.label}
+              className={`nav-item ${page === item.id || (item.id==="tasks"&&page==="task-history") ? "active" : ""}`}
+              onClick={() => {setPage(item.id);if(item.id==="tasks"){setIssueFilter("");setProjectFilter("");}}}
             >
               <span className="nav-icon" aria-hidden="true">
                 {item.icon}
@@ -280,6 +285,8 @@ export function App() {
                 <span className="nav-count">{running.length}</span>
               )}
             </button>
+            {item.id==="tasks"&&<button className="nav-toggle" aria-label={historyExpanded?"收起任务历史":"展开任务历史"} aria-expanded={historyExpanded} onClick={()=>{setHistoryExpanded(!historyExpanded);if(historyExpanded&&page==="task-history")setPage("tasks");}}>{historyExpanded?"▾":"▸"}</button>}
+            </div>{item.id==="tasks"&&historyExpanded&&<button className={`nav-item nav-child ${page==="task-history"?"active":""}`} onClick={()=>setPage("task-history")}>任务历史</button>}</div>
           ))}
         </nav>
         <div className="sidebar-footer">
@@ -295,7 +302,7 @@ export function App() {
           <div>
             <span className="breadcrumb">工作空间</span>
             <span className="crumb-divider">/</span>
-            <strong>{nav.find((item) => item.id === page)?.label}</strong>
+            <strong>{(page==="task-history"?"任务历史":nav.find((item) => item.id === page)?.label)}</strong>
           </div>
           <div className="header-status">
             <span className={`local-dot ${error ? "warning-dot" : ""}`} />
@@ -314,7 +321,7 @@ export function App() {
               <h1>
                 {page === "overview"
                   ? "研发工作台"
-                  : nav.find((item) => item.id === page)?.label}
+                  : (page==="task-history"?"任务历史":nav.find((item) => item.id === page)?.label)}
               </h1>
               <p className="muted">
                 {page === "overview"
@@ -445,7 +452,7 @@ export function App() {
               )}
               <section className="panel">
                 <div className="section-heading padded">
-                  <h2>最近任务</h2>
+                  <h2>当前任务</h2>
                   <button
                     className="text-button"
                     onClick={() => {
@@ -456,7 +463,7 @@ export function App() {
                     查看全部 →
                   </button>
                 </div>
-                {taskTable(tasks.slice(0, 5))}
+                {taskTable(tasks.filter(task=>ACTIVE_TASK_STATUSES.includes(task.status)||task.status==="WAITING_INPUT").slice(0, 5))}
               </section>
               <div className="phase-note">
                 <span>03 / 问题闭环</span>
@@ -551,11 +558,11 @@ export function App() {
               ))}
             </div>
           )}
-          {page === "tasks" && (
+          {(page === "tasks"||page === "task-history") && (
             <section className="panel">
               <div className="section-heading padded">
                 <h2>
-                  任务记录{" "}
+                  {page==="task-history"?"历史任务":"当前任务"}{" "}
                   <span className="count">{displayedTasks.length}</span>
                 </h2>
                 <label className="filter-label">
@@ -573,6 +580,8 @@ export function App() {
                   </select>
                 </label>
               </div>
+              {issueFilter&&<p className="notice">已按问题筛选 <button className="text-button" onClick={()=>setIssueFilter("")}>清除问题筛选</button></p>}
+              {page==="tasks"&&attention.some(t=>t.status!=="WAITING_INPUT")&&<p className="notice">有已结束的异常任务，<button className="text-button" onClick={()=>{setHistoryExpanded(true);setPage("task-history");}}>打开历史查看</button></p>}
               {taskTable(displayedTasks)}
             </section>
           )}
@@ -593,6 +602,7 @@ export function App() {
                 setPage("settings");
                 setFocusAISettings(true);
               }}
+              onViewTasks={filter=>{setProjectFilter(filter.projectId??"");setIssueFilter(filter.issueIdentity??"");setPage("tasks");}}
               onEditProject={project => setLinkEditor({ project })}
             />
           )}

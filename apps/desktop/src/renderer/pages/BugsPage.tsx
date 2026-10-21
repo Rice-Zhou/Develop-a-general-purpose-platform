@@ -1,5 +1,4 @@
 import {ACTIVE_TASK_STATUSES} from "../../../../../packages/contracts/src/models";
-import {BugTaskQueue} from "../components/BugTaskQueue";
 import {IssueLogMaterials} from "../components/IssueLogMaterials";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -25,12 +24,14 @@ export function BugsPage({
   onChanged,
   onConfigureAI,
   onEditProject,
+  onViewTasks,
 }: {
   projects: Project[];
   tasks: Task[];
   onChanged: () => Promise<void>;
   onConfigureAI: () => void;
   onEditProject: (project: Project) => void;
+  onViewTasks: (filter:{projectId?:string;issueIdentity?:string})=>void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [workspace, setWorkspace] = useState<{
@@ -231,7 +232,7 @@ export function BugsPage({
         )}
         {active && (
           <div className="notice">
-            任务正在队列中执行，可在任务历史取消或查看步骤。
+            任务正在队列中执行，可在任务列表取消或查看步骤。
           </div>
         )}
         {project && !project.aiProfileId && (
@@ -338,13 +339,14 @@ export function BugsPage({
               {analysisLabel}
             </button>
             <button className="secondary" disabled={!!analysisUnavailable} onClick={()=>void analyze(issue,true)}>仅按代码和问题描述分析</button>
+            <button className="text-button" onClick={()=>onViewTasks({projectId:targetIdFor(issue)??projectId,issueIdentity:`${issue.bindingId}:${issue.remoteId}`})}>查看任务</button>
             {analysisUnavailable && (
               <p id={`analysis-reason-${issue.id}`} className="coverage-warning">{analysisUnavailable}</p>
             )}
           </article>
         );})}
       </section>
-      <BugTaskQueue tasks={tasks.filter(t=>(t.kind==="ANALYZE_BUG"&&(t.projectId===projectId||issues.some(i=>i.key===t.issueKey)))||(t.kind==="DOWNLOAD_ISSUE_LOGS"&&issues.some(i=>i.logs?.id===t.id)))} onAction={act} />
+
       <section className="panel work-panel">
         <h2>BUG 报告历史</h2>
         {reports.length === 0 && (

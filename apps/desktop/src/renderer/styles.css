@@ -1334,3 +1334,5 @@ input[type="radio"] {
 .work-panel .trinity-analysis-actions label {
   margin: 0;
 }
+
+.nav-group{width:100%}.nav-parent{display:flex;align-items:center}.nav-parent .nav-item{flex:1;min-width:0}.nav-toggle{background:transparent;color:inherit;border:0;padding:10px;cursor:pointer}.nav-child{padding-left:54px!important;font-size:13px}
