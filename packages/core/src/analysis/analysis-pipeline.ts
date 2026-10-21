@@ -13,7 +13,7 @@ import { ContextReader } from "../context/context-reader";
 import type { SearchService } from "../search/search-service";
 import type { RequirementService } from "../requirements/requirement-service";
 import type { ModelTransport, ModelMessage, ToolSpec } from "./ports";
-import { SYSTEM_PROMPT, EXTRACTION_GOAL, CHECK_GOAL } from "./prompts";
+import { SYSTEM_PROMPT, EXTRACTION_GOAL, CHECK_GOAL, BUG_GOAL } from "./prompts";
 import { EvidenceValidator } from "./evidence-validator";
 import {
   BugProposalSchema,
@@ -21,6 +21,7 @@ import {
   type BugReport,
   type IssueSnapshot,
 } from "../../../contracts/src/issues";
+const MAX_REPAIR_EVIDENCE = 200;
 const recoverableToolCodes = new Set([
   "OUTPUT_INVALID", "BLOCK_NOT_FOUND", "PATH_DENIED", "LINE_RANGE_DENIED",
   "REPOSITORY_DENIED", "DOCUMENT_DENIED", "LOG_DENIED", "BINARY_FILE",
@@ -296,9 +297,12 @@ export class AnalysisPipeline {
         this.progress(`输出校验失败，正在请求一次修正：${reason}`);
         messages.push({
           role: "user",
-          content:
-            "结果未通过结构或证据校验。只引用已取得的证据 ID，保留完整必填字段；不能扩大项目权限。错误类型：" +
-            reason,
+          content: JSON.stringify({
+            instruction: "结果未通过结构或证据校验。请按错误条目修正完整结果，只引用本次已取得且与结论相关的证据 ID，保留完整必填字段；不能扩大项目权限。BUG 中每条 facts/hypotheses 各自需要代码引用，不能用日志代替代码，也不能以其他条目已有代码引用来省略本条引用；同一代码证据与多条结论相关时可以分别引用；缺少依据的猜想应由你改为 missingInformation 中的待补充材料或排查事项，不要自动补造引用；hypotheses 可以为空。仍可请求取证工具。",
+            error: reason,
+            availableEvidence: [...this.evidence.values()].slice(-MAX_REPAIR_EVIDENCE).map(ref=>({id:ref.id,kind:ref.kind})),
+            omittedEvidenceCount: Math.max(0,this.evidence.size-MAX_REPAIR_EVIDENCE),
+          }),
         });
       }
     }
@@ -348,9 +352,7 @@ export class AnalysisPipeline {
       issue.id !== this.reader.context.issueSnapshotId
     )
       throw new AppError("CONTEXT_MISMATCH", "BUG 材料不属于当前分析上下文");
-    const goal =
-      "BUG 预分析：只基于本次 issue 与 materials 取证。输出 JSON {reproduction:string[], facts:[{text:string,evidenceIds:string[]}], hypotheses:[{text:string,supportEvidenceIds:string[],counterEvidenceIds:string[],nextSteps:string[]}], missingInformation:string[]}。facts 只描述有代码证据的事实；hypotheses 是待验证原因，不能宣称已确定根因。需通过工具读取代码；存在可解析日志时必须使用 readLog 或 searchLogs 取证并说明覆盖范围，不能将零搜索命中当作历史 BUG 无效。说明调用路径和可执行排查步骤。";
-    return this.corrected(goal, { issue }, signal, async (value) => {
+    return this.corrected(BUG_GOAL, { issue }, signal, async (value) => {
       const proposal = BugProposalSchema.parse(value);
       if (!proposal.facts.length && !proposal.hypotheses.length) {
         if (proposal.missingInformation.length)
@@ -376,15 +378,15 @@ export class AnalysisPipeline {
           throw new AppError("OUTPUT_INVALID", "BUG 结论引用了未取得的证据");
         return ref;
       });
-      for (const fact of proposal.facts)
+      for (const [index, fact] of proposal.facts.entries())
         if (
           !fact.evidenceIds.some((id) => isCodeEvidence(this.evidence.get(id)))
         )
           throw new AppError(
             "OUTPUT_INVALID",
-            "BUG 事实必须引用本次取得的代码证据",
+            `facts[${index}].evidenceIds：BUG 事实必须引用本次取得的代码证据`,
           );
-      for (const hypothesis of proposal.hypotheses)
+      for (const [index, hypothesis] of proposal.hypotheses.entries())
         if (
           ![
             ...hypothesis.supportEvidenceIds,
@@ -393,7 +395,7 @@ export class AnalysisPipeline {
         )
           throw new AppError(
             "OUTPUT_INVALID",
-            "BUG 候选原因必须引用本次取得的代码依据；没有代码依据时只报告缺失信息",
+            `hypotheses[${index}].supportEvidenceIds/counterEvidenceIds：BUG 候选原因必须引用本次取得的代码依据；没有代码依据时改为 missingInformation 中的待补充信息或排查事项`,
           );
       await new EvidenceValidator().validate(refs, this.reader, signal);
       if(this.reader.context.issueLogs&&this.reader.logs().status==="READY"&&!refs.some(ref=>ref.kind==="log"))throw new AppError("OUTPUT_INVALID","已准备日志，报告必须引用本次实际读取的日志证据；不能只依据问题描述生成结论");
