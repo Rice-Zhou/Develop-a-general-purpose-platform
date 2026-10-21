@@ -1,24 +1,13 @@
 import { z } from "zod";
 import { WarningSchema } from "./documents";
-export const AIProxyUrlSchema = z
-  .string()
-  .trim()
-  .max(2048)
-  .refine((value) => {
-    try {
-      const url = new URL(value);
-      return (
-        ["http:", "https:"].includes(url.protocol) &&
-        !url.username &&
-        !url.password &&
-        !url.search &&
-        !url.hash &&
-        url.pathname === "/"
-      );
-    } catch {
-      return false;
-    }
-  }, "代理必须为不含账号、密码、查询参数的 HTTP(S) 地址");
+import { parseAIAddress, type AIAddressKind } from "./ai-address";
+function addressSchema(kind: AIAddressKind) {
+  return z.string().trim().max(2048).transform((value, ctx) => {
+    try { return parseAIAddress(value, kind).address; }
+    catch { ctx.addIssue({code:"custom",message:"请输入有效的 AI 地址，不含凭据、查询参数；代理不能包含路径"}); return z.NEVER; }
+  });
+}
+export const AIProxyUrlSchema = addressSchema("proxy");
 const common = {
   name: z.string().trim().min(1).max(100),
   model: z.string().max(200),
@@ -30,7 +19,7 @@ export const AIProfileDraftSchema = z.discriminatedUnion("kind", [
     .object({
       ...common,
       kind: z.literal("api"),
-      baseUrl: z.url(),
+      baseUrl: addressSchema("api"),
       model: z.string().trim().min(1).max(200),
     })
     .strict(),

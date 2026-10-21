@@ -35,7 +35,7 @@ function validatedProxy(proxyUrl: string): string {
       "MODEL_PROXY_INVALID",
       "代理必须为不含账号、密码、查询参数的 HTTP(S) 地址",
     );
-  return parsed.data;
+  return new URL(proxyUrl).toString().replace(/\/$/, "");
 }
 
 export function aiEnvironment(
