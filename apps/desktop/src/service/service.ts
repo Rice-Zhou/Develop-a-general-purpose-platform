@@ -241,7 +241,7 @@ parent.on("message", (event) => {
             .parse(envelope.payload);
           value = workbench.exportBugMarkdown(p.projectId, p.reportId);
         } else if (envelope.action === "save-profile")
-          value = workbench.saveProfile(envelope.payload);
+          value = await workbench.saveProfile(envelope.payload);
         else if (envelope.action === "get-profile")
           value = workbench.profile(
             z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,

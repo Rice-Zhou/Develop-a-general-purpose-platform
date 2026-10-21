@@ -66,6 +66,7 @@ const api: DesktopAPI = {
   readEvidence: (projectId, contextId, evidence) =>
     invoke("readEvidence", { projectId, contextId, evidence }),
   getAIProfiles: () => invoke("getAIProfiles"),
+  discoverCodex: (proxyUrl) => invoke("discoverCodex", {proxyUrl}),
   saveAIProfile: (draft, secret, id) =>
     invoke("saveAIProfile", { draft, secret, id }),
   deleteAIProfile: (id) => invoke("deleteAIProfile", { id }),

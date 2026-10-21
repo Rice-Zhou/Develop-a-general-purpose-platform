@@ -1,4 +1,8 @@
 import { captureWorktree,assertWorktreeCurrent } from "../../../../packages/adapters/src/git/worktree-snapshot";
+import {discoverCodexCli} from "../../../../packages/adapters/src/ai/codex-discovery";
+import {codexMetadataSession} from "../../../../packages/adapters/src/ai/codex-session";
+import {readCodexCatalogue} from "../../../../packages/adapters/src/ai/codex-catalog";
+import {aiEnvironment} from "../../../../packages/adapters/src/network/policy";
 import { IssueLogService,logScope } from "../../../../packages/core/src/issues/issue-log-service";
 import { LOG_BUDGET } from "../../../../packages/contracts/src/issue-materials";
 import { parseLogAttachment } from "../../../../packages/adapters/src/logs/zip-reader";
@@ -178,7 +182,7 @@ export class Workbench implements TaskRuntime {
       );
     return profile;
   }
-  saveProfile(value: unknown): PublicAIProfile {
+  async saveProfile(value: unknown): Promise<PublicAIProfile> {
     const raw = z
       .object({
         id: z.uuid(),
@@ -192,6 +196,11 @@ export class Workbench implements TaskRuntime {
       id: raw.id,
       credentialRef: raw.credentialRef,
     };
+    if(profile.kind === "codex") {
+      const current=await this.discoverCodex(profile.proxyUrl);
+      if(current.selected.executable.toLowerCase()!==profile.executable.toLowerCase())throw new AppError("CODEX_SELECTION_CHANGED","本地最新 Codex CLI 已变化，请重新检测并选择模型后保存");
+      if(!current.models.some(model=>model.id===profile.model))throw new AppError("CODEX_MODEL_UNAVAILABLE","当前 Codex CLI 未返回所选模型，请重新检测并选择模型后保存");
+    }
     this.store.setSetting("profiles", [
       ...this.profiles().filter((p) => p.id !== profile.id),
       profile,
@@ -332,16 +341,11 @@ export class Workbench implements TaskRuntime {
       appData,
       "npm/node_modules/@larksuite/cli/bin/lark-cli.exe",
     );
-    const codex = join(
-      appData,
-      "npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe",
-    );
     const claude = join(user, ".local/bin/claude.exe");
     return {
       larkExecutable: existsSync(lark) ? lark : "",
       identity: "user" as const,
       ...this.store.getSetting<CliConfiguration>("cli"),
-      codexExecutable: existsSync(codex) ? codex : "",
       claudeExecutable: existsSync(claude) ? claude : "",
       jiraExecutable:
         (process.env.PATH ?? "")
@@ -366,6 +370,17 @@ export class Workbench implements TaskRuntime {
     const prefix=detail.split("：")[0]+"：";
     const retained=(existing??"").split(" | ").filter(value=>value&&!value.startsWith(prefix));
     this.store.setSetting(`ai-protocol:${id}`, [...retained,detail].join(" | "));
+  }
+  async discoverCodex(proxyUrl?:string) {
+    const signal=AbortSignal.timeout(75000);const user=process.env.USERPROFILE??process.cwd();
+    const discovery=await discoverCodexCli({appData:process.env.APPDATA??join(user,"AppData/Roaming"),localAppData:process.env.LOCALAPPDATA??join(user,"AppData/Local"),path:process.env.PATH??"",cwd:this.dataPath,signal,existing:this.profiles().filter(p=>p.kind==="codex").map(p=>(p as AIProfile&{kind:"codex"}).executable)});
+    const help=await runProcess(discovery.selected.executable,["exec","--help"],{cwd:this.dataPath,signal,timeoutMs:5000,maxOutput:65536});
+    if(!["--sandbox","--ignore-user-config","--ignore-rules","--json","--disable","--ephemeral"].every(flag=>help.includes(flag)))throw new AppError("CLI_CAPABILITY_MISSING","最新 Codex CLI 缺少必要的只读调用参数，未退回旧版本");
+    const selected=await resolveAIConnection({kind:"codex",proxyUrl},signal,resolveAIEndpoint,()=>{});
+    const env=aiEnvironment(selected.proxy?.url);
+    for(const key of ["OPENAI_API_KEY","ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","OPENAI_BASE_URL","ANTHROPIC_BASE_URL"])delete env[key];
+    const catalogue=await codexMetadataSession(discovery.selected.executable,{cwd:this.dataPath,signal,env},readCodexCatalogue);
+    return {...discovery,...catalogue};
   }
   async probe(id: string) {
     const profile = this.profile(id);
@@ -599,6 +614,8 @@ export class Workbench implements TaskRuntime {
       }
       case "getAIProfiles":
         return this.profiles().map(p=>({...publicProfile(p),protocolDiagnostic:this.store.getSetting<string>(`ai-protocol:${p.id}`) ?? undefined}));
+      case "discoverCodex":
+        return this.discoverCodex(request.params.proxyUrl);
       case "getCliConfiguration":
         return this.cliConfiguration();
       case "saveCliConfiguration":

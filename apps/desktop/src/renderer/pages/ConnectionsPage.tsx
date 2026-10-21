@@ -1,5 +1,6 @@
 import { parseAIAddress } from "../../../../../packages/contracts/src/ai-address";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import type {CodexDiscovery} from "../../../../../packages/contracts/src/codex";
 import type {
   AIProfileDraft,
   PublicAIProfile,
@@ -19,7 +20,11 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
   const [outbound, setOutbound] = useState(false);
   const [lark, setLark] = useState("");
   const [identity, setIdentity] = useState<"user" | "bot">("user");
-  const [detected, setDetected] = useState({ codex: "", claude: "" });
+  const [detected, setDetected] = useState({ claude: "" });
+  const [codex, setCodex] = useState<CodexDiscovery|null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [codexError, setCodexError] = useState("");
+  const discoveryRequest=useRef(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,13 +39,29 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
     setLark(config.larkExecutable);
     setIdentity(config.identity);
     setDetected({
-      codex: config.codexExecutable,
       claude: config.claudeExecutable,
     });
   }
   useEffect(() => {
     void load().catch((e) => setError(message(e)));
+    return ()=>{discoveryRequest.current++;};
   }, []);
+  async function detectCodex(currentModel=model,proxy=proxyUrl) {
+    const request=++discoveryRequest.current;setCodex(null);setExecutable("");setCodexError("");setDetecting(true);
+    try {
+      const result=unwrap(await window.platform.discoverCodex(proxy.trim()||undefined));
+      if(request!==discoveryRequest.current)return;
+      setCodex(result);setExecutable(result.selected.executable);
+      if(currentModel && !result.models.some(m=>m.id===currentModel)){setModel("");setCodexError("原模型不在最新 CLI 的账号列表中，请重新选择模型。");}
+      else setModel(currentModel||result.models.find(m=>m.isDefault)?.id||result.models[0].id);
+    }catch(error){if(request===discoveryRequest.current)setCodexError(message(error));}
+    finally{if(request===discoveryRequest.current)setDetecting(false);}
+  }
+  function edit(profile:PublicAIProfile) {
+    discoveryRequest.current++;setDetecting(false);setCodex(null);setCodexError("");
+    setEditingId(profile.id);setName(profile.name);setKind(profile.kind);setModel(profile.model);setOutbound(profile.outboundEnabled);setProxyUrl(profile.proxyUrl??"");setUrl(profile.kind==="api"?profile.baseUrl:"");setExecutable(profile.kind==="api"?"":profile.executable);setKey("");
+    if(profile.kind==="codex")void detectCodex(profile.model,profile.proxyUrl??"");
+  }
   async function act(action: () => Promise<void>) {
     setError("");
     setNotice("");
@@ -68,6 +89,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           ? { ...base, kind, baseUrl: url }
           : { ...base, kind, executable };
       unwrap(await window.platform.saveAIProfile(draft, key || undefined, editingId));
+      discoveryRequest.current++;setCodex(null);setCodexError("");setDetecting(false);setKind("api");setModel("");setExecutable("");
       setEditingId(undefined);
       setKey("");
       setName("");
@@ -97,7 +119,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           API 使用配置的服务地址和模型名；ChatGPT / Claude Code
           使用本机工具自己的登录。项目默认继承默认 AI，也可单独指定连接；执行失败时不会切换到其他连接。
         </p>
-        {editingId && <p role="status">正在编辑现有连接；留空密钥会保留原密钥。<button className="text-button" onClick={()=>{setEditingId(undefined);setName("");setKey("");setUrl("");setProxyUrl("");}}>取消编辑</button></p>}
+        {editingId && <p role="status">正在编辑现有连接；留空密钥会保留原密钥。<button className="text-button" onClick={()=>{discoveryRequest.current++;setCodex(null);setDetecting(false);setCodexError("");setKind("api");setEditingId(undefined);setName("");setKey("");setUrl("");setProxyUrl("");}}>取消编辑</button></p>}
         <form onSubmit={save} className="connection-form">
           <div className="form-row">
             <label className="grow">
@@ -112,11 +134,14 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             <label>
               执行方式
               <select
+                aria-label="执行方式"
                 value={kind}
                 onChange={(e) => {
                   const next = e.target.value as AIProfileDraft["kind"];
+                  discoveryRequest.current++;setCodex(null);setCodexError("");setDetecting(false);
                   setKind(next);
-                  setExecutable(next === "api" ? "" : detected[next]);
+                  setExecutable(next === "claude" ? detected.claude : "");
+                  if(next === "codex"){setModel("");void detectCodex("",proxyUrl);}
                   setKey("");
                 }}
               >
@@ -149,6 +174,16 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                 />
               </label>
             </>
+          ) : kind === "codex" ? (
+            <>
+              <label>已自动选择的 Codex CLI<input readOnly value={executable} placeholder="正在检测本地 Codex CLI" /></label>
+              {codex&&<p className="muted small">版本：{codex.selected.version} · 当前 ChatGPT 登录{codex.planType?` · ${codex.planType}`:""}</p>}
+              {codex&&<details><summary>检测到的 CLI（按版本选择最新）</summary>{codex.candidates.map(candidate=><p className="small" key={candidate.executable}>{candidate.executable} · {candidate.version??candidate.error}</p>)}</details>}
+              <button className="secondary" type="button" disabled={busy||detecting} onClick={()=>void detectCodex()}>重新检测 Codex CLI 与模型</button>
+              {detecting&&<p role="status">正在检测版本并读取当前账号的模型列表…</p>}
+              {codexError&&<p className="error-panel" role="alert">{codexError}</p>}
+              <p className="muted small">自动检查 PATH、npm 和桌面端安装目录。仅使用最新 CLI 返回的账号模型；此过程不调用模型、不发送项目材料。请先在 Codex 完成登录。</p>
+            </>
           ) : (
             <>
               <label>
@@ -165,7 +200,10 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
               </p>
             </>
           )}
-          <label>
+          {kind === "codex" ? <label>Codex 模型<select aria-label="Codex 模型" required disabled={!codex||detecting} value={model} onChange={event=>{setModel(event.target.value);setCodexError("");}}>
+            {!model&&<option value="">请选择当前账号可用模型</option>}
+            {codex?.models.map(item=><option key={item.id} value={item.id}>{item.name}（{item.id}）{item.isDefault?" · 默认":""}</option>)}
+          </select></label> : <label>
             模型名称{kind !== "api" ? "（可留空使用工具默认值）" : ""}
             <input
               required={kind === "api"}
@@ -173,13 +211,13 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
               onChange={(e) => setModel(e.target.value)}
               placeholder="使用服务或工具提供的准确模型名"
             />
-          </label>
+          </label>}
           <label>
             此 AI 连接的代理（可选）
             <input
               type="text"
               value={proxyUrl}
-              onChange={(e) => setProxyUrl(e.target.value)}
+              onChange={(e) => {setProxyUrl(e.target.value);if(kind==="codex"){discoveryRequest.current++;setCodex(null);setExecutable("");setDetecting(false);setCodexError("代理配置已变化，请重新检测 CLI 与账号模型。");}}}
               placeholder="127.0.0.1:7890；留空直连"
             />
           </label>
@@ -199,7 +237,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             />
             允许此连接接收我明确选择的项目材料
           </label>
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || (kind === "codex" && (detecting || !codex || !model))}>
             {editingId ? "保存连接修改" : "保存模型连接"}
           </button>
         </form>
@@ -229,7 +267,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                   </p>
                 </div>
                 <div className="row-actions">
-                  <button className="secondary" disabled={busy} onClick={()=>{setEditingId(profile.id);setName(profile.name);setKind(profile.kind);setModel(profile.model);setOutbound(profile.outboundEnabled);setProxyUrl(profile.proxyUrl ?? "");setUrl(profile.kind === "api" ? profile.baseUrl : "");setExecutable(profile.kind === "api" ? "" : profile.executable);setKey("");}}>编辑连接</button>
+                  <button className="secondary" disabled={busy} onClick={()=>edit(profile)}>编辑连接</button>
                   {profile.protocolDiagnostic && <p className="muted small">{profile.protocolDiagnostic}</p>}
                   {profile.id !== defaultId && <button className="secondary" disabled={busy} onClick={() => void act(async () => { unwrap(await window.platform.setDefaultAIProfile(profile.id)); setDefaultId(profile.id); setNotice("默认 AI 已更新，继承默认的项目已同步，单独覆盖的项目保持不变。"); })}>设为默认 AI</button>}
                   <button

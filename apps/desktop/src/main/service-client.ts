@@ -166,7 +166,7 @@ export class ServiceClient {
     await this.ensureReady();
     return this.send(
       { request },
-      request.method === "probeExecutor" ? 90000 : request.method === "refreshBugWorkspace"
+      request.method === "probeExecutor" || request.method === "discoverCodex" ? 90000 : request.method === "refreshBugWorkspace"
         ? ISSUE_REFRESH_TIMEOUT_MS + 35000
         : request.method === "checkIssueNotifications" || request.method === "associateTrinityIssue"
           ? 35000
@@ -196,7 +196,7 @@ export class ServiceClient {
     payload: unknown,
   ): Promise<Result<unknown>> {
     await this.ensureReady();
-    return this.send({ type: "control", action, payload });
+    return this.send({ type: "control", action, payload },action === "save-profile" ? 90000 : 30000);
   }
   private send(envelope: object, timeoutMs = 30000): Promise<Result<unknown>> {
     return new Promise((resolve, reject) => {

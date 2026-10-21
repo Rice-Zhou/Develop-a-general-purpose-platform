@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type {CodexDiscovery} from "./codex";
 import type { DocumentSnapshotRef, SourceGap } from "./documents";
 import type { DocumentSnapshot } from "./documents";
 import type { RequirementSet, RequirementItem } from "./requirements";
@@ -317,6 +318,7 @@ export interface DesktopAPI {
     evidence: EvidenceRef,
   ): Promise<Result<{ text: string; evidence: EvidenceRef }>>;
   getAIProfiles(): Promise<Result<PublicAIProfile[]>>;
+  discoverCodex(proxyUrl?: string): Promise<Result<CodexDiscovery>>;
   saveAIProfile(
     draft: AIProfileDraft,
     secret?: string,
@@ -326,7 +328,6 @@ export interface DesktopAPI {
   getCliConfiguration(): Promise<
     Result<
       CliConfiguration & {
-        codexExecutable: string;
         claudeExecutable: string;
         jiraExecutable: string;
         jiraConfigFile: string;

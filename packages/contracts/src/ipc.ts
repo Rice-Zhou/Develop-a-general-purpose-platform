@@ -2,7 +2,7 @@ import { BugAnalysisOptionsSchema } from "./issue-materials";
 import { z } from "zod";
 import { AppError } from "./error";
 import { ProjectDraftSchema, ProjectDocumentsUpdateSchema, ProjectLinksUpdateSchema, DocumentResourceDraftSchema } from "./models";
-import { AIProfileDraftSchema, EvidenceRefSchema } from "./analysis";
+import { AIProfileDraftSchema, EvidenceRefSchema, AIProxyUrlSchema } from "./analysis";
 import { RequirementItemSchema } from "./requirements";
 import { IssueConnectionDraftSchema } from "./issues";
 import { IssueMonitorConfigurationSchema, NotificationOpenIdSchema, RecipientQuerySchema } from "./issue-monitor";
@@ -19,6 +19,7 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+  z.object({method:z.literal("discoverCodex"),params:z.object({proxyUrl:AIProxyUrlSchema.optional()}).strict()}).strict(),
   z.object({method:z.literal("discoverJiraConnection"),params:z.object({draft:IssueConnectionDraftSchema,secret:z.string().max(10000).optional()}).strict().refine(p=>p.draft.kind!=="trinity","此入口仅支持 Jira")}).strict(),
   z.object({ method: z.literal("saveProjectLinks"), params: ProjectLinksUpdateSchema }).strict(),
   ...(["getDocumentResources", "getDefaultAIProfile"] as const).map(method => z.object({ method: z.literal(method), params: empty }).strict()),
