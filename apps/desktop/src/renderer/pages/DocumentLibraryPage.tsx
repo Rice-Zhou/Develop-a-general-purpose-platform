@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
-import type { DocumentResource, Project } from "../../../../../packages/contracts/src/models";
-import { message, unwrap } from "../api";
-import { DocumentResourceEditor } from "../components/DocumentResourceEditor";
-
-export function DocumentLibraryPage({ projects, onChanged, onLink }: { projects: Project[]; onChanged: () => Promise<void>; onLink: (document: DocumentResource) => void }) {
-  const [resources, setResources] = useState<DocumentResource[]>([]);
-  const [editing, setEditing] = useState<DocumentResource | "new" | null>(null);
-  const [error, setError] = useState("");
-  async function reload() { setResources(unwrap(await window.platform.getDocumentResources())); }
-  useEffect(() => { void reload().catch(e => setError(message(e))); }, [projects]);
-  return <section className="panel work-panel">
-    <div className="section-heading"><h2>需求资料库</h2><button className="primary" onClick={() => setEditing("new")}>添加需求文档资源</button></div>
-    <p className="muted">需求文档可独立配置，随后关联一个或多个代码项目。删除资源需先解除关联，不删除原文与历史分析。</p>
-    {error && <div className="error-panel" role="alert">{error}</div>}
-    {!resources.length && <p className="empty-inline">尚未配置需求文档资源。</p>}
-    {resources.map(resource => <div className="report-list-item" key={resource.id}><div><strong>{resource.name}</strong><p className="muted small">{resource.kind} · {resource.locator}</p><p className="muted small">关联项目：{projects.filter(p => p.documents.some(d => d.id === resource.id)).map(p => p.name).join("、") || "未关联"}</p></div><div className="row-actions">
-      <button className="secondary" onClick={() => onLink(resource)}>关联项目</button><button className="text-button" onClick={() => setEditing(resource)}>编辑资源</button><button className="text-button danger-text" onClick={() => { setError(""); void window.platform.deleteDocumentResource(resource.id, resource.revision).then(unwrap).then(reload).catch(e => setError(message(e))); }}>删除资源</button>
-    </div></div>)}
-    {editing && <DocumentResourceEditor resource={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void reload().then(onChanged).catch(e => setError(message(e))); }} />}
-  </section>;
+import {useEffect,useState} from "react";
+import type {DocumentResource,Project} from "../../../../../packages/contracts/src/models";
+import {isDocumentResource,type Library,type LibraryResource,type LibraryCategory} from "../../../../../packages/contracts/src/library";
+import {message,unwrap} from "../api";
+import {DocumentResourceEditor} from "../components/DocumentResourceEditor";
+export function DocumentLibraryPage({projects,onChanged,onLink}:{projects:Project[];onChanged:()=>Promise<void>;onLink:(d:DocumentResource)=>void}){
+ const [library,setLibrary]=useState<Library>({resources:[],categories:[]});const [selected,setSelected]=useState<string|null|"all">("all");const [query,setQuery]=useState("");
+ const [editing,setEditing]=useState<LibraryResource|"new"|null>(null);const [category,setCategory]=useState<LibraryCategory|"new"|null>(null);const [name,setName]=useState("");const [parent,setParent]=useState<string|null>(null);const [error,setError]=useState("");const [linking,setLinking]=useState<LibraryResource|null>(null);const [projectId,setProjectId]=useState("");
+ async function reload(){setLibrary(unwrap(await window.platform.getLibrary()));}
+ useEffect(()=>{let active=true;void window.platform.getLibrary().then(unwrap).then(v=>{if(active)setLibrary(v);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[projects]);
+ async function act(fn:()=>Promise<unknown>){setError("");try{await fn();await reload();await onChanged();}catch(e){setError(message(e));}}
+ function openCategory(c?:LibraryCategory){setCategory(c??"new");setName(c?.name??"");setParent(c?.parentId??(selected!=="all"?selected:null));}
+ const tree=(parentId:string|null):React.ReactNode=>library.categories.filter(c=>c.parentId===parentId).map(c=><div key={c.id} className="library-category"><button className={selected===c.id?"secondary":"text-button"} onClick={()=>setSelected(c.id)}>{c.name}</button><button className="text-button" aria-label={`编辑分类 ${c.name}`} onClick={()=>openCategory(c)}>编辑</button>{tree(c.id)}</div>);
+ const visible=library.resources.filter(r=>(selected==="all"||r.categoryId===selected)&&[r.name,r.kind==="note"?r.text:r.locator].some(t=>t.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+ return <section className="panel work-panel"><div className="section-heading"><h2>需求资料库</h2><button className="primary" onClick={()=>setEditing("new")}>添加需求文档资源</button></div><p className="muted">资料可独立保存并按多级分类整理，无需先创建代码项目；随后可关联为审核需求或参考资料。</p>
+ {error&&<div className="error-panel" role="alert">{error}</div>}<div className="library-layout"><nav aria-label="资料分类"><button className="text-button" onClick={()=>setSelected("all")}>全部资料</button><button className="text-button" onClick={()=>setSelected(null)}>未分类</button>{tree(null)}<button className="secondary" onClick={()=>openCategory()}>新增分类</button></nav><div><label>搜索资料<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="名称、路径或链接"/></label>
+ {!visible.length&&<p className="empty-inline">当前分类暂无资料。</p>}{visible.map(r=><div className="report-list-item" key={r.id}><div><strong>{r.name}</strong><p className="muted small">{r.kind} · {r.kind==="note"?r.text:r.locator}</p><p className="muted small">关联项目：{projects.filter(p=>p.resourceLinks?.some(l=>l.resourceId===r.id)).map(p=>p.name).join("、")||"未关联"}</p></div><div className="row-actions"><button className="secondary" onClick={()=>{if(isDocumentResource(r))onLink({id:r.id,name:r.name,kind:r.kind,locator:r.locator,required:r.required,revision:r.revision});else{setLinking(r);setProjectId("");}}}>关联项目</button><button className="text-button" onClick={()=>setEditing(r)}>编辑资源</button><button className="text-button danger-text" onClick={()=>void act(async()=>unwrap(await window.platform.deleteLibraryResource(r.id,r.revision)))}>删除资源</button></div></div>)}</div></div>
+ {editing&&<DocumentResourceEditor documentsOnly={false} categoryId={selected==="all"?null:selected} resource={editing==="new"?undefined:editing} onClose={()=>{setEditing(null);void reload().catch(e=>setError(message(e)));}} onSaved={()=>{setEditing(null);void reload().then(onChanged).catch(e=>setError(message(e)));}}/>}
+ {category&&<div className="modal-backdrop"><section className="editor modal" role="dialog" aria-label="分类设置"><form onSubmit={e=>{e.preventDefault();void act(async()=>{unwrap(await window.platform.saveLibraryCategory({...(category==="new"?{}:{id:category.id}),name,parentId:parent},category==="new"?undefined:category.revision));setCategory(null);});}}><label>分类名称<input required value={name} onChange={e=>setName(e.target.value)}/></label><label>父分类<select value={parent??""} onChange={e=>setParent(e.target.value||null)}><option value="">根分类</option>{library.categories.filter(c=>category==="new"||c.id!==category.id).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>{error&&<p role="alert">{error}</p>}<div className="form-footer"><button type="button" onClick={()=>setCategory(null)}>取消</button>{category!=="new"&&<button type="button" onClick={()=>void act(async()=>{unwrap(await window.platform.deleteLibraryCategory(category.id,category.revision));if(selected===category.id)setSelected("all");setCategory(null);})}>删除分类</button>}<button>保存分类</button></div></form></section></div>}
+ {linking&&<div className="modal-backdrop"><section className="editor modal" role="dialog" aria-label="关联参考资料"><h2>{linking.name}</h2><label>代码项目<select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">选择项目</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><p>仅作为参考资料，不进入需求解析清单。</p>{error&&<p role="alert">{error}</p>}<button onClick={()=>setLinking(null)}>取消</button><button disabled={!projectId} onClick={()=>void act(async()=>{const p=projects.find(p=>p.id===projectId)!;unwrap(await window.platform.saveProjectResources(p.id,[...(p.resourceLinks??[]).filter(l=>l.resourceId!==linking.id),{resourceId:linking.id,role:"reference",required:false}],p.revision));setLinking(null);})}>保存关联</button></section></div>}
+ </section>;
 }
