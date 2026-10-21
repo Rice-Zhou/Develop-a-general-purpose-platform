@@ -1,3 +1,4 @@
+import { resolveAIConnection, resolveAIEndpoint } from "../../../../packages/adapters/src/network/ai-endpoint";
 import { join, delimiter } from "node:path";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -134,7 +135,7 @@ export class Workbench implements TaskRuntime {
     return this.search.index(this.bound(context), signal);
   }
   profiles(): AIProfile[] {
-    return this.store.getSetting<AIProfile[]>("profiles") ?? [];
+    return (this.store.getSetting<AIProfile[]>("profiles") ?? []).map(p=>({...AIProfileDraftSchema.parse(p.kind === "api" ? {kind:p.kind,name:p.name,model:p.model,outboundEnabled:p.outboundEnabled,baseUrl:p.baseUrl,...(p.proxyUrl ? {proxyUrl:p.proxyUrl} : {})} : {kind:p.kind,name:p.name,model:p.model,outboundEnabled:p.outboundEnabled,executable:p.executable,...(p.proxyUrl ? {proxyUrl:p.proxyUrl} : {})}),id:p.id,credentialRef:p.credentialRef}));
   }
   profile(id: string): AIProfile {
     const profile = this.profiles().find((p) => p.id === id);
@@ -163,6 +164,7 @@ export class Workbench implements TaskRuntime {
       ...this.profiles().filter((p) => p.id !== profile.id),
       profile,
     ]);
+    this.store.setSetting(`ai-protocol:${profile.id}`, null);
     if (!this.store.getDefaultAIProfile()) this.store.setDefaultAIProfile(profile.id);
     return publicProfile(profile);
   }
@@ -208,10 +210,12 @@ export class Workbench implements TaskRuntime {
             ? this.resolveKey(profile.id, profile.credentialRef)
             : Promise.resolve(null),
         assertCurrent,
+        resolveAIEndpoint,
+        detail => this.recordProtocol(profile.id, detail),
       );
     const cwd = join(this.dataPath, "subscription-workspace");
     await mkdir(cwd, { recursive: true });
-    return new SubscriptionTransport(profile, cwd, runProcess, assertCurrent);
+    return new SubscriptionTransport(profile, cwd, runProcess, assertCurrent, resolveAIEndpoint, detail=>this.recordProtocol(profile.id,detail));
   }
   async analyze(
     task: Task,
@@ -312,9 +316,15 @@ export class Workbench implements TaskRuntime {
     const issue = this.store.issues.get(projectId, issueSnapshotId);
     return issueWebUrl(this.issues.scope(projectId, issue.bindingId), issue);
   }
+  private recordProtocol(id:string, detail:string) {
+    const existing=this.store.getSetting<string>(`ai-protocol:${id}`);
+    this.store.setSetting(`ai-protocol:${id}`, existing ? existing + "；" + detail : detail);
+  }
   async probe(id: string) {
     const profile = this.profile(id);
     const signal = AbortSignal.timeout(30000);
+    this.store.setSetting(`ai-protocol:${id}`, null);
+    await resolveAIConnection(profile, signal, resolveAIEndpoint, detail=>this.recordProtocol(id,detail));
     if (profile.kind === "api") {
       const model = await this.transport({ ...profile, outboundEnabled: true });
       await model.complete(
@@ -331,7 +341,7 @@ export class Workbench implements TaskRuntime {
       );
       return {
         available: true,
-        detail: "已收到所配置模型的协议响应；此测试未发送项目材料",
+        detail: `${this.store.getSetting<string>(`ai-protocol:${id}`) ?? "直连"}；已收到模型响应，此测试未发送项目材料`,
       };
     }
     const help = await runProcess(
@@ -530,7 +540,7 @@ export class Workbench implements TaskRuntime {
             );
       }
       case "getAIProfiles":
-        return this.profiles().map(publicProfile);
+        return this.profiles().map(p=>({...publicProfile(p),protocolDiagnostic:this.store.getSetting<string>(`ai-protocol:${p.id}`) ?? undefined}));
       case "getCliConfiguration":
         return this.cliConfiguration();
       case "saveCliConfiguration":

@@ -46,6 +46,7 @@ export type AIProfile = AIProfileDraft & {
 export type PublicAIProfile = AIProfileDraft & {
   id: string;
   hasCredential: boolean;
+  protocolDiagnostic?: string;
 };
 export interface ExecutorDiagnostic {
   available: boolean;

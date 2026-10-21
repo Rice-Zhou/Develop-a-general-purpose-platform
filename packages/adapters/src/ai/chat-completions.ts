@@ -1,3 +1,4 @@
+import { resolveAIEndpoint, resolveAIConnection, type EndpointSelection } from "../network/ai-endpoint";
 import { z } from "zod";
 import type { AIProfile } from "../../../contracts/src/analysis";
 import { AppError } from "../../../contracts/src/error";
@@ -38,12 +39,22 @@ const response = z.object({
 export class ChatCompletionsTransport implements ModelTransport {
   readonly version = "chat-completions-1";
   readonly identity;
+  private selection: Promise<{ api?: EndpointSelection; proxy?: EndpointSelection }> | undefined;
   constructor(
     private readonly profile: AIProfile & { kind: "api" },
     private readonly resolveKey: () => Promise<string | null>,
     private readonly assertCurrent?: () => void,
+    private readonly resolveEndpoint: typeof resolveAIEndpoint = resolveAIEndpoint,
+    private readonly diagnostic: (detail: string) => void = () => {},
   ) {
     this.identity = executorIdentity(profile);
+  }
+  private async endpoints(signal: AbortSignal) {
+    if (!this.selection) {
+      this.selection = resolveAIConnection(this.profile, signal, this.resolveEndpoint, this.diagnostic);
+      this.selection.catch(() => { this.selection = undefined; });
+    }
+    return this.selection;
   }
   async complete(
     messages: ModelMessage[],
@@ -55,22 +66,8 @@ export class ChatCompletionsTransport implements ModelTransport {
         "OUTBOUND_NOT_APPROVED",
         "请在模型设置允许向此连接发送项目材料",
       );
-    const url = new URL(this.profile.baseUrl);
-    if (
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      !(
-        url.protocol === "https:" ||
-        (url.protocol === "http:" &&
-          ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-      )
-    )
-      throw new AppError(
-        "MODEL_URL_INVALID",
-        "模型地址必须为 HTTPS，或明确配置的本机 HTTP 地址",
-      );
+    const selected = await this.endpoints(signal);
+    const url = new URL(selected.api!.url);
     url.pathname = url.pathname.replace(/\/$/, "") + "/chat/completions";
     const key = await this.resolveKey();
     if (!key && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
@@ -102,7 +99,7 @@ export class ChatCompletionsTransport implements ModelTransport {
           body,
           signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
         },
-        this.profile.proxyUrl,
+        selected.proxy?.url,
       );
     } catch {
       if (signal.aborted) throw new AppError("CANCELLED", "模型请求已取消");

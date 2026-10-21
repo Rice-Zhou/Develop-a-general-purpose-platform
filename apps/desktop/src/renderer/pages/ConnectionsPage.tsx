@@ -1,3 +1,4 @@
+import { parseAIAddress } from "../../../../../packages/contracts/src/ai-address";
 import { useEffect, useState, type FormEvent } from "react";
 import type {
   AIProfileDraft,
@@ -5,6 +6,7 @@ import type {
 } from "../../../../../packages/contracts/src/analysis";
 import { unwrap, message } from "../api";
 export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
+  const [editingId, setEditingId] = useState<string>();
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [kind, setKind] = useState<AIProfileDraft["kind"]>("api");
@@ -65,7 +67,8 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
         kind === "api"
           ? { ...base, kind, baseUrl: url }
           : { ...base, kind, executable };
-      unwrap(await window.platform.saveAIProfile(draft, key || undefined));
+      unwrap(await window.platform.saveAIProfile(draft, key || undefined, editingId));
+      setEditingId(undefined);
       setKey("");
       setName("");
       setProxyUrl("");
@@ -94,6 +97,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           API 使用配置的服务地址和模型名；ChatGPT / Claude Code
           使用本机工具自己的登录。项目默认继承默认 AI，也可单独指定连接；执行失败时不会切换到其他连接。
         </p>
+        {editingId && <p role="status">正在编辑现有连接；留空密钥会保留原密钥。<button className="text-button" onClick={()=>{setEditingId(undefined);setName("");setKey("");setUrl("");setProxyUrl("");}}>取消编辑</button></p>}
         <form onSubmit={save} className="connection-form">
           <div className="form-row">
             <label className="grow">
@@ -128,10 +132,10 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                 模型服务地址
                 <input
                   required
-                  type="url"
+                  type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://model.example.com/v1"
+                  placeholder="model.example.com/v1"
                 />
               </label>
               <label>
@@ -173,10 +177,10 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           <label>
             此 AI 连接的代理（可选）
             <input
-              type="url"
+              type="text"
               value={proxyUrl}
               onChange={(e) => setProxyUrl(e.target.value)}
-              placeholder="http://127.0.0.1:7890；留空直连"
+              placeholder="127.0.0.1:7890；留空直连"
             />
           </label>
           <p className="muted small">
@@ -185,6 +189,8 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             {kind !== "api" &&
               "订阅 CLI 若通过自身配置覆盖环境代理，以工具实际行为为准；平台不会修改其登录或用户配置。"}
           </p>
+          <AddressCandidates value={kind === "api" ? url : ""} kind="api" />
+          <AddressCandidates value={proxyUrl} kind="proxy" />
           <label className="check-label">
             <input
               type="checkbox"
@@ -194,7 +200,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
             允许此连接接收我明确选择的项目材料
           </label>
           <button className="primary" disabled={busy}>
-            保存模型连接
+            {editingId ? "保存连接修改" : "保存模型连接"}
           </button>
         </form>
         <div className="connection-list">
@@ -223,6 +229,8 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                   </p>
                 </div>
                 <div className="row-actions">
+                  <button className="secondary" disabled={busy} onClick={()=>{setEditingId(profile.id);setName(profile.name);setKind(profile.kind);setModel(profile.model);setOutbound(profile.outboundEnabled);setProxyUrl(profile.proxyUrl ?? "");setUrl(profile.kind === "api" ? profile.baseUrl : "");setExecutable(profile.kind === "api" ? "" : profile.executable);setKey("");}}>编辑连接</button>
+                  {profile.protocolDiagnostic && <p className="muted small">{profile.protocolDiagnostic}</p>}
                   {profile.id !== defaultId && <button className="secondary" disabled={busy} onClick={() => void act(async () => { unwrap(await window.platform.setDefaultAIProfile(profile.id)); setDefaultId(profile.id); setNotice("默认 AI 已更新，继承默认的项目已同步，单独覆盖的项目保持不变。"); })}>设为默认 AI</button>}
                   <button
                     className="secondary"
@@ -308,4 +316,10 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
       </section>
     </div>
   );
+}
+
+function AddressCandidates({value,kind}:{value:string;kind:"api"|"proxy"}) {
+  if (!value.trim()) return null;
+  try { const result=parseAIAddress(value,kind); return <p className="muted small">{kind === "api" ? "API" : "代理"}候选：{result.httpsUrl} → {result.httpUrl}（HTTP 未加密，仅 HTTPS 连接失败时尝试）</p>; }
+  catch { return <p className="error-panel">地址格式无效，请检查主机、端口和路径。</p>; }
 }

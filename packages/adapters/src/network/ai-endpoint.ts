@@ -25,3 +25,12 @@ export async function resolveAIEndpoint(address: string, kind: AIAddressKind, op
   }
   throw new AppError("AI_ENDPOINT_UNREACHABLE", "无法选择 AI 协议");
 }
+
+export async function resolveAIConnection(profile: {kind:string; proxyUrl?:string; baseUrl?:string}, signal: AbortSignal, resolve: typeof resolveAIEndpoint, diagnostic: (detail:string)=>void) {
+  const proxy = profile.proxyUrl ? await resolve(profile.proxyUrl, "proxy", {signal}) : undefined;
+  const api = profile.kind === "api" && profile.baseUrl ? await resolve(profile.baseUrl, "api", {signal,proxyUrl:proxy?.url}) : undefined;
+  for (const [name, selected] of [["API",api],["代理",proxy]] as const) {
+    if (selected) diagnostic(`${name}：${selected.scheme.toUpperCase()}${selected.scheme === "http" ? "（未加密）" : ""}${selected.httpsFailure ? `；HTTPS ${selected.httpsFailure}` : ""}；仅协议探测通过`);
+  }
+  return {api,proxy};
+}

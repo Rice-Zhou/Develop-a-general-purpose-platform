@@ -144,7 +144,7 @@ it("AI explicit proxy uses CONNECT and a subsequent legacy connection goes direc
       res.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
     }),
   );
-  const proxyServer = createServer();
+  const proxyServer = createServer((_req,res)=>res.writeHead(400).end());
   proxyServer.on("connect", (req, client, head) => {
     connects++;
     const target = new URL(`http://${req.url}`);
@@ -175,7 +175,7 @@ it("AI explicit proxy uses CONNECT and a subsequent legacy connection goes direc
         ).complete([], [], AbortSignal.timeout(5000))
       ).content,
     ).toBe("ok");
-    expect(connects).toBe(1);
+    expect(connects).toBe(3);
     expect(
       (
         await new ChatCompletionsTransport(
@@ -184,8 +184,8 @@ it("AI explicit proxy uses CONNECT and a subsequent legacy connection goes direc
         ).complete([], [], AbortSignal.timeout(5000))
       ).content,
     ).toBe("ok");
-    expect(requests).toBe(2);
-    expect(connects).toBe(1);
+    expect(requests).toBe(4);
+    expect(connects).toBe(3);
     expect(process.env.HTTP_PROXY).toBe("http://127.0.0.1:1");
     expect(getGlobalDispatcher()).toBe(dispatcher);
   } finally {
@@ -204,7 +204,7 @@ it("a failed explicit AI proxy never falls back to a direct model request", asyn
       );
     }),
   );
-  const proxyServer = createServer();
+  const proxyServer = createServer((_req,res)=>res.writeHead(400).end());
   proxyServer.on("connect", (_req, client) =>
     client.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"),
   );
@@ -214,8 +214,8 @@ it("a failed explicit AI proxy never falls back to a direct model request", asyn
       new ChatCompletionsTransport(
         { ...apiProfile, baseUrl: endpoint.url, proxyUrl: proxy.url },
         async () => null,
-      ).complete([], [], AbortSignal.timeout(5000)),
-    ).rejects.toMatchObject({ code: "MODEL_NETWORK_FAILED" });
+      ).complete([], [], AbortSignal.timeout(20000)),
+    ).rejects.toMatchObject({ code: "AI_ENDPOINT_UNREACHABLE" });
     expect(requests).toBe(0);
   } finally {
     await proxy.close();
@@ -243,6 +243,8 @@ it("subscription connection proxy is scoped to its own process environment", asy
     { ...profile, proxyUrl: "http://127.0.0.1:4321" },
     process.cwd(),
     run,
+    undefined,
+    async address=>({url:`http://${address.replace(/^https?:\/\//, "")}`,scheme:"http"}),
   ).complete([], [], AbortSignal.timeout(5000));
   await new SubscriptionTransport(profile, process.cwd(), run).complete(
     [],

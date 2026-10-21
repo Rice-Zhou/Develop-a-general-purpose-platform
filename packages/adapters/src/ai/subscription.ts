@@ -1,3 +1,4 @@
+import { resolveAIEndpoint, resolveAIConnection, type EndpointSelection } from "../network/ai-endpoint";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { AIProfile } from "../../../contracts/src/analysis";
@@ -47,13 +48,23 @@ const disabled = [
 export class SubscriptionTransport implements ModelTransport {
   readonly version = "subscription-input-only-1";
   readonly identity;
+  private selection: Promise<{ api?: EndpointSelection; proxy?: EndpointSelection }> | undefined;
   constructor(
     private readonly profile: AIProfile & { kind: "codex" | "claude" },
     private readonly cwd: string,
     private readonly run: typeof runProcess = runProcess,
     private readonly assertCurrent?: () => void,
+    private readonly resolveEndpoint: typeof resolveAIEndpoint = resolveAIEndpoint,
+    private readonly diagnostic: (detail: string) => void = () => {},
   ) {
     this.identity = executorIdentity(profile);
+  }
+  private async endpoints(signal: AbortSignal) {
+    if (!this.selection) {
+      this.selection = resolveAIConnection(this.profile, signal, this.resolveEndpoint, this.diagnostic);
+      this.selection.catch(() => { this.selection = undefined; });
+    }
+    return this.selection;
   }
   async complete(
     messages: ModelMessage[],
@@ -116,7 +127,8 @@ export class SubscriptionTransport implements ModelTransport {
             '{"disableAllHooks":true}',
             ...(this.profile.model ? ["--model", this.profile.model] : []),
           ];
-    const env = aiEnvironment(this.profile.proxyUrl);
+    const selected = await this.endpoints(signal);
+    const env = aiEnvironment(selected.proxy?.url);
     delete env.OPENAI_API_KEY;
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;

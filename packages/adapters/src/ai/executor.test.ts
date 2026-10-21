@@ -6,6 +6,7 @@ import { SubscriptionTransport } from "./subscription";
 it("calls only the configured model endpoint and parses tool calls without leaking a key on failure", async () => {
   const bodies: unknown[] = [];
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD") {res.writeHead(405);res.end();return;}
     let body = "";
     for await (const part of req) body += part;
     bodies.push(JSON.parse(body));
