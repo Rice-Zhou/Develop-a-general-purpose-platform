@@ -55,6 +55,7 @@ test("saves independent Jira project connections and auto-links one Trinity acco
   await page.getByRole("button",{name:"设置",exact:true}).click();
   const panel=page.locator("section.work-panel").filter({has:page.getByRole("heading",{name:"Jira 与 Trinity 登录",exact:true})});
   for(const [key,title] of [["A","项目甲"],["B","项目乙"]]){
+   await panel.getByRole("button",{name:"新增 Jira 连接",exact:true}).click();
    await panel.getByLabel("Jira 登录方式").selectOption("account");await panel.getByLabel("连接名称",{exact:true}).fill(`Jira ${key}`);await panel.getByLabel("平台地址",{exact:true}).fill(base);await panel.getByLabel("登录账号",{exact:true}).fill("alice");await panel.getByLabel("登录密码",{exact:true}).fill("fixture-password");
    await panel.getByRole("button",{name:"登录并读取 Jira 项目",exact:true}).click();const picker=panel.getByRole("combobox",{name:"Jira 项目",exact:true});await expect(picker).toBeEnabled();await picker.fill(title);await panel.getByRole("option",{name:`${title}（${key}）`,exact:true}).click();await panel.getByRole("button",{name:"保存 Jira 连接",exact:true}).click();
    await expect(panel.locator(".report-list-item").filter({hasText:`Jira ${key}`})).toContainText(`（${key}）`);
@@ -63,7 +64,7 @@ test("saves independent Jira project connections and auto-links one Trinity acco
   await panel.locator(".report-list-item").filter({hasText:"Jira A"}).getByRole("button",{name:"关联项目",exact:true}).click();
   const choice=page.getByRole("dialog",{name:"选择关联项目",exact:true});await choice.getByLabel("代码项目").selectOption(ids[0]);await choice.getByRole("button",{name:"配置关联",exact:true}).click();
   const links=page.getByRole("dialog",{name:"管理项目关联",exact:true});await expect(links.getByRole("combobox",{name:"Jira 项目",exact:true})).toHaveCount(0);await expect(links.getByLabel("Jira 项目连接")).toHaveValue(connectionIds[0]);await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
-  await panel.getByLabel("BUG 平台").selectOption("trinity");await panel.getByLabel("连接名称",{exact:true}).fill("Current Trinity");await panel.getByLabel("平台地址",{exact:true}).fill(base);await panel.getByLabel("登录账号",{exact:true}).fill("alice");await panel.getByLabel("登录密码",{exact:true}).fill("fixture-password");await panel.getByRole("button",{name:"登录并保存平台连接",exact:true}).click();
+  await panel.getByRole("button",{name:"新增 Trinity 连接",exact:true}).click();await panel.getByLabel("连接名称",{exact:true}).fill("Current Trinity");await panel.getByLabel("平台地址",{exact:true}).fill(base);await panel.getByLabel("登录账号",{exact:true}).fill("alice");await panel.getByLabel("登录密码",{exact:true}).fill("fixture-password");await panel.getByRole("button",{name:"登录并保存平台连接",exact:true}).click();
   await expect(panel.getByText(/Trinity 已自动关联所有代码项目/)).toBeVisible();const trinityCard=panel.locator(".report-list-item").filter({hasText:"Current Trinity"});await expect(trinityCard.getByRole("button",{name:"关联项目",exact:true})).toHaveCount(0);
   const state=()=>page.evaluate(async()=>{const r=await window.platform.listProjects();if(!r.ok)throw new Error(r.error.message);return r.value;});
   expect((await state()).every(p=>p.issueBindings.some(b=>b.platform==="trinity"&&b.owner==="uid-alice"&&b.scopeMode==="account"))).toBe(true);

@@ -9,6 +9,7 @@ import { unwrap, message } from "../api";
 import type { Project } from "../../../../../packages/contracts/src/models";
 import { DeleteAIProfileDialog } from "../components/DeleteAIProfileDialog";
 export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
+  const [formVisible,setFormVisible]=useState(false);
   const [editingId, setEditingId] = useState<string>();
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
   const [deleting, setDeleting] = useState<{ profile: PublicAIProfile; projects: Project[] } | null>(null);
@@ -60,7 +61,9 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
     }catch(error){if(request===discoveryRequest.current)setCodexError(message(error));}
     finally{if(request===discoveryRequest.current)setDetecting(false);}
   }
+  function closeEditor(){discoveryRequest.current++;setFormVisible(false);setEditingId(undefined);setCodex(null);setDetecting(false);setCodexError("");setName("");setKind("api");setUrl("");setModel("");setExecutable("");setKey("");setProxyUrl("");setOutbound(false);setError("");}
   function edit(profile:PublicAIProfile) {
+    setFormVisible(true);
     discoveryRequest.current++;setDetecting(false);setCodex(null);setCodexError("");
     setEditingId(profile.id);setName(profile.name);setKind(profile.kind);setModel(profile.model);setOutbound(profile.outboundEnabled);setProxyUrl(profile.proxyUrl??"");setUrl(profile.kind==="api"?profile.baseUrl:"");setExecutable(profile.kind==="api"?"":profile.executable);setKey("");
     if(profile.kind==="codex")void detectCodex(profile.model,profile.proxyUrl??"");
@@ -99,6 +102,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
       setProxyUrl("");
       setProfiles(unwrap(await window.platform.getAIProfiles()));
       setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
+      setFormVisible(false);
       setNotice("连接已保存。首个连接自动作为默认 AI，未单独覆盖的项目自动使用默认连接。");
     });
   }
@@ -122,8 +126,9 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           API 使用配置的服务地址和模型名；ChatGPT / Claude Code
           使用本机工具自己的登录。项目默认继承默认 AI，也可单独指定连接；执行失败时不会切换到其他连接。
         </p>
-        {editingId && <p role="status">正在编辑现有连接；留空密钥会保留原密钥。<button className="text-button" onClick={()=>{discoveryRequest.current++;setCodex(null);setDetecting(false);setCodexError("");setKind("api");setEditingId(undefined);setName("");setKey("");setUrl("");setProxyUrl("");}}>取消编辑</button></p>}
-        <form onSubmit={save} className="connection-form">
+        <button className="secondary" onClick={()=>{closeEditor();setFormVisible(true);}}>新增 AI 连接</button>
+        {formVisible&&editingId&&<p role="status">正在编辑现有连接；留空密钥会保留原密钥。</p>}
+        {formVisible&&<form onSubmit={save} className="connection-form">
           <div className="form-row">
             <label className="grow">
               连接名称
@@ -243,7 +248,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           <button className="primary" disabled={busy || (kind === "codex" && (detecting || !codex || !model))}>
             {editingId ? "保存连接修改" : "保存模型连接"}
           </button>
-        </form>
+        <button className="secondary" type="button" disabled={busy} onClick={closeEditor}>取消 AI 连接编辑</button></form>}
         <div className="connection-list">
           {profiles.length === 0 ? (
             <p className="muted">
@@ -254,7 +259,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
               <div className="connection-item" key={profile.id}>
                 <div>
                   <strong>{profile.name}{profile.id === defaultId ? " · 默认 AI" : ""}</strong>
-                  <p className="muted small">
+                  <details><summary>连接详情</summary><p className="muted small">
                     {profile.kind === "api"
                       ? profile.baseUrl
                       : profile.executable}
@@ -267,7 +272,7 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                     {profile.kind === "api"
                       ? ` · ${profile.hasCredential ? "已保存密钥" : "未保存密钥"}`
                       : ""}
-                  </p>
+                  </p></details>
                 </div>
                 <div className="row-actions">
                   <button className="secondary" disabled={busy} onClick={()=>edit(profile)}>编辑连接</button>

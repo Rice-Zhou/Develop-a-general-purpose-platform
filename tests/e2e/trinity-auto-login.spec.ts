@@ -24,6 +24,7 @@ test("optionally encrypts Trinity passwords, logs in on restart once, clears on 
  const vaultFiles=async()=>(await readdir(join(data,"credentials"))).filter(f=>f.endsWith(".bin"));
  try{
   let page=await launch();expect(logins).toBe(0);await page.getByRole("button",{name:"设置",exact:true}).click();
+    await page.getByRole("button",{name:"新增 Jira 连接",exact:true}).click();
   const panel=()=>page.locator("section.work-panel").filter({has:page.getByRole("heading",{name:"Jira 与 Trinity 登录",exact:true})});
   await panel().getByLabel("BUG 平台").selectOption("trinity");const opt=()=>panel().getByRole("checkbox",{name:"在本机保存账号密码，并在启动时自动登录",exact:true});await expect(opt()).not.toBeChecked();
   await panel().getByLabel("连接名称",{exact:true}).fill("Remembered Trinity");await panel().getByLabel("平台地址",{exact:true}).fill(base);await panel().getByLabel("登录账号",{exact:true}).fill("alice");await panel().getByLabel("登录密码",{exact:true}).fill("fixture-private-password");await opt().check();await panel().getByRole("button",{name:"登录并保存平台连接",exact:true}).click();await expect(opt()).toBeDisabled();releaseFirstLogin();

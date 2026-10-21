@@ -55,6 +55,7 @@ test("delayed local Jira detection never overwrites Trinity input", async () => 
     });
     const page = await app.firstWindow();
     await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button",{name:"新增 Jira 连接",exact:true}).click();
     await page.getByLabel("BUG 平台").selectOption("trinity");
     await page
       .getByLabel("平台地址", { exact: true })
@@ -140,6 +141,7 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     });
     const page = await app.firstWindow();
     await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button",{name:"新增 Jira 连接",exact:true}).click();
     await expect(page.getByLabel("Jira 登录方式")).toHaveValue("account");
     await page.getByLabel("平台地址", { exact: true }).fill(base);
     await page.getByLabel("登录账号", { exact: true }).fill("alice");
@@ -148,8 +150,8 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
     const picker=page.getByRole("combobox",{name:"Jira 项目",exact:true});await expect(picker).toBeEnabled();await picker.fill("A");await page.getByRole("option",{name:"Project A（A）",exact:true}).click();
     await page.getByRole("button",{name:"保存 Jira 连接",exact:true}).click();
     await expect(page.getByText("Jira 连接及对应项目已保存，可直接关联代码项目。",{exact:true})).toBeVisible();
-    await expect(page.getByLabel("登录密码", { exact: true })).toHaveValue("");
-    await page.getByLabel("BUG 平台").selectOption("trinity");
+    await expect(page.getByLabel("登录密码", { exact: true })).toHaveCount(0);
+    await page.getByRole("button",{name:"新增 Trinity 连接",exact:true}).click();
     await page.getByLabel("平台地址", { exact: true }).fill(base + "/trinity");
     await page.getByLabel("登录账号", { exact: true }).fill("alice");
     await page.getByLabel("登录密码", { exact: true }).fill("fixture-password");

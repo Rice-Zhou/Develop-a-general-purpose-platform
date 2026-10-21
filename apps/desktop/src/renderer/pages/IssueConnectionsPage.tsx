@@ -9,12 +9,13 @@ import { JiraProjectPicker } from "../components/JiraProjectPicker";
 import { message, unwrap } from "../api";
 export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { embedded?: boolean; onSaved?: (connection: PublicIssueConnection) => void; onLink?: (connection: PublicIssueConnection) => void } = {}) {
   const formEdited = useRef(false);
+  const [formVisible,setFormVisible]=useState(embedded);
   const [connections, setConnections] = useState<PublicIssueConnection[]>([]);
   const [editingId, setEditingId] = useState<string>();
   const [platform, setPlatform] = useState<"jira" | "trinity">("jira");
   const [jiraMode, setJiraMode] = useState<"cli" | "account">("cli");
   const [local, setLocal] = useState<LocalJiraConfiguration | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [exe, setExe] = useState("");
@@ -37,6 +38,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
     setConnections(unwrap(await window.platform.getIssueConnections()));
   }
   function edit(connection: PublicIssueConnection) {
+    setFormVisible(true);
     formEdited.current = true;
     setEditingId(connection.id);
     setName(connection.name);
@@ -54,18 +56,23 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
     setError("");
     setNotice("");
   }
-  function addNew() {
+  function closeEditor(){setFormVisible(false);setEditingId(undefined);setPassword("");setUsername("");setName("");setUrl("");setCatalogue(null);setProjectKey("");setIssueTypeIds([]);setError("");}
+  function addNew(kind:"jira"|"trinity"="jira") {
+    formEdited.current=false;setFormVisible(true);
     setEditingId(undefined);
     setAutoLogin(false);
     setName(""); setPassword(""); setNotice(""); setError("");
-    setPlatform("jira"); setJiraMode(local?.available ? "cli" : "account");
-    setUrl(local?.baseUrl ?? ""); setUsername(local?.username ?? "");
+    setPlatform(kind); setJiraMode(local?.available ? "cli" : "account");
+    setUrl(kind==="trinity"?"https://trinity.desaysv.com/trinity":local?.baseUrl??""); setUsername(kind==="trinity"?"":local?.username??"");
     setExe(local?.executable ?? ""); setConfig(local?.configFile ?? "");
     setDeployment(local?.platform ?? "jira-dc");
   }
   useEffect(() => {
-    let active = true;
     void reload().catch((e) => setError(message(e)));
+  },[]);
+  useEffect(()=>{
+    if(!formVisible||platform!=="jira"){setChecking(false);return;}
+    let active=true;setChecking(true);
     void window.platform
       .inspectLocalJira()
       .then((response) => {
@@ -93,7 +100,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
     return () => {
       active = false;
     };
-  }, []);
+  }, [formVisible,platform]);
   const Container = embedded ? "div" : "form";
   function buildDraft(): IssueConnectionDraft {
     return platform === "trinity"
@@ -162,6 +169,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
       setNotice(
         draft.kind === "trinity" ? "Trinity 已自动关联所有代码项目，后续新建项目也自动继承。预分析前会校验问题的项目映射。" : "Jira 连接及对应项目已保存，可直接关联代码项目。",
       );
+      setFormVisible(false);setEditingId(undefined);
       onSaved?.(saved);
     } catch (e) {
       setError(message(e));
@@ -182,8 +190,9 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
         </div>
       )}
       {notice && <div className="notice">{notice}</div>}
-      {editingId && <p className="notice">正在编辑原连接。重新登录需输入密码；关闭 Trinity 自动登录时可留空。Trinity 重新登录会替换所有代码项目使用的当前账号。</p>}
-      <Container
+      {formVisible && editingId && <p className="notice">正在编辑原连接。重新登录需输入密码；关闭 Trinity 自动登录时可留空。Trinity 重新登录会替换所有代码项目使用的当前账号。</p>}
+      {!embedded&&<div className="row-actions"><button className="secondary" disabled={busy} onClick={()=>addNew("jira")}>新增 Jira 连接</button><button className="secondary" disabled={busy} onClick={()=>{const c=connections.find(c=>c.kind==="trinity");if(c)edit(c);else addNew("trinity");}}>新增 Trinity 连接</button></div>}
+      {formVisible&&<Container
         onSubmit={(e) => void save(e)}
         onChangeCapture={() => {
           formEdited.current = true;
@@ -337,13 +346,14 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
               ? "保存本地 Jira 连接"
               : platform === "jira" ? "保存 Jira 连接" : "登录并保存平台连接"}
         </button>
-        {editingId && <button type="button" className="secondary" disabled={busy} onClick={addNew}>取消编辑 / 新增连接</button>}
-      </Container>
-      {!embedded && connections.map((c) => (
+        <button type="button" className="secondary" disabled={busy} onClick={closeEditor}>取消 BUG 连接编辑</button>
+      </Container>}
+      {!embedded&&!connections.length&&<p className="muted">尚未保存 BUG 平台连接。</p>}
+      {!embedded && connections.slice().sort((a,b)=>Number(a.kind==="trinity")-Number(b.kind==="trinity")).map((c) => (
         <div className="report-list-item" key={c.id}>
           <div>
             <strong>{c.name}</strong>
-            <p className="muted small">
+            <details><summary>{c.kind==="trinity"?"Trinity 账号":"Jira 项目连接"}</summary><p className="muted small">
               {c.kind === "trinity" ? "Trinity" : "Jira"} · {c.baseUrl} ·{" "}
               {c.kind === "jira-cli"
                 ? "本地 CLI"
@@ -351,7 +361,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
                   ? `账号 ${c.username}`
                   : "已有会话"}
             </p>
-            {c.kind === "trinity" ? <p className="muted small">当前唯一账号 · 已自动关联所有代码项目 · 自动登录{c.autoLogin ? "已开启" : "未开启"}{!c.accountId && " · 请重新登录验证身份"}</p> : <p className="muted small">Jira 项目：{c.jiraProject ? `${c.jiraProject.name}（${c.jiraProject.key}）` : "旧连接尚未配置，请编辑并选择 Jira 项目"}</p>}
+            {c.kind === "trinity" ? <p className="muted small">当前唯一账号 · 已自动关联所有代码项目 · 自动登录{c.autoLogin ? "已开启" : "未开启"}{!c.accountId && " · 请重新登录验证身份"}</p> : <p className="muted small">Jira 项目：{c.jiraProject ? `${c.jiraProject.name}（${c.jiraProject.key}）` : "旧连接尚未配置，请编辑并选择 Jira 项目"}</p>}</details>
           </div>
           <button className="secondary" disabled={busy || checking} onClick={() => edit(c)}>编辑 / 重新登录</button>
           {c.platform !== "trinity" && onLink && <button className="secondary" disabled={busy} onClick={() => onLink(c)}>关联项目</button>}
@@ -369,7 +379,7 @@ export function IssueConnectionsPage({ embedded = false, onSaved, onLink }: { em
                   return reload();
                 })
                 .then(() => {
-                  if (editingId === c.id) addNew();
+                  if (editingId === c.id) closeEditor();
                   setNotice("平台连接已删除，所有代码项目的对应关联已解除；代码项目和历史材料已保留。");
                 })
                 .catch((e) => setError(message(e)))

@@ -35,6 +35,7 @@ test("associates a configured Jira project connection and independent documents 
     await create.getByRole("button", { name: "保存项目", exact: true }).click(); await expect(create).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "配置 BUG AI 预分析", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button",{name:"新增 Jira 连接",exact:true}).click();
     const login = page.locator("section.work-panel").filter({ has: page.getByRole("heading", { name: "Jira 与 Trinity 登录", exact: true }) });
     await login.getByLabel("Jira 登录方式").selectOption("account"); await login.getByLabel("连接名称", { exact: true }).fill("独立 Jira");
     await login.getByLabel("平台地址", { exact: true }).fill(base); await login.getByLabel("登录账号", { exact: true }).fill("alice"); await login.getByLabel("登录密码", { exact: true }).fill("fixture-password");

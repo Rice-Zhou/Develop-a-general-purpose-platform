@@ -11,7 +11,7 @@ test("auto-selects latest Codex and live account models, preserves edited connec
   execFileSync(join(process.env.SystemRoot??"C:/Windows","Microsoft.NET/Framework64/v4.0.30319/csc.exe"),["/nologo","/r:System.Web.Extensions.dll",`/out:${old}`,resolve("packages/testkit/fixtures/CodexCatalogueFixture.cs")],{windowsHide:true,stdio:"pipe"});await copyFile(old,latest);await writeFile(join(dirname(old),"version.txt"),"0.149.1");
   const inheritedPath=(process.env.PATH??"").split(delimiter).filter(p=>!/(?:npm|OpenAI[\\/]Codex)/i.test(p));
   app=await electron.launch({executablePath:process.env.PLATFORM_EXECUTABLE!,args:[],env:{...process.env,PLATFORM_DATA_DIR:join(root,"data"),PLATFORM_E2E:"1",HOME:root,USERPROFILE:root,APPDATA:roaming,LOCALAPPDATA:local,PATH:[dirname(old),...inheritedPath].join(delimiter)}});const page=await app.firstWindow();
-  await page.getByRole("button",{name:"设置",exact:true}).click();
+  await page.getByRole("button",{name:"设置",exact:true}).click();await page.getByRole("button",{name:"新增 AI 连接",exact:true}).click();
   await page.getByRole("combobox",{name:/^执行方式/}).selectOption("codex");
   await expect(page.getByLabel("已自动选择的 Codex CLI",{exact:true})).toHaveValue(latest);
   await expect(page.getByText("0.163.0-alpha.10.2",{exact:false}).first()).toBeVisible();
