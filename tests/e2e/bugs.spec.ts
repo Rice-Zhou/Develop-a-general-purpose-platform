@@ -261,10 +261,10 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       .first()
       .click();
     await expect(
-      page.getByRole("button", { name: "查看 BUG 报告", exact: true }),
+      page.getByRole("button", { name: "打开分析报告", exact: true }),
     ).toBeVisible({ timeout: 40000 });
     await page
-      .getByRole("button", { name: "查看 BUG 报告", exact: true })
+      .getByRole("button", { name: "打开分析报告", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "BUG 预分析报告" }),
@@ -298,7 +298,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
     });
     expect(
       await page
-        .getByRole("button", { name: "查看 BUG 报告", exact: true })
+        .getByRole("button", { name: "打开分析报告", exact: true })
         .count(),
     ).toBe(1);
     const calls = await readFile(join(data, "calls.txt"), "utf8");

@@ -142,25 +142,12 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       ipcMain.handle("platform:request", async (event, input) => {
         const result = (await original(event, input)) as {
           ok: boolean;
-          value?: { reports: unknown[] };
+          value?: unknown;
         };
         if (input.method === "getBugWorkspace" && result.ok && result.value) {
-          const value = {
-            ...result,
-            value: {
-              ...result.value,
-              reports: [
-                {
-                  id: "11111111-1111-4111-8111-111111111111",
-                  projectId: input.params.projectId,
-                  createdAt: "2026-10-19T00:00:00Z",
-                },
-              ],
-            },
-          };
           if (++loads === 1)
             await new Promise((resolve) => setTimeout(resolve, 2000));
-          return value;
+          return result;
         }
         return result;
       });
@@ -187,7 +174,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
     await expect(page.getByText("预分析不可用：匹配的代码项目未配置可用 AI 执行连接。", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "A-2", exact: true })).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "查看 BUG 报告", exact: true }),
+      page.getByRole("button", { name: "打开分析报告", exact: true }),
     ).toBeVisible();
     await page.getByRole("link", { name: "A-1", exact: true }).click();
     await expect

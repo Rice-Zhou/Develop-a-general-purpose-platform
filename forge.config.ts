@@ -1,10 +1,19 @@
+import {dirname,join} from "node:path";
+import {generateUpdateManifest} from "./scripts/generate-update-manifest";
+import appPackage from "./package.json";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 const config: ForgeConfig = {
-  outDir: process.env.PLATFORM_BUILD_DIR || "out",
+  outDir: process.env.PLATFORM_BUILD_DIR || `out/releases/${appPackage.version}`,
+  hooks:{postMake:async(_config,results)=>{
+    const installers=results.filter(r=>r.platform==="win32"&&r.arch==="x64").flatMap(r=>r.artifacts).filter(path=>path.endsWith("LocalDevPlatformSetup.exe"));
+    if(installers.length!==1)throw new Error("本次构建必须且只能生成一个 Windows x64 Setup.exe");
+    const installerPath=installers[0];await generateUpdateManifest({version:appPackage.version,installerPath,outputPath:join(dirname(installerPath),"platform-update.json")});
+    return results;
+  }},
   packagerConfig: {
     electronZipDir: process.env.ELECTRON_ZIP_DIR || undefined,
     asar: true,

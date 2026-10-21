@@ -1,0 +1,5 @@
+import {it,expect,vi} from "vitest";
+import {GitHubReleaseProvider,assetResponse,UPDATE_REPOSITORY} from "./github-release";
+const url=`https://github.com/${UPDATE_REPOSITORY}/releases/download/v1.0.2/LocalDevPlatformSetup.exe`;
+it("validates every redirect and rejects arbitrary hosts, HTTP downgrade and excess redirects",async()=>{for(const target of ["https://evil.test/install.exe","http://github.com/file"]){const transport=vi.fn(async()=>new Response(null,{status:302,headers:{location:target}}));await expect(assetResponse(url,AbortSignal.timeout(60000),transport as typeof fetch)).rejects.toThrow();expect(transport).toHaveBeenCalledTimes(1);}const loop=vi.fn(async()=>new Response(null,{status:302,headers:{location:url}}));await expect(assetResponse(url,AbortSignal.timeout(60000),loop as typeof fetch)).rejects.toThrow(/超限/);expect(loop).toHaveBeenCalledTimes(6);});
+it("transport TLS failure remains an error",async()=>{await expect(new GitHubReleaseProvider((async()=>{throw new Error("TLS verification failed");}) as typeof fetch).check("1.0.1",AbortSignal.timeout(60000))).rejects.toThrow("TLS");});

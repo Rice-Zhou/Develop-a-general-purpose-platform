@@ -14,7 +14,7 @@ import {
   shell,
 } from "electron";
 import { join, resolve } from "node:path";
-import { writeFile } from "node:fs/promises";
+import { writeFile,rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { TrinityLogin } from "./trinity-login";
 import { JiraCliAdapter } from "../../../../packages/adapters/src/issues/jira-cli";
@@ -352,7 +352,7 @@ else {
         await window.loadFile(
           join(__dirname, "../renderer/main_window/index.html"),
         );
-      if(previousUpdate)void dialog.showMessageBox(window!,{type:previousUpdate.success?"info":"warning",title:"客户端更新",message:previousUpdate.message});
+      if(previousUpdate)void dialog.showMessageBox(window!,{type:previousUpdate.success?"info":"warning",title:"客户端更新",message:previousUpdate.message}).then(()=>rm(join(cacheRoot,"handoff-result.json"),{force:true})).catch(error=>console.error("更新结果确认失败",errorData(error).code));
     })
     .catch((error) => {
       dialog.showErrorBox(

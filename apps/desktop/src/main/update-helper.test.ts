@@ -1,7 +1,56 @@
-import {it,expect,vi} from "vitest";
-import {mkdtemp,writeFile,rm,readFile} from "node:fs/promises";
-import {join} from "node:path";
-import {tmpdir} from "node:os";
-import {createHash} from "node:crypto";
-import {runHandoff,type InstallRequest} from "./update-helper";
-it.each(["success","busy","spawn","tampered"])("helper %s never reports installer launch as success",async mode=>{const root=await mkdtemp(join(tmpdir(),"handoff-"));try{const data=Buffer.from("safe installer");const installer=join(root,"setup.exe");await writeFile(installer,data);const request:InstallRequest={offerId:"one",targetVersion:"1.0.2",cacheRoot:root,installerPath:installer,expectedSize:data.length,expectedSha256:createHash("sha256").update(data).digest("hex"),parentPid:123,previousClientPath:process.execPath,resultPath:join(root,"result.json")};if(mode==="tampered")await writeFile(installer,"tamper");const spawn=vi.fn(async()=>{if(mode==="spawn")throw new Error("spawn");}),relaunch=vi.fn();await runHandoff(request,{alive:()=>mode==="busy",wait:async()=>{},spawn,relaunch,now:(()=>{let n=0;return()=>n+=60000;})()});expect(spawn).toHaveBeenCalledTimes(mode==="success"||mode==="spawn"?1:0);const result=JSON.parse(await readFile(request.resultPath,"utf8"));expect(result.state).toBe(mode==="success"?"installer-started":"failed");expect(result.state).not.toBe("succeeded");expect(relaunch).toHaveBeenCalledTimes(mode==="spawn"||mode==="tampered"?1:0);}finally{await rm(root,{recursive:true,force:true});}});
+import { it, expect, vi } from "vitest";
+import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { runHandoff, type InstallRequest } from "./update-helper";
+it.each(["success", "busy", "spawn", "tampered"])(
+  "helper %s never reports installer launch as success",
+  async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), "handoff-"));
+    try {
+      const data = Buffer.from("safe installer");
+      const installer = join(root, "setup.exe");
+      await writeFile(installer, data);
+      const request: InstallRequest = {
+        offerId: "one",
+        targetVersion: "1.0.2",
+        cacheRoot: root,
+        installerPath: installer,
+        expectedSize: data.length,
+        expectedSha256: createHash("sha256").update(data).digest("hex"),
+        parentPid: 123,
+        previousClientPath: process.execPath,
+        resultPath: join(root, "result.json"),
+      };
+      if (mode === "tampered") await writeFile(installer, "tamper");
+      const spawn = vi.fn(async () => {
+          if (mode === "spawn") throw new Error("spawn");
+        }),
+        relaunch = vi.fn();
+      await runHandoff(request, {
+        alive: () => mode === "busy",
+        wait: async () => {},
+        spawn,
+        relaunch,
+        now: (() => {
+          let n = 0;
+          return () => (n += 60000);
+        })(),
+      });
+      expect(spawn).toHaveBeenCalledTimes(
+        mode === "success" || mode === "spawn" ? 1 : 0,
+      );
+      const result = JSON.parse(await readFile(request.resultPath, "utf8"));
+      expect(result.state).toBe(
+        mode === "success" ? "installer-started" : "failed",
+      );
+      expect(result.state).not.toBe("succeeded");
+      expect(relaunch).toHaveBeenCalledTimes(
+        mode === "spawn" || mode === "tampered" ? 1 : 0,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

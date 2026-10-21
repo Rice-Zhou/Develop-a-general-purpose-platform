@@ -4,7 +4,7 @@ import type {UpdateStatus} from "../../../../packages/contracts/src/updates";
 import {BugReportPage} from "./pages/BugReportPage";
 import type {BugReportView,BugReportSummary} from "../../../../packages/contracts/src/issues";
 import {DeleteTaskButton} from "./components/DeleteTaskButton";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppInfo,
   Project,
@@ -56,10 +56,17 @@ const nav: { id: Page; label: string; icon: string }[] = [
 ];
 export function App() {
   const [bugReport,setBugReport]=useState<{view:BugReportView;versions:BugReportSummary[];scroll:number;returnLabel:string}|null>(null);
+  const reportRequest=useRef(0);
+  const [page,setPageState]=useState<Page>("overview");
+  function setPage(next:Page){reportRequest.current++;setBugReport(null);setPageState(next);}
   async function openBugReport(projectId:string,reportId:string,versions:BugReportSummary[]){
-    try{const view=unwrap(await window.platform.getBugReport(projectId,reportId));setBugReport(previous=>({view,versions,scroll:previous?.scroll??window.scrollY,returnLabel:previous?.returnLabel??(page==="bugs"?"BUG 工作台":"任务历史")}));window.scrollTo(0,0);}catch(e){setError(message(e));}
+    const request=++reportRequest.current;
+    try{const view=unwrap(await window.platform.getBugReport(projectId,reportId));if(request!==reportRequest.current)return;setBugReport(previous=>({view,versions,scroll:previous?.scroll??window.scrollY,returnLabel:previous?.returnLabel??(page==="bugs"?"BUG 工作台":"任务历史")}));window.scrollTo(0,0);}catch(e){if(request===reportRequest.current)setError(message(e));}
   }
-  const [page, setPage] = useState<Page>("overview");
+  async function openTaskBugReport(task:Task){
+    const request=++reportRequest.current;
+    try{const view=unwrap(await window.platform.getBugReportForTask(task.projectId,task.id));if(request!==reportRequest.current)return;setBugReport({view,versions:[],scroll:window.scrollY,returnLabel:"任务历史"});window.scrollTo(0,0);}catch(e){if(request===reportRequest.current)setError(message(e));}
+  }
   const [updateStatus,setUpdateStatus]=useState<UpdateStatus|null>(null);
   const [showUpdate,setShowUpdate]=useState(false);
   useEffect(()=>{let live=true,reading=false;const read=async()=>{if(reading)return;reading=true;try{const status=unwrap(await window.platform.getUpdateStatus());if(!live)return;setUpdateStatus(status);if(status.startupPromptPending){const offer=unwrap(await window.platform.takeStartupUpdatePrompt());if(live&&offer)setShowUpdate(true);}}catch(e){if(live)setError(message(e));}finally{reading=false;}};void read();const timer=setInterval(()=>void read(),1000);return()=>{live=false;clearInterval(timer);};},[]);
@@ -235,7 +242,7 @@ export function App() {
                     >
                       查看详情
                     </button>
-                    {task.kind==="ANALYZE_BUG"&&task.status==="SUCCEEDED"&&<button className="text-button" onClick={()=>void act(async()=>{const view=unwrap(await window.platform.getBugReportForTask(task.projectId,task.id));setBugReport({view,versions:[],scroll:window.scrollY,returnLabel:"任务历史"});window.scrollTo(0,0);})}>打开分析报告</button>}
+                    {task.kind==="ANALYZE_BUG"&&task.status==="SUCCEEDED"&&<button className="text-button" onClick={()=>void openTaskBugReport(task)}>打开分析报告</button>}
                     {["QUEUED", "PREPARING", "RUNNING", "VALIDATING"].includes(
                       task.status,
                     ) && (
@@ -333,7 +340,7 @@ export function App() {
           </div>
         </header>
         <main>
-          {bugReport&&<BugReportPage key={bugReport.view.report.id} {...bugReport.view} versions={bugReport.versions} onSelectVersion={id=>void openBugReport(bugReport.view.report.projectId,id,bugReport.versions)} returnLabel={bugReport.returnLabel} onClose={()=>{const scroll=bugReport.scroll;setBugReport(null);requestAnimationFrame(()=>window.scrollTo(0,scroll));}}/>}
+          {bugReport&&<BugReportPage key={bugReport.view.report.id} {...bugReport.view} versions={bugReport.versions} onSelectVersion={id=>void openBugReport(bugReport.view.report.projectId,id,bugReport.versions)} returnLabel={bugReport.returnLabel} onClose={()=>{reportRequest.current++;const scroll=bugReport.scroll;setBugReport(null);requestAnimationFrame(()=>window.scrollTo(0,scroll));}}/>}
           <div hidden={!!bugReport}>
           <div className="page-heading">
             <div>

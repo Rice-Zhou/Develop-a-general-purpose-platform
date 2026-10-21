@@ -3,6 +3,7 @@ export default tseslint.config(
   {
     ignores: [
       "node_modules/**",
+      ".superpowers/**",
       "**/.vite/**",
       "out/**",
       "test-results/**",
