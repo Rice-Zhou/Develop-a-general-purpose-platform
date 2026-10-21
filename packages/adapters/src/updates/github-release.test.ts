@@ -1,0 +1,14 @@
+import {describe,it,expect} from "vitest";
+import {GitHubReleaseProvider} from "./github-release";
+const repo="Rice-Zhou/Develop-a-general-purpose-platform",base=`https://github.com/${repo}/releases/download/v1.0.2/`;
+const manifest={schemaVersion:1,version:"1.0.2",platform:"win32",arch:"x64",assetName:"LocalDevPlatformSetup.exe",size:10,sha256:"a".repeat(64)};
+const release={id:10,tag_name:"v1.0.2",html_url:`https://github.com/${repo}/releases/tag/v1.0.2`,body:"notes",draft:false,prerelease:false,assets:[{name:"platform-update.json",browser_download_url:base+"platform-update.json"},{name:"LocalDevPlatformSetup.exe",browser_download_url:base+"LocalDevPlatformSetup.exe",size:10}]};
+function provider(options:{latest?:unknown;manifest?:unknown;status?:number;repoStatus?:number}={}){const calls:string[]=[];const transport=async(input:string|URL)=>{const url=String(input);calls.push(url);return new Response(JSON.stringify(url.endsWith("/latest")?(options.latest??release):url.endsWith("platform-update.json")?(options.manifest??manifest):{}),{status:url.endsWith("/latest")?(options.status??200):url.endsWith("platform-update.json")?200:(options.repoStatus??200)});};return {calls,provider:new GitHubReleaseProvider(transport as typeof fetch)};}
+describe("GitHub Release",()=>{
+ it("formal_release_and_consistent_manifest_produces_offer",async()=>{const p=provider();expect(await p.provider.check("1.0.1",AbortSignal.timeout(60000))).toMatchObject({kind:"available",offer:{version:"1.0.2",manifest}});});
+ it.each([{...manifest,version:"1.0.3"},{...manifest,platform:"linux"},{...manifest,size:2**31},{...manifest,sha256:"bad"}])("rejects incompatible manifest %j",async m=>{await expect(provider({manifest:m}).provider.check("1.0.1",AbortSignal.timeout(60000))).rejects.toThrow();});
+ it("draft_prerelease_and_non_upgrade_are_not_offered",async()=>{for(const latest of [{...release,draft:true},{...release,prerelease:true},release]){const p=provider({latest});expect((await p.provider.check("1.0.2",AbortSignal.timeout(60000))).kind).toBe("current");expect(p.calls).toHaveLength(1);}});
+ it("latest_404_checks_repository_visibility",async()=>{const p=provider({status:404});expect((await p.provider.check("1.0.1",AbortSignal.timeout(60000))).kind).toBe("no-release");expect(p.calls).toHaveLength(2);await expect(provider({status:404,repoStatus:404}).provider.check("1.0.1",AbortSignal.timeout(60000))).rejects.toThrow(/不可访问/);});
+ it("forbidden_is_not_no_update",async()=>{await expect(provider({status:403}).provider.check("1.0.1",AbortSignal.timeout(60000))).rejects.toThrow(/403/);});
+ it("rejects arbitrary attachment hosts",async()=>{await expect(provider({latest:{...release,assets:release.assets.map(a=>({...a,browser_download_url:"https://evil.test/"+a.name}))}}).provider.check("1.0.1",AbortSignal.timeout(60000))).rejects.toThrow();});
+});
