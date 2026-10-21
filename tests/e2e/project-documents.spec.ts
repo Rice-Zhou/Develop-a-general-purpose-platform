@@ -33,7 +33,10 @@ test("manages documents per project while preserving source files and historical
     await dialog.getByRole("checkbox", { name: "需求.docx", exact: true }).uncheck();
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     // Capture original evidence before changing the project's configured sources.
+    await page.getByText("原文准备与独立提取（可选）",{exact:true}).click();
     await page.getByRole("button", { name: "准备文档上下文", exact: true }).click();
+    await expect(page.getByText("原文、人工修订与报告历史",{exact:true})).toBeVisible({timeout:40000});
+    await page.getByText("原文、人工修订与报告历史",{exact:true}).click();
     await expect(page.getByText("用户必须输入密码后才能登录。", { exact: true }).first()).toBeVisible({ timeout: 40000 });
     const old = await page.evaluate(async id => {
       const r = await window.platform.getWorkspace(id);

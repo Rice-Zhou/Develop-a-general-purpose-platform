@@ -618,6 +618,7 @@ export function App() {
           )}
           {page === "requirements" && (
             <RequirementsPage
+              onSettings={()=>setPage("settings")}
               projects={projects}
               tasks={tasks}
               onChanged={reload}

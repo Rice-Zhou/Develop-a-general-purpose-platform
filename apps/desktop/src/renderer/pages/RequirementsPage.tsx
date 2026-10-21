@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import {RequirementReviewList} from "../components/RequirementReviewList";
+import type {RequirementReviewView} from "../../../../../packages/contracts/src/requirement-review";
+import type {PublicAIProfile} from "../../../../../packages/contracts/src/analysis";
+import { useEffect, useRef, useState } from "react";
 import type {
   DesktopAPI,
   Project,
@@ -21,17 +24,28 @@ export function RequirementsPage({
   projects,
   tasks,
   onChanged,
+  onSettings,
 }: {
   projects: Project[];
   tasks: Task[];
   onChanged: () => Promise<void>;
+  onSettings?:()=>void;
 }) {
   const [projectId, setProjectId] = useState("");
   const [managingDocuments, setManagingDocuments] = useState<Project | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [items, setItems] = useState<RequirementItem[]>([]);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [noticeState,setNoticeState]=useState({projectId:"",text:""});
+  const notice=noticeState.projectId===projectId?noticeState.text:"";
+  function setNotice(text:string){if(projectEpoch.current===renderEpoch)setNoticeState({projectId,text});}
+  const [reviews,setReviews]=useState<RequirementReviewView[]>([]);
+  const [profiles,setProfiles]=useState<PublicAIProfile[]>([]);
+  const [operationTaskId,setOperationTaskId]=useState("");
+  const currentProject=useRef(projectId);const projectEpoch=useRef(0);
+  if(currentProject.current!==projectId){currentProject.current=projectId;projectEpoch.current++;}
+  const renderEpoch=projectEpoch.current;
+  useEffect(()=>{let alive=true;void window.platform.getAIProfiles().then(unwrap).then(p=>{if(alive)setProfiles(p);}).catch(e=>{if(alive)setError(message(e));});return()=>{alive=false;};},[projects]);
   const [requesting, setRequesting] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
   const [reportDetail, setReportDetail] = useState<Extract<Awaited<ReturnType<DesktopAPI["getReport"]>>, {ok: true}>["value"] | null>(null);
@@ -46,7 +60,7 @@ export function RequirementsPage({
     return () => { alive = false; };
   }, [projectId, reportId]);
   const completedTaskId =
-    tasks.find((t) => t.projectId === projectId && t.status === "SUCCEEDED")
+    tasks.find((t) => t.projectId === projectId && ["PREPARE_CONTEXT","EXTRACT_REQUIREMENTS","CHECK_REQUIREMENTS","AUDIT_REQUIREMENTS"].includes(t.kind) && t.status === "SUCCEEDED")
       ?.id ?? "";
   useEffect(() => {
     if (!projects.some((p) => p.id === projectId))
@@ -54,6 +68,9 @@ export function RequirementsPage({
   }, [projects, projectId]);
   useEffect(() => {
     setWorkspace(null);
+    setReviews([]);
+    setOperationTaskId("");
+    setRequesting(false);
     setManagingDocuments(null);
     setReportId(null);
     setItems([]);
@@ -64,8 +81,8 @@ export function RequirementsPage({
     let alive = true;
     const load = async () => {
       try {
-        const value = unwrap(await window.platform.getWorkspace(projectId));
-        if (alive) setWorkspace(value);
+        const [w,r]=await Promise.all([window.platform.getWorkspace(projectId),window.platform.getRequirementReviews(projectId)]);
+        if(alive){setWorkspace(unwrap(w));setReviews(unwrap(r));}
       } catch (e) {
         if (alive) setError(message(e));
       }
@@ -87,20 +104,23 @@ export function RequirementsPage({
       ),
   );
   const busy = requesting || active;
-  const latestTask = tasks.find((task) => task.projectId === projectId);
+  const latestTask=tasks.find(t=>t.id===operationTaskId&&t.projectId===projectId);
+  const profile=profiles.find(p=>p.id===project?.aiProfileId);
+  const aiReason=!project?.enabled?"项目已停用":!profile?"请先配置有效 AI 连接":!profile.outboundEnabled?"请先允许 AI 读取项目材料":"";
+  async function reloadReviews(){const epoch=projectEpoch.current;const r=unwrap(await window.platform.getRequirementReviews(projectId));if(projectEpoch.current===epoch)setReviews(r);}
   async function act(action: () => Promise<void>) {
+    const epoch=projectEpoch.current;
     setError("");
     setNotice("");
     setRequesting(true);
     try {
       await action();
       await onChanged();
-      if (projectId)
-        setWorkspace(unwrap(await window.platform.getWorkspace(projectId)));
+      if(projectId&&projectEpoch.current===epoch){const value=unwrap(await window.platform.getWorkspace(projectId));if(projectEpoch.current===epoch)setWorkspace(value);}
     } catch (e) {
-      setError(message(e));
+      if(projectEpoch.current===epoch)setError(message(e));
     } finally {
-      setRequesting(false);
+      if(projectEpoch.current===epoch)setRequesting(false);
     }
   }
   async function add(document: DocumentSnapshot, block: DocumentBlock) {
@@ -114,6 +134,7 @@ export function RequirementsPage({
           block.id,
         ),
       );
+      if(projectEpoch.current!==renderEpoch)return;
       setItems((current) => [
         ...current,
         {
@@ -172,15 +193,16 @@ export function RequirementsPage({
             <p className="muted">
               {workspace?.context
                 ? `固定上下文 ${workspace.context.id.slice(0, 8)} · ${new Date(workspace.context.createdAt).toLocaleString()}`
-                : "尚未准备上下文。准备时先安全同步代码，再捕获文档。"}{" "}
+                : "尚未审核。审核读取当前代码（含未提交修改）和关联需求，不自动更新代码。"}{" "}
               ·{" "}
               {project.aiProfileId
                 ? "已关联 AI 连接"
                 : "未关联 AI，可阅读原文并人工建立需求"}
             </p>
-            <div className="row-actions">
-              <button className="secondary" disabled={busy} onClick={() => setManagingDocuments(project)}>管理需求文档</button>
+            <div className="row-actions">              <button className="secondary" disabled={busy} onClick={() => setManagingDocuments(project)}>管理需求文档</button>
               <span className="tag">已关联 {project.documents.length} 份需求文档</span>
+<button className="primary" disabled={busy||Boolean(aiReason)} title={aiReason||"审核当前工作区"} onClick={()=>void act(async()=>{const t=unwrap(await window.platform.auditRequirements(projectId));if(projectEpoch.current===renderEpoch)setOperationTaskId(t.id);setNotice("需求审核已加入任务列表。");})}>AI 审核当前代码</button><span className="muted small">{profile?`当前 AI：${profile.name} · ${profile.model}`:aiReason}</span>{aiReason&&<button className="text-button" onClick={onSettings}>配置 AI 连接</button>}</div>
+            <details><summary>原文准备与独立提取（可选）</summary><div className="row-actions">
               <button
                 className="primary"
                 disabled={busy || !project.enabled}
@@ -202,7 +224,7 @@ export function RequirementsPage({
                       await window.platform.extractRequirements(projectId),
                     );
                     setNotice(
-                      "需求提取任务已加入队列，每次重新同步代码和文档。",
+                      "需求提取任务已加入队列，读取当前代码与文档。",
                     );
                   })
                 }
@@ -231,12 +253,12 @@ export function RequirementsPage({
               >
                 开始实现核对
               </button>
-            </div>
+            </div></details>
           </>
         )}
         {active && (
           <div className="notice">
-            本项目正在执行任务。阶段与失败原因可在任务历史查看。
+            本项目正在执行任务。阶段与失败原因可在任务列表查看。
           </div>
         )}
         {error && (
@@ -258,11 +280,13 @@ export function RequirementsPage({
       </section>
       {managingDocuments && <ProjectDocumentsDialog project={managingDocuments} onClose={() => setManagingDocuments(null)} onSaved={() => {
         setManagingDocuments(null);
-        setNotice("需求文档配置已保存，请重新准备文档上下文。历史快照与报告保持不变。");
+        setNotice("需求文档配置已保存，可重新审核当前代码与需求。历史快照与报告保持不变。");
         void onChanged().catch(error => setError(message(error)));
       }} />}
+      {project&&<RequirementReviewList key={projectId} items={reviews} onChanged={reloadReviews} onOpenReport={setReportId}/>}
+      {workspace?.reports[0]?.findings.some(f=>f.status==="UNKNOWN"||f.status==="CONFLICT")&&<details className="panel work-panel"><summary>信息不足 / 需求待澄清</summary>{workspace.reports[0].findings.filter(f=>f.status==="UNKNOWN"||f.status==="CONFLICT").map(f=><p key={f.requirementId}>{workspace.requirements?.items.find(i=>i.id===f.requirementId)?.text}：{f.explanation}</p>)}</details>}
       {workspace?.context && (
-        <div className="requirements-layout">
+        <details><summary>原文、人工修订与报告历史</summary><div className="requirements-layout">
           <DocumentsPage
             key={workspace.context.id}
             projectId={projectId}
@@ -424,7 +448,7 @@ export function RequirementsPage({
               )}
             </section>
           </div>
-        </div>
+        </div></details>
       )}
     </div>
   );

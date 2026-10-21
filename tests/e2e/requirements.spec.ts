@@ -4,12 +4,13 @@ import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { gitFixture } from "../../packages/testkit/src/git-fixture";
+import { gitFixture, git } from "../../packages/testkit/src/git-fixture";
 test("desktop reads real documents, versions requirements and validates a report through the configured API", async () => {
   test.setTimeout(120000);
   const f = await gitFixture();
   const data = await mkdtemp(join(tmpdir(), "requirements-desktop-"));
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
+  let auditMissing=false;
   const server = createServer(async (req, res) => {
     if(req.method === "HEAD"){res.writeHead(405).end();return;}
 
@@ -77,7 +78,7 @@ test("desktop reads real documents, versions requirements and validates a report
           content: JSON.stringify({
             findings: input.input.map((item) => ({
               requirementId: item.id,
-              status: "IMPLEMENTED",
+              status: auditMissing?"MISSING":"IMPLEMENTED",
               explanation: "空密码被条件分支拒绝；静态代码依据可定位",
               evidenceIds: [evidence.id],
             })),
@@ -99,6 +100,7 @@ test("desktop reads real documents, versions requirements and validates a report
     await f.publish(
       "export function login(password) { if (!password) return false; return true; }\n",
     );
+    git(f.analysis,"pull","--rebase");
     const executablePath = process.env.PLATFORM_EXECUTABLE;
     app = await electron.launch({
       ...(executablePath ? { executablePath, args: [] } : { args: ["."] }),
@@ -167,9 +169,12 @@ test("desktop reads real documents, versions requirements and validates a report
       },
     );
     await page.getByRole("button", { name: "需求核对", exact: true }).click();
+    await page.getByText("原文准备与独立提取（可选）",{exact:true}).click();
     await page
       .getByRole("button", { name: "准备文档上下文", exact: true })
       .click();
+    await expect(page.getByText("原文、人工修订与报告历史",{exact:true})).toBeVisible({timeout:40000});
+    await page.getByText("原文、人工修订与报告历史",{exact:true}).click();
     await expect(
       page.getByText("用户必须输入密码后才能登录。", { exact: true }).first(),
     ).toBeVisible({ timeout: 40000 });
@@ -215,6 +220,13 @@ test("desktop reads real documents, versions requirements and validates a report
       .click();
     await expect(page.getByText(/export function login/).first()).toBeVisible();
     await page.screenshot({ path: "test-results/requirements-report.png" });
+    await page.getByRole("button",{name:"返回需求工作台",exact:true}).click();auditMissing=true;
+    await page.getByRole("button",{name:"AI 审核当前代码",exact:true}).click();
+    await expect.poll(async()=>page.evaluate(async()=>{const r=await window.platform.listTasks();if(!r.ok)throw new Error(r.error.message);const t=r.value.find(t=>t.kind==="AUDIT_REQUIREMENTS");if(t&&["FAILED","WAITING_INPUT"].includes(t.status))throw new Error(JSON.stringify(t.error));return t?.status;}),{timeout:40000}).toBe("SUCCEEDED");
+    await page.getByRole("radio",{name:"误报",exact:true}).check();
+    await expect(page.getByText("没有待确认或未完成的需求",{exact:true})).toBeVisible();
+    const reviews=await page.evaluate(async()=>{const p=await window.platform.listProjects();if(!p.ok)throw new Error(p.error.message);const r=await window.platform.getRequirementReviews(p.value[0].id);if(!r.ok)throw new Error(r.error.message);return r.value;});expect(reviews).toHaveLength(1);expect(reviews[0].state).toBe("FALSE_POSITIVE");
+
   } finally {
     if (app) await app.close();
     server.close();
