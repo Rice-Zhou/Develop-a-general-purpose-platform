@@ -9,7 +9,7 @@ export function DocumentLibraryPage({projects,onChanged,onLink}:{projects:Projec
  async function reload(){setLibrary(unwrap(await window.platform.getLibrary()));}
  useEffect(()=>{let active=true;void window.platform.getLibrary().then(unwrap).then(v=>{if(active)setLibrary(v);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[projects]);
  async function act(fn:()=>Promise<unknown>){setError("");try{await fn();await reload();await onChanged();}catch(e){setError(message(e));}}
- function openCategory(c?:LibraryCategory){setCategory(c??"new");setName(c?.name??"");setParent(c?.parentId??(selected!=="all"?selected:null));}
+ function openCategory(c?:LibraryCategory){setCategory(c??"new");setName(c?.name??"");setParent(c?c.parentId:(selected!=="all"?selected:null));}
  const tree=(parentId:string|null):React.ReactNode=>library.categories.filter(c=>c.parentId===parentId).map(c=><div key={c.id} className="library-category"><button className={selected===c.id?"secondary":"text-button"} onClick={()=>setSelected(c.id)}>{c.name}</button><button className="text-button" aria-label={`编辑分类 ${c.name}`} onClick={()=>openCategory(c)}>编辑</button>{tree(c.id)}</div>);
  const visible=library.resources.filter(r=>(selected==="all"||r.categoryId===selected)&&[r.name,r.kind==="note"?r.text:r.locator].some(t=>t.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
  return <section className="panel work-panel"><div className="section-heading"><h2>需求资料库</h2><button className="primary" onClick={()=>setEditing("new")}>添加需求文档资源</button></div><p className="muted">资料可独立保存并按多级分类整理，无需先创建代码项目；随后可关联为审核需求或参考资料。</p>

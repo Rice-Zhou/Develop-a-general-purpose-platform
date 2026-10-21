@@ -46,7 +46,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(12); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(13); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -72,7 +72,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(12);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(13);
   } finally {
     upgraded.close();
   }
@@ -196,7 +196,7 @@ it("backs up v7 and preserves explicit remote project mappings while moving Trin
  }finally{store.close();}
 });
 it("upgrades v9 with a backup so older clients cannot process log tasks or resurrect removed history",async()=>{
- const root=await mkdtemp(join(tmpdir(),"task-contract-migration-"));roots.push(root);const path=join(root,"db.sqlite");const db=new Database(path);try{await migrateDatabase(db,path);db.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=9");await migrateDatabase(db,path);expect(db.pragma("user_version",{simple:true})).toBe(12);expect((await readdir(root)).some(p=>p.includes("backup-v9-"))).toBe(true);}finally{db.close();}
+ const root=await mkdtemp(join(tmpdir(),"task-contract-migration-"));roots.push(root);const path=join(root,"db.sqlite");const db=new Database(path);try{await migrateDatabase(db,path);db.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=9");await migrateDatabase(db,path);expect(db.pragma("user_version",{simple:true})).toBe(13);expect((await readdir(root)).some(p=>p.includes("backup-v9-"))).toBe(true);}finally{db.close();}
 });
 
 it("backs up actual v10 resources and rolls back invalid links atomically",async()=>{
@@ -212,4 +212,14 @@ it("backs up actual v10 resources and rolls back invalid links atomically",async
  store=await DataStore.open(path);expect(store.documentResources()).toEqual([resource]);expect(store.getProject("p").documents[0].id).toBe("doc");store.close();
  expect((await readdir(root)).some(p=>p.includes("backup-v10-"))).toBe(true);
  store=await DataStore.open(path);expect(store.getLibrary().resources).toHaveLength(1);store.close();
+});
+
+it("backs up v12 before adding decision evidence without inventing a legacy basis",async()=>{
+ const f=await legacy();const store=await DataStore.open(f.path);store.close();const db=new Database(f.path);
+ try{
+  db.exec("ALTER TABLE requirement_review_events DROP COLUMN basis_json; PRAGMA user_version=12;");
+  db.prepare("INSERT INTO requirement_reviews VALUES('review','p','fp','{}')").run();db.prepare("INSERT INTO requirement_review_events(project_id,item_id,action,created_at) VALUES('p','review','false-positive','before')").run();
+  await migrateDatabase(db,f.path);expect(db.pragma("user_version",{simple:true})).toBe(13);expect(db.prepare("SELECT action,basis_json FROM requirement_review_events").get()).toEqual({action:"false-positive",basis_json:null});expect((await readdir(f.root)).some(p=>p.includes("backup-v12-"))).toBe(true);
+  db.pragma("user_version=14");await expect(migrateDatabase(db,f.path)).rejects.toMatchObject({code:"DATABASE_NEWER"});
+ }finally{db.close();}
 });

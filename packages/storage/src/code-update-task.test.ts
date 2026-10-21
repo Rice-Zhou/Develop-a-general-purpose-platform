@@ -32,6 +32,6 @@ it("backs up v5 before enabling persisted code-update task kinds", async () => {
     const upgraded = await DataStore.open(path);
     expect(upgraded.getSetting("retained")).toBe("value"); upgraded.close();
     expect((await readdir(dir)).some(p => p.includes("backup-v5"))).toBe(true);
-    const db = new Database(path); expect(db.pragma("user_version", { simple: true })).toBe(12); db.close();
+    const db = new Database(path); expect(db.pragma("user_version", { simple: true })).toBe(13); db.close();
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

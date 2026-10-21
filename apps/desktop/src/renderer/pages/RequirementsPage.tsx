@@ -107,7 +107,7 @@ export function RequirementsPage({
   const latestTask=tasks.find(t=>t.id===operationTaskId&&t.projectId===projectId);
   const profile=profiles.find(p=>p.id===project?.aiProfileId);
   const aiReason=!project?.enabled?"项目已停用":!profile?"请先配置有效 AI 连接":!profile.outboundEnabled?"请先允许 AI 读取项目材料":"";
-  async function reloadReviews(){const epoch=projectEpoch.current;const r=unwrap(await window.platform.getRequirementReviews(projectId));if(projectEpoch.current===epoch)setReviews(r);}
+  async function reloadReviews(){const epoch=renderEpoch;if(projectEpoch.current!==epoch)return;const r=unwrap(await window.platform.getRequirementReviews(projectId));if(projectEpoch.current===epoch)setReviews(r);}
   async function act(action: () => Promise<void>) {
     const epoch=projectEpoch.current;
     setError("");

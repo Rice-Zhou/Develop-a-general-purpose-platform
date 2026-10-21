@@ -112,9 +112,17 @@ async function migrateLibraryDatabase(db:Database.Database,path:string,backupDir
  })();
 }
 
-export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
+async function migrateReviewDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
  const version=db.pragma("user_version",{simple:true}) as number;if(version>12)throw new AppError("DATABASE_NEWER","数据库版本比当前应用新");if(version===12)return;
  if(version===11){await mkdir(backupDirectory,{recursive:true});await db.backup(join(backupDirectory,`${basename(path)}.backup-v11-${randomUUID()}.db`));}
  else await migrateLibraryDatabase(db,path,backupDirectory);
  db.transaction(()=>{db.exec(`CREATE TABLE requirement_reviews(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),fingerprint TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(project_id,fingerprint));CREATE TABLE requirement_review_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,project_id TEXT NOT NULL,item_id TEXT NOT NULL REFERENCES requirement_reviews(id),action TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE requirement_review_reports(report_id TEXT PRIMARY KEY);PRAGMA user_version=12;`);})();
+}
+
+export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
+ const version=db.pragma("user_version",{simple:true}) as number;
+ if(version>13)throw new AppError("DATABASE_NEWER","数据库版本比当前应用新");if(version===13)return;
+ if(version===12){await mkdir(backupDirectory,{recursive:true});await db.backup(join(backupDirectory,`${basename(path)}.backup-v12-${randomUUID()}.db`));}
+ else await migrateReviewDatabase(db,path,backupDirectory);
+ db.transaction(()=>{db.exec("ALTER TABLE requirement_review_events ADD COLUMN basis_json TEXT; PRAGMA user_version=13;");})();
 }

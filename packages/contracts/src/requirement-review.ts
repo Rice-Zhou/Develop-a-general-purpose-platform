@@ -6,4 +6,5 @@ export type RequirementDecision=z.infer<typeof RequirementDecisionSchema>;
 export type ReviewState="PENDING"|"CONFIRMED_MISSING"|"FALSE_POSITIVE"|"DONE";
 export interface ReviewRunToken{decisionSequence:number}
 export interface RequirementReviewItem{id:string;projectId:string;fingerprint:string;state:ReviewState;revision:number;reportId:string;requirementSetId:string;requirementId:string;historicalSource:boolean;updatedAt:string}
-export interface RequirementReviewView extends RequirementReviewItem{requirement:RequirementItem;finding:AnalysisReport["findings"][number];report:AnalysisReport}
+export interface RequirementReviewEvent{sequence:number;action:RequirementDecision;createdAt:string;basis:{reportId:string;requirementSetId:string;requirementId:string;revision:number}|null}
+export interface RequirementReviewView extends RequirementReviewItem{decisions:RequirementReviewEvent[];requirement:RequirementItem;finding:AnalysisReport["findings"][number];report:AnalysisReport}
