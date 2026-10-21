@@ -21,6 +21,19 @@ import {
   type BugReport,
   type IssueSnapshot,
 } from "../../../contracts/src/issues";
+const recoverableToolCodes = new Set([
+  "OUTPUT_INVALID", "BLOCK_NOT_FOUND", "PATH_DENIED", "LINE_RANGE_DENIED",
+  "REPOSITORY_DENIED", "DOCUMENT_DENIED", "LOG_DENIED", "BINARY_FILE",
+  "TEXT_ENCODING_UNSUPPORTED", "TOOL_OUTPUT_LIMIT",
+]);
+function validationFailure(error: unknown): string | undefined {
+  if (error instanceof z.ZodError) return ("INVALID_SCHEMA: " + error.issues.slice(0, 10)
+    .map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ")).slice(0,1500);
+  if (error instanceof SyntaxError) return "INVALID_JSON: 返回内容不是有效 JSON";
+  if (error instanceof AppError && (recoverableToolCodes.has(error.code) || error.code === "EVIDENCE_INVALID"))
+    return `${error.code}: ${error.message}`.slice(0,1500);
+  return undefined;
+}
 const toolSchemas = {
   searchLogs:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20)}).strict(),
   readLog:z.object({logSetId:z.string(),fileId:z.string(),startLine:z.number().int().positive(),endLine:z.number().int().positive()}).strict(),
@@ -223,7 +236,17 @@ export class AnalysisPipeline {
           })),
         });
         for (const call of reply.toolCalls) {
-          const result = await this.tool(call.name, call.arguments, signal);
+          let result: unknown;
+          try {
+            result = await this.tool(call.name, call.arguments, signal);
+          } catch (error) {
+            const reason = validationFailure(error);
+            // Reply to every tool call so the model can correct its request without
+            // consuming the one repair reserved for final report validation.
+            if (!reason || (error instanceof AppError && !recoverableToolCodes.has(error.code))) throw error;
+            result = {error: {code: error instanceof AppError ? error.code : "INVALID_ARGUMENTS", message: reason}};
+            this.progress(`取证请求失败：${call.name} · ${reason}`);
+          }
           messages.push({
             role: "tool",
             tool_call_id: call.id,
@@ -263,40 +286,19 @@ export class AnalysisPipeline {
       try {
         return await validate(await this.run(messages, signal));
       } catch (error) {
-        const repairable =
-          error instanceof z.ZodError ||
-          error instanceof SyntaxError ||
-          (error instanceof AppError &&
-            [
-              "OUTPUT_INVALID",
-              "EVIDENCE_INVALID",
-              "BLOCK_NOT_FOUND",
-              "PATH_DENIED",
-              "LINE_RANGE_DENIED",
-            ].includes(error.code));
-        if (!repairable) throw error;
+        const reason = validationFailure(error);
+        if (!reason) throw error;
         if (attempt === 1)
           throw new AppError(
             "OUTPUT_INVALID",
-            "模型输出或证据在一次修正后仍无效，未保存成功报告",
+            `模型输出或证据在一次修正后仍无效，未保存成功报告。具体原因：${reason}`,
           );
-        this.progress("输出校验失败，正在请求一次修正");
+        this.progress(`输出校验失败，正在请求一次修正：${reason}`);
         messages.push({
           role: "user",
           content:
             "结果未通过结构或证据校验。只引用已取得的证据 ID，保留完整必填字段；不能扩大项目权限。错误类型：" +
-            (error instanceof AppError
-              ? `${error.code}: ${error.message}`
-              : error instanceof SyntaxError
-                ? "INVALID_JSON"
-                : error instanceof z.ZodError
-                  ? error.issues
-                      .slice(0, 10)
-                      .map(
-                        (issue) => `${issue.path.join(".")}: ${issue.message}`,
-                      )
-                      .join("; ")
-                  : "INVALID_SCHEMA"),
+            reason,
         });
       }
     }
