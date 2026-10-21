@@ -44,7 +44,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(8); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(9); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -70,7 +70,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(8);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(9);
   } finally {
     upgraded.close();
   }

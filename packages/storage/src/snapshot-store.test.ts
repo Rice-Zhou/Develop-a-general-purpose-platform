@@ -5,6 +5,15 @@ import { join } from "node:path";
 import { SnapshotStore } from "./snapshot-store";
 import { DataStore } from "./database";
 import { ProjectService } from "../../core/src/projects/project-service";
+it("streams with actual byte limits and never publishes interrupted content",async()=>{
+  const path=await root();const content=new SnapshotStore(path);
+  async function* chunks(){yield Buffer.from("abc");yield Buffer.from("def");}
+  const stored=await content.putStream(chunks(),6,new AbortController().signal);
+  expect(stored.size).toBe(6);expect((await content.get(stored.hash)).toString()).toBe("abcdef");
+  await expect(content.putStream(chunks(),5,new AbortController().signal)).rejects.toMatchObject({code:"MATERIAL_SIZE_LIMIT"});
+  async function* broken(){yield Buffer.from("incomplete");throw new Error("disk or network failure");}
+  await expect(content.putStream(broken(),100,new AbortController().signal)).rejects.toThrow("disk or network failure");
+});
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0))

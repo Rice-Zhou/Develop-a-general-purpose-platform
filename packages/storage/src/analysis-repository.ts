@@ -1,3 +1,4 @@
+import { IssueMaterialRepository } from "./issue-material-repository";
 import type Database from "better-sqlite3";
 import { AppError } from "../../contracts/src/error";
 import {
@@ -17,10 +18,13 @@ import type { BugReport } from "../../contracts/src/issues";
 import { IssueRepository } from "./issue-repository";
 export abstract class AnalysisRepository {
   readonly issues: IssueRepository;
+  readonly materials: IssueMaterialRepository;
   constructor(protected readonly db: Database.Database) {
     this.issues = new IssueRepository(db);
+    this.materials = new IssueMaterialRepository(db);
   }
   abstract saveTask(task: Task): void;
+  getIssueLogSet(id:string) {return this.materials.get(id);}
   abstract event(taskId: string, stage: string, message: string): void;
   saveDocument(value: DocumentSnapshot): void {
     const snapshot = DocumentSnapshotSchema.parse(value);
