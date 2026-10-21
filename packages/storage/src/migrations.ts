@@ -94,7 +94,7 @@ async function migrateLegacyDatabase(
   })();
 }
 
-export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
+async function migrateLibraryDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
  const version=db.pragma("user_version",{simple:true}) as number;
  if(version>11)throw new AppError("DATABASE_NEWER","数据库版本比当前应用新");
  if(version===11)return;
@@ -110,4 +110,11 @@ export async function migrateDatabase(db:Database.Database,path:string,backupDir
  const p=JSON.parse(row.json);for(const ref of p.documentRefs??[])db.prepare("INSERT INTO project_resource_links VALUES(?,?,?,?)").run(row.id,ref.id,"requirement",Number(ref.required));delete p.documentRefs;p.documents=[];db.prepare("UPDATE projects SET json=? WHERE id=?").run(JSON.stringify(p),row.id);}
  db.prepare("DELETE FROM settings WHERE key='document-resources'").run();db.pragma("user_version=11");
  })();
+}
+
+export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
+ const version=db.pragma("user_version",{simple:true}) as number;if(version>12)throw new AppError("DATABASE_NEWER","数据库版本比当前应用新");if(version===12)return;
+ if(version===11){await mkdir(backupDirectory,{recursive:true});await db.backup(join(backupDirectory,`${basename(path)}.backup-v11-${randomUUID()}.db`));}
+ else await migrateLibraryDatabase(db,path,backupDirectory);
+ db.transaction(()=>{db.exec(`CREATE TABLE requirement_reviews(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),fingerprint TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(project_id,fingerprint));CREATE TABLE requirement_review_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,project_id TEXT NOT NULL,item_id TEXT NOT NULL REFERENCES requirement_reviews(id),action TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE requirement_review_reports(report_id TEXT PRIMARY KEY);PRAGMA user_version=12;`);})();
 }

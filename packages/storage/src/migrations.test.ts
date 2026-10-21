@@ -37,7 +37,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
   store.setSetting("existing", { value: "keep" });
   store.close();
   const old = new Database(path);
-  old.exec("DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");
+  old.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");
   old.pragma("user_version = 4");
   old.close();
   store = await DataStore.open(path);
@@ -46,7 +46,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(11); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(12); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -72,7 +72,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(11);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(12);
   } finally {
     upgraded.close();
   }
@@ -166,7 +166,7 @@ it("migrates actual v6 inline documents and AI choices to shared resources witho
   const base = { id: "p", revision: 1, name: "A", enabled: true, repositories: [], issueBindings: [], updatedAt: "before", aiProfileId: null, documents: [{ id: "d", kind: "docx", locator: "D:/req.docx", required: true }] };
   old.prepare("UPDATE projects SET json=? WHERE id='p'").run(JSON.stringify(base));
   old.prepare("INSERT INTO projects VALUES(?,?,?)").run("other", 1, JSON.stringify({ ...base, id: "other", aiProfileId: "override", documents: [{ ...base.documents[0], locator: "D:/different.docx", required: false }] }));
-  old.exec("DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");old.pragma("user_version=6"); old.close();
+  old.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");old.pragma("user_version=6"); old.close();
   store = await DataStore.open(f.path);
   try {
     expect(store.getProject("p")).toMatchObject({ documents: base.documents, aiProfileId: "first", usesDefaultAI: true });
@@ -186,7 +186,7 @@ it("backs up v7 and preserves explicit remote project mappings while moving Trin
  const account={id:"t",kind:"trinity",platform:"trinity",name:"Trinity",baseUrl:"https://trinity.example/trinity",username:"login",credentialRef:null,bypassProxy:true};
  const project={id:"p",revision:1,name:"Code",enabled:true,documents:[],documentRefs:[],repositories:[],aiProfileId:null,updatedAt:"now",issueBindings:[{id:"j1",connectionId:"j",platform:"jira-dc",instanceUrl:jira.baseUrl,projectKey:"A",owner:"alice",issueTypeIds:["1"]},{id:"t1",connectionId:"t",platform:"trinity",instanceUrl:account.baseUrl,projectKey:"T",owner:"old-manual-owner",issueTypeIds:["BUG"]}]};
  db.prepare("INSERT INTO settings(key,json) VALUES('issue-connections',?)").run(JSON.stringify([jira,account]));
- db.prepare("UPDATE projects SET json=? WHERE id='p'").run(JSON.stringify(project));db.exec("DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=7");db.close();
+ db.prepare("UPDATE projects SET json=? WHERE id='p'").run(JSON.stringify(project));db.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=7");db.close();
  store=await DataStore.open(f.path);
  try{
   expect(store.getProject("p").trinityProjects).toEqual([{instanceUrl:account.baseUrl,projectId:"T"}]);
@@ -196,13 +196,13 @@ it("backs up v7 and preserves explicit remote project mappings while moving Trin
  }finally{store.close();}
 });
 it("upgrades v9 with a backup so older clients cannot process log tasks or resurrect removed history",async()=>{
- const root=await mkdtemp(join(tmpdir(),"task-contract-migration-"));roots.push(root);const path=join(root,"db.sqlite");const db=new Database(path);try{await migrateDatabase(db,path);db.exec("DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=9");await migrateDatabase(db,path);expect(db.pragma("user_version",{simple:true})).toBe(11);expect((await readdir(root)).some(p=>p.includes("backup-v9-"))).toBe(true);}finally{db.close();}
+ const root=await mkdtemp(join(tmpdir(),"task-contract-migration-"));roots.push(root);const path=join(root,"db.sqlite");const db=new Database(path);try{await migrateDatabase(db,path);db.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories;");db.pragma("user_version=9");await migrateDatabase(db,path);expect(db.pragma("user_version",{simple:true})).toBe(12);expect((await readdir(root)).some(p=>p.includes("backup-v9-"))).toBe(true);}finally{db.close();}
 });
 
 it("backs up actual v10 resources and rolls back invalid links atomically",async()=>{
  const root=await mkdtemp(join(tmpdir(),"v10-library-"));roots.push(root);const path=join(root,"app.db");
  let store=await DataStore.open(path);store.close();let db=new Database(path);
- db.exec("DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories; PRAGMA user_version=10;");
+ db.exec("DROP TABLE requirement_review_reports; DROP TABLE requirement_review_events; DROP TABLE requirement_reviews; DROP TABLE project_resource_links; DROP TABLE library_resources; DROP TABLE library_categories; PRAGMA user_version=10;");
  const resource={id:"doc",kind:"docx",locator:"D:/requirements.docx",name:"需求",required:true,revision:3};
  db.prepare("INSERT INTO settings VALUES('document-resources',?)").run(JSON.stringify([resource]));
  db.prepare("INSERT INTO projects VALUES('p',1,?)").run(JSON.stringify({id:"p",name:"P",revision:1,documents:[],documentRefs:[{id:"missing",required:true}],issueBindings:[],aiProfileId:null}));db.close();

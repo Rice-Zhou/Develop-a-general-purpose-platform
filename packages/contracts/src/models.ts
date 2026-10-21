@@ -181,6 +181,7 @@ export type Result<T> =
   | { ok: true; value: T }
   | { ok: false; error: ErrorData };
 export interface Task {
+  reviewRunToken?: import("./requirement-review").ReviewRunToken;
   deletedAt?:string;
   issueKey?:string;
   issueIdentity?:string;
