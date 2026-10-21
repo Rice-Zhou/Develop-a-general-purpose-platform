@@ -50,6 +50,8 @@ export async function discoverCodexCli(locations:CodexLocations,run:typeof runPr
   }
  }));
  candidates.sort((a,b)=>a.version&&b.version?compareCodexVersions(b.version,a.version)||a.executable.localeCompare(b.executable):a.version?-1:b.version?1:a.executable.localeCompare(b.executable));
+ const unverified=candidates.filter(c=>c.error);
+ if(unverified.length)throw new AppError("CODEX_VERSION_UNVERIFIED",`存在无法确认版本的 Codex CLI，未自动改用其他版本。请检查安装后重新检测：${unverified.map(c=>`${c.executable}（${c.error}）`).join("；")}`);
  const selected=candidates.find((c):c is CodexCandidate&{version:string}=>c.version!==null);
  if(!selected)throw new AppError("CODEX_NOT_FOUND",candidates.length?"检测到 Codex 文件，但均无法读取有效版本；请检查安装或执行权限":"未发现本地 Codex CLI，请先安装 Codex 桌面端或 CLI 并完成登录");
  return {selected:{executable:selected.executable,version:selected.version},candidates};

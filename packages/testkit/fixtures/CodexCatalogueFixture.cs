@@ -12,6 +12,7 @@ class Fixture {
    if(File.Exists(Path.Combine(root,"hang")))continue;
    object result=new {};
    if(method=="account/read")result=new {account=File.Exists(Path.Combine(root,"logged-out"))?null:(object)new {type="chatgpt",planType="pro"}};
+   if(method=="config/read")result=new {config=File.Exists(Path.Combine(root,"custom-catalog"))?(object)new {model_catalog_json="private-models.json"}:(object)new {}};
    if(method=="model/list"){
     if(File.Exists(Path.Combine(root,"catalog-failed"))){Console.WriteLine(json.Serialize(new {id=input["id"],error=new {code=403,message="fixture private error"}}));continue;}
     var pars=(Dictionary<string,object>)input["params"];

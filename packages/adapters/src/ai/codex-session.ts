@@ -30,7 +30,7 @@ export async function codexMetadataSession<T>(executable:string,options:{cwd:str
  const abort=()=>fail(new AppError("CANCELLED","Codex 检测已取消或超时"));options.signal.addEventListener("abort",abort,{once:true});
  const request:CodexRequest=(method,params)=>{
   if(failed)return Promise.reject(failed);if(options.signal.aborted)return Promise.reject(new AppError("CANCELLED","Codex 检测已取消或超时"));
-  if(!["initialize","account/read","model/list"].includes(method))return Promise.reject(new AppError("CODEX_METHOD_DENIED","仅允许读取 Codex 账号和模型元数据"));
+  if(!["initialize","account/read","config/read","model/list"].includes(method))return Promise.reject(new AppError("CODEX_METHOD_DENIED","仅允许读取 Codex 账号、模型配置和模型元数据"));
   const next=++id;return new Promise((resolve,reject)=>{pending.set(next,{resolve,reject});child.stdin.write(JSON.stringify({id:next,method,params})+"\n");});
  };
  try{

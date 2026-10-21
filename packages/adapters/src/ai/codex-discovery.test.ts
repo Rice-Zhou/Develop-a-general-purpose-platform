@@ -3,6 +3,7 @@ import {mkdtemp,mkdir,writeFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {discoverCodexCli,compareCodexVersions} from "./codex-discovery";
+import {AppError} from "../../../contracts/src/error";
 it("orders numeric and prerelease versions instead of PATH order",()=>{
  expect(compareCodexVersions("0.163.0-alpha.10.2","0.149.1")).toBeGreaterThan(0);
  expect(compareCodexVersions("0.163.0","0.163.0-alpha.10.2")).toBeGreaterThan(0);
@@ -21,4 +22,12 @@ it("discovers desktop and npm actual executables and picks latest without using 
 });
 it("reports missing installations explicitly",async()=>{
  const root=await mkdtemp(join(tmpdir(),"codex-empty-"));try{await expect(discoverCodexCli({appData:root,localAppData:root,path:"",cwd:root,signal:new AbortController().signal})).rejects.toMatchObject({code:"CODEX_NOT_FOUND"});}finally{await rm(root,{recursive:true,force:true});}
+});
+for(const reason of ["timeout","invalid"])it(`does not choose an older CLI when another actual exe cannot be versioned: ${reason}`,async()=>{
+ const root=await mkdtemp(join(tmpdir(),"codex-unverified-"));
+ try{
+  const old=join(root,"old/codex.exe"),latest=join(root,"local/OpenAI/Codex/bin/new/codex.exe");for(const file of [old,latest]){await mkdir(join(file,".."),{recursive:true});await writeFile(file,"");}
+  const run=vi.fn(async(exe:string)=>{if(exe===old)return "codex-cli 0.149.1";if(reason==="timeout")throw new AppError("PROCESS_TIMEOUT","timeout");return "invalid version";});
+  await expect(discoverCodexCli({appData:root,localAppData:join(root,"local"),path:join(root,"old"),cwd:root,signal:new AbortController().signal},run)).rejects.toMatchObject({code:"CODEX_VERSION_UNVERIFIED"});
+ }finally{await rm(root,{recursive:true,force:true});}
 });
