@@ -1,3 +1,5 @@
+import { LibraryStore } from "./library-store";
+import { isDocumentResource,type LibraryResourceDraft,type LibraryCategoryDraft,type ProjectResourceLink } from "../../contracts/src/library";
 import { isDeepStrictEqual } from "node:util";
 import type { IssueConnection } from "../../contracts/src/issues";
 import { resolveIssueBindings } from "../../core/src/issues/bindings";
@@ -37,7 +39,13 @@ export class DataStore extends AnalysisRepository {
       );
     })();
   }
-  documentResources(): DocumentResource[] { return this.getSetting<DocumentResource[]>("document-resources") ?? []; }
+  getLibrary(){const library=new LibraryStore(this.db);return {resources:library.resources(),categories:library.categories()};}
+  saveLibraryResource(draft:LibraryResourceDraft,expectedRevision?:number){return new LibraryStore(this.db).saveResource(draft,expectedRevision);}
+  deleteLibraryResource(id:string,revision:number){new LibraryStore(this.db).deleteResource(id,revision);}
+  saveLibraryCategory(draft:LibraryCategoryDraft,expectedRevision?:number){return new LibraryStore(this.db).saveCategory(draft,expectedRevision);}
+  deleteLibraryCategory(id:string,revision:number){new LibraryStore(this.db).deleteCategory(id,revision);}
+  saveProjectResources(projectId:string,links:ProjectResourceLink[],expectedRevision:number):Project{return this.db.transaction(()=>{const p=this.getProject(projectId);new LibraryStore(this.db).replaceLinks(projectId,links);this.saveProject({...p,resourceLinks:links,documents:links.filter(l=>l.role==="requirement").map(l=>{const r=this.getLibrary().resources.find(r=>r.id===l.resourceId)!;if(!isDocumentResource(r))throw new AppError("RESOURCE_REFERENCE_ONLY","仅支持参考关联");return {id:r.id,kind:r.kind,locator:r.locator,required:l.required};}),revision:p.revision+1,updatedAt:new Date().toISOString()},expectedRevision);return this.getProject(projectId);})();}
+  documentResources(): DocumentResource[] { return this.getLibrary().resources.filter(isDocumentResource).map(r=>({id:r.id,name:r.name,kind:r.kind,locator:r.locator,required:r.required,revision:r.revision})); }
   getDefaultAIProfile(): string | null { return this.getSetting<string>("default-ai-profile"); }
   setDefaultAIProfile(id: string): void {
     if (!(this.getSetting<{ id: string }[]>("profiles") ?? []).some(p => p.id === id)) throw new AppError("MODEL_NOT_CONFIGURED", "AI 连接不存在");
@@ -81,42 +89,18 @@ export class DataStore extends AnalysisRepository {
       this.db.prepare("UPDATE projects SET revision=?,json=? WHERE id=?").run(updated.revision, JSON.stringify(updated), updated.id);
     }
   }
-  saveDocumentResource(value: unknown, expectedRevision?: number): DocumentResource {
-    const parsed = DocumentResourceDraftSchema.parse(value);
-    return this.db.transaction(() => {
-      const resources = this.documentResources();
-      const previous = parsed.id ? resources.find(d => d.id === parsed.id) : undefined;
-      if (parsed.id && !previous) throw new AppError("DOCUMENT_NOT_FOUND", "需求文档资源不存在");
-      if (!previous && expectedRevision !== undefined) throw new AppError("REVISION_CONFLICT", "需求文档版本不存在");
-      if (previous && previous.revision !== expectedRevision) throw new AppError("REVISION_CONFLICT", "需求文档已被更新，请重新打开后修改");
-      const saved: DocumentResource = { ...parsed, id: previous?.id ?? randomUUID(), revision: (previous?.revision ?? 0) + 1 };
-      this.setSetting("document-resources", [...resources.filter(d => d.id !== saved.id), saved]);
-      if (previous) this.touchProjects(p => Boolean(p.documentRefs?.some(ref => ref.id === saved.id)));
-      return saved;
-    })();
+  saveDocumentResource(value:unknown,expectedRevision?:number):DocumentResource {
+    const draft=DocumentResourceDraftSchema.parse(value);const previous=draft.id?this.getLibrary().resources.find(r=>r.id===draft.id):undefined;
+    const r=this.saveLibraryResource({...previous,...draft},expectedRevision);if(!isDocumentResource(r))throw new AppError("RESOURCE_REFERENCE_ONLY","不是可解析文档");return {id:r.id,name:r.name,kind:r.kind,locator:r.locator,required:r.required,revision:r.revision};
   }
-  deleteDocumentResource(id: string, expectedRevision: number): void {
-    this.db.transaction(() => {
-      const resources = this.documentResources(); const resource = resources.find(r => r.id === id);
-      if (!resource) throw new AppError("DOCUMENT_NOT_FOUND", "需求文档资源不存在");
-      if (resource.revision !== expectedRevision) throw new AppError("REVISION_CONFLICT", "需求文档已被更新");
-      if (this.listProjects().some(p => p.documents.some(d => d.id === id))) throw new AppError("DOCUMENT_IN_USE", "需求文档仍有关联项目，请先解除关联");
-      this.setSetting("document-resources", resources.filter(r => r.id !== id));
-    })();
-  }
-  private hydrateProject(raw: string): Project {
-    const { documentRefs, ...project } = JSON.parse(raw) as Project & { documentRefs?: { id: string; required: boolean }[] };
-    if (documentRefs) {
-      const resources = this.documentResources();
-      project.documents = documentRefs.map(ref => {
-        const resource = resources.find(r => r.id === ref.id);
-        if (!resource) throw new AppError("DOCUMENT_NOT_FOUND", "项目关联的需求文档资源不存在");
-        return { id: ref.id, kind: resource.kind, locator: resource.locator, required: ref.required };
-      });
-    }
-    project.issueBindings = resolveIssueBindings(project, this.getSetting<IssueConnection[]>("issue-connections") ?? []);
-    const defaultId = this.getDefaultAIProfile();
-    if (!project.aiProfileId && project.usesDefaultAI !== false) { project.aiProfileId = defaultId; project.usesDefaultAI = true; }
+  deleteDocumentResource(id:string,expectedRevision:number):void {this.deleteLibraryResource(id,expectedRevision);}
+  private hydrateProject(raw:string):Project {
+    const project=JSON.parse(raw) as Project;
+    project.resourceLinks=new LibraryStore(this.db).links(project.id);
+    const resources=this.getLibrary().resources;
+    project.documents=project.resourceLinks.filter(l=>l.role==="requirement").map(l=>{const r=resources.find(r=>r.id===l.resourceId);if(!r||!isDocumentResource(r))throw new AppError("DOCUMENT_NOT_FOUND","项目关联的需求文档资源不存在");return {id:r.id,kind:r.kind,locator:r.locator,required:l.required};});
+    project.issueBindings=resolveIssueBindings(project,this.getSetting<IssueConnection[]>("issue-connections")??[]);
+    const defaultId=this.getDefaultAIProfile();if(!project.aiProfileId&&project.usesDefaultAI!==false){project.aiProfileId=defaultId;project.usesDefaultAI=true;}
     return project;
   }
   private constructor(
@@ -202,17 +186,20 @@ export class DataStore extends AnalysisRepository {
       for (const document of project.documents) {
         const previous = resources.find(r => r.id === document.id);
         if (previous && (previous.kind !== document.kind || previous.locator !== document.locator)) throw new AppError("DOCUMENT_RESOURCE_CHANGED", "请在需求资料库中修改文档资源，再重新关联");
-        if (!previous) resources.push({ ...document, name: document.locator.split(/[\\/]/).at(-1) || document.locator, revision: 1 });
+        if (!previous) this.db.prepare("INSERT INTO library_resources VALUES(?,?)").run(document.id,JSON.stringify({...document,name:document.locator.split(/[\\/]/).at(-1)||document.locator,revision:1,contentRevision:1,categoryId:null,purpose:"requirement",notes:""}));
       }
-      this.setSetting("document-resources", resources);
-      const { usesDefaultAI, ...persisted } = project;
+
+      const { usesDefaultAI, resourceLinks: _resourceLinks, ...persisted } = project;
       const trinityProjects = project.trinityProjects ?? project.issueBindings.filter(b => b.platform === "trinity" && b.scopeMode !== "account").map(b => ({ instanceUrl: b.instanceUrl, projectId: b.projectKey }));
-      const json = { ...persisted, ...(usesDefaultAI === false ? { usesDefaultAI: false } : {}), ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
+      const json = { ...persisted, ...(usesDefaultAI === false ? { usesDefaultAI: false } : {}), ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [] };
       this.db
         .prepare(
           "INSERT INTO projects VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, json=excluded.json",
         )
         .run(project.id, project.revision, JSON.stringify(json));
+      const library=new LibraryStore(this.db);
+      const references=library.links(project.id).filter(l=>l.role==="reference"&&!project.documents.some(d=>d.id===l.resourceId));
+      library.replaceLinks(project.id,[...references,...project.documents.map(d=>({resourceId:d.id,role:"requirement" as const,required:d.required}))]);
       this.db
         .prepare("DELETE FROM repository_paths WHERE project_id = ?")
         .run(project.id);

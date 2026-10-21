@@ -21,7 +21,8 @@ it("updates only a project's document bindings without requiring its unavailable
     const service = new ProjectService(store);
     const updated = service.saveDocuments({ projectId: project.id, documents: [], expectedRevision: 1 });
     expect(updated).toMatchObject({ ...project, documents: [], revision: 2, updatedAt: expect.any(String) });
-    expect(store.getProject(other.id)).toEqual(other);
+    expect(store.getProject(other.id)).toMatchObject(other);
+    expect(store.getProject(other.id).resourceLinks).toEqual([{resourceId:document.id,role:"requirement",required:true}]);
     expect(await readFile(source, "utf8")).toBe("source must survive unlinking");
     expect(() => service.saveDocuments({ projectId: project.id, documents: [document], expectedRevision: 1 })).toThrow(/配置已被更新/);
     expect(store.getProject(project.id).documents).toEqual([]);

@@ -466,6 +466,12 @@ export class Workbench implements TaskRuntime {
   }
   async dispatch(request: Request, tasks: TaskService): Promise<unknown> {
     switch (request.method) {
+ case "getLibrary":return this.store.getLibrary();
+ case "saveLibraryResource":return this.store.saveLibraryResource(request.params.draft,request.params.expectedRevision);
+ case "saveLibraryCategory":return this.store.saveLibraryCategory(request.params.draft,request.params.expectedRevision);
+ case "deleteLibraryResource":return this.store.deleteLibraryResource(request.params.id,request.params.expectedRevision);
+ case "deleteLibraryCategory":return this.store.deleteLibraryCategory(request.params.id,request.params.expectedRevision);
+ case "saveProjectResources":return this.store.saveProjectResources(request.params.projectId,request.params.links,request.params.expectedRevision);
       case "getTrinityProjects":
         return this.issues.trinityProjects(request.params.connectionId,AbortSignal.timeout(ISSUE_REFRESH_TIMEOUT_MS));
       case "getJiraCatalogue":

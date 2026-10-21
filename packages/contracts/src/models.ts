@@ -80,6 +80,7 @@ export interface RepositoryBinding {
   remoteUrlFingerprint: string | null;
 }
 export interface Project {
+  resourceLinks?: import("./library").ProjectResourceLink[];
   id: string;
   name: string;
   enabled: boolean;
@@ -224,6 +225,12 @@ export interface AppInfo {
   capabilities: { name: string; available: boolean; reason: string }[];
 }
 export interface DesktopAPI {
+  getLibrary():Promise<Result<import("./library").Library>>;
+  saveLibraryResource(draft:import("./library").LibraryResourceDraft,expectedRevision?:number):Promise<Result<import("./library").LibraryResource>>;
+  deleteLibraryResource(id:string,expectedRevision:number):Promise<Result<void>>;
+  saveLibraryCategory(draft:import("./library").LibraryCategoryDraft,expectedRevision?:number):Promise<Result<import("./library").LibraryCategory>>;
+  deleteLibraryCategory(id:string,expectedRevision:number):Promise<Result<void>>;
+  saveProjectResources(projectId:string,links:import("./library").ProjectResourceLink[],expectedRevision:number):Promise<Result<Project>>;
   getUpdateStatus():Promise<Result<import("./updates").UpdateStatus>>;
   checkForUpdates():Promise<Result<import("./updates").UpdateStatus>>;
   takeStartupUpdatePrompt():Promise<Result<import("./updates").UpdateOffer|null>>;

@@ -1,3 +1,4 @@
+import {LibraryResourceDraftSchema,LibraryCategoryDraftSchema,ProjectResourceLinkSchema} from "./library";
 import { BugAnalysisOptionsSchema } from "./issue-materials";
 import { z } from "zod";
 import { AppError } from "./error";
@@ -19,6 +20,11 @@ const binding = z
   })
   .strict();
 const request = z.discriminatedUnion("method", [
+ z.object({method:z.literal("getLibrary"),params:empty}).strict(),
+ z.object({method:z.literal("saveLibraryResource"),params:z.object({draft:LibraryResourceDraftSchema,expectedRevision:z.number().int().positive().optional()}).strict()}).strict(),
+ z.object({method:z.literal("saveLibraryCategory"),params:z.object({draft:LibraryCategoryDraftSchema,expectedRevision:z.number().int().positive().optional()}).strict()}).strict(),
+ ...(["deleteLibraryResource","deleteLibraryCategory"] as const).map(method=>z.object({method:z.literal(method),params:z.object({id:z.string().min(1),expectedRevision:z.number().int().positive()}).strict()}).strict()),
+ z.object({method:z.literal("saveProjectResources"),params:z.object({projectId:id,links:z.array(ProjectResourceLinkSchema).max(200),expectedRevision:z.number().int().positive()}).strict()}).strict(),
   z.object({method:z.literal("getBugReportForTask"),params:z.object({projectId:id,taskId:id}).strict()}).strict(),
   ...(["getUpdateStatus","checkForUpdates","takeStartupUpdatePrompt","cancelUpdateDownload","restartAfterUpdateFailure"] as const).map(method=>z.object({method:z.literal(method),params:empty}).strict()),
   ...(["downloadUpdate","installUpdate"] as const).map(method=>z.object({method:z.literal(method),params:z.object({offerId:z.string().min(1).max(200)}).strict()}).strict()),

@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../contracts/src/error";
-export async function migrateDatabase(
+async function migrateLegacyDatabase(
   db: Database.Database,
   path: string,
   backupDirectory = dirname(path),
@@ -92,4 +92,22 @@ export async function migrateDatabase(
     }
     db.exec(materialSql);
   })();
+}
+
+export async function migrateDatabase(db:Database.Database,path:string,backupDirectory=dirname(path)):Promise<void>{
+ const version=db.pragma("user_version",{simple:true}) as number;
+ if(version>11)throw new AppError("DATABASE_NEWER","数据库版本比当前应用新");
+ if(version===11)return;
+ if(version===10){await mkdir(backupDirectory,{recursive:true});await db.backup(join(backupDirectory,`${basename(path)}.backup-v10-${randomUUID()}.db`));}
+ if(version<10)await migrateLegacyDatabase(db,path,backupDirectory);
+ db.transaction(()=>{
+ db.exec(`CREATE TABLE library_categories(id TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE library_resources(id TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE project_resource_links(project_id TEXT NOT NULL REFERENCES projects(id),resource_id TEXT NOT NULL REFERENCES library_resources(id),role TEXT NOT NULL,required INTEGER NOT NULL,PRIMARY KEY(project_id,resource_id));`);
+ const row=db.prepare("SELECT json FROM settings WHERE key='document-resources'").get() as {json:string}|undefined;
+ const resources=row?JSON.parse(row.json):[];
+ const insert=db.prepare("INSERT INTO library_resources VALUES(?,?)");
+ for(const r of resources)insert.run(r.id,JSON.stringify({...r,categoryId:null,purpose:"requirement",notes:"",contentRevision:1}));
+ for(const row of db.prepare("SELECT id,json FROM projects").all() as {id:string;json:string}[]){
+ const p=JSON.parse(row.json);for(const ref of p.documentRefs??[])db.prepare("INSERT INTO project_resource_links VALUES(?,?,?,?)").run(row.id,ref.id,"requirement",Number(ref.required));delete p.documentRefs;p.documents=[];db.prepare("UPDATE projects SET json=? WHERE id=?").run(JSON.stringify(p),row.id);}
+ db.prepare("DELETE FROM settings WHERE key='document-resources'").run();db.pragma("user_version=11");
+ })();
 }

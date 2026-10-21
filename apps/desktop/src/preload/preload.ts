@@ -3,6 +3,12 @@ import type { DesktopAPI } from "../../../../packages/contracts/src/models";
 const invoke = (method: string, params: object = {}) =>
   ipcRenderer.invoke("platform:request", { method, params });
 const api: DesktopAPI = {
+ getLibrary:()=>invoke("getLibrary"),
+ saveLibraryResource:(draft,expectedRevision)=>invoke("saveLibraryResource",{draft,expectedRevision}),
+ saveLibraryCategory:(draft,expectedRevision)=>invoke("saveLibraryCategory",{draft,expectedRevision}),
+ deleteLibraryResource:(id,expectedRevision)=>invoke("deleteLibraryResource",{id,expectedRevision}),
+ deleteLibraryCategory:(id,expectedRevision)=>invoke("deleteLibraryCategory",{id,expectedRevision}),
+ saveProjectResources:(projectId,links,expectedRevision)=>invoke("saveProjectResources",{projectId,links,expectedRevision}),
   getUpdateStatus:()=>invoke("getUpdateStatus"),
   checkForUpdates:()=>invoke("checkForUpdates"),
   takeStartupUpdatePrompt:()=>invoke("takeStartupUpdatePrompt"),
