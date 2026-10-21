@@ -1,3 +1,4 @@
+import {BugTaskQueue} from "../components/BugTaskQueue";
 import {IssueLogMaterials} from "../components/IssueLogMaterials";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -112,14 +113,8 @@ export function BugsPage({
   const sources = workspace.scope === scope ? workspace.sources : [];
   const allRefreshed = sources.length > 0 && sources.every(source => source.status === "success");
   const refreshFailed = sources.some(source => source.status === "failed");
-  const active = tasks.some(
-    (t) =>
-      t.projectId === projectId &&
-      ["QUEUED", "PREPARING", "RUNNING", "VALIDATING", "CANCELLING"].includes(
-        t.status,
-      ),
-  );
-  const busy = loading || active;
+  const busy = loading;
+  const active=tasks.some(t=>t.projectId===projectId&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status));
   const targetIdFor=(issue:IssueListItem)=>analysisTargets[issue.id]||issue.analysisProjectId;
   const unavailableFor = (issue: IssueListItem): string => {
     const selected=analysisTargets[issue.id];
@@ -127,7 +122,6 @@ export function BugsPage({
     if(!selected&&issue.analysisUnavailable)return issue.analysisUnavailable;
     const target=projects.find(p=>p.id===(targetIdFor(issue)??projectId));
     if(!target?.enabled)return "预分析不可用：匹配的代码项目已停用。";
-    if(tasks.some(t=>t.projectId===target.id&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status)))return "预分析不可用：匹配项目有任务执行中，请等待完成或到任务历史取消。";
     if(loading)return "预分析不可用：正在读取或提交请求，请稍候。";
     if(!target.aiProfileId)return "预分析不可用：匹配的代码项目未配置可用 AI 执行连接。";
     return "";
@@ -313,7 +307,7 @@ export function BugsPage({
               onClick={() =>
                 void act(async () => {
                   unwrap(await window.platform.analyzeBug({projectId, issueSnapshotId:issue.id,targetProjectId:targetIdFor(issue)}));
-                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将先准备日志，再使用当前代码预分析。`)
+                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将等待独立日志下载完成，再使用当前代码预分析。`)
               }
             >
               基于当前代码预分析
@@ -325,6 +319,7 @@ export function BugsPage({
           </article>
         );})}
       </section>
+      <BugTaskQueue tasks={tasks.filter(t=>(t.kind==="ANALYZE_BUG"&&(t.projectId===projectId||issues.some(i=>i.key===t.issueKey)))||(t.kind==="DOWNLOAD_ISSUE_LOGS"&&issues.some(i=>i.logs?.id===t.id)))} onAction={act} />
       <section className="panel work-panel">
         <h2>BUG 报告历史</h2>
         {reports.length === 0 && (

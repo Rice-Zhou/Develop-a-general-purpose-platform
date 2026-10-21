@@ -22,6 +22,35 @@ export class ProcessExitError extends AppError {
     );
   }
 }
+export function processFailureDiagnostic(stdout: string, stderr = ""): string {
+  // Only machine failure events are diagnostics; ordinary stdout may contain project material.
+  const failures = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!value || typeof value !== "object") continue;
+    const event = value as {
+      type?: string;
+      message?: unknown;
+      error?: { message?: unknown };
+    };
+    const message = event.type === "error"
+      ? event.message
+      : event.type === "turn.failed" ? event.error?.message : undefined;
+    if (typeof message === "string") failures.add(message);
+  }
+  return [...failures, stderr].filter(Boolean).join("\n")
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
+    .replace(/(?:Bearer|token|password|api[_-]?key)["']?\s*[=: ]+\s*["']?[^\s,"']+/gi, "[凭据已隐藏]")
+    .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[密钥已隐藏]")
+    .slice(0, 2000)
+    .trim();
+}
 export function runProcess(
   executable: string,
   args: string[],
@@ -107,16 +136,7 @@ export function runProcess(
           reject(
             new ProcessExitError(
               code,
-              diagnostic
-                .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
-                .replace(
-                  /(?:Bearer|token|password|api[_-]?key)["']?\s*[=: ]+\s*["']?[^\s,"']+/gi,
-                  "[凭据已隐藏]",
-                )
-                .replace(/sk-[a-zA-Z0-9_-]{8,}/g, "[密钥已隐藏]")
-                .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
-                .slice(0, 2000)
-                .trim(),
+              processFailureDiagnostic(Buffer.concat(chunks).toString("utf8"), diagnostic),
             ),
           );
           return;

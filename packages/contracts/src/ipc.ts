@@ -211,7 +211,8 @@ const request = z.discriminatedUnion("method", [
         ),
     })
     .strict(),
-  ...(["deleteAIProfile", "probeExecutor"] as const).map((method) =>
+  z.object({ method: z.literal("deleteAIProfile"), params: z.object({ id, replacementId: id.nullable() }).strict().refine(p => p.id !== p.replacementId, "替代连接不能是删除的连接") }).strict(),
+  ...(["probeExecutor"] as const).map((method) =>
     z
       .object({ method: z.literal(method), params: z.object({ id }).strict() })
       .strict(),
@@ -273,7 +274,7 @@ const request = z.discriminatedUnion("method", [
       params: z.object({ projectId: id.optional() }).strict(),
     })
     .strict(),
-  ...(["getTaskEvents", "cancelTask", "retryTask"] as const).map((method) =>
+  ...(["getTaskEvents", "deleteTask", "cancelTask", "retryTask"] as const).map((method) =>
     z
       .object({
         method: z.literal(method),

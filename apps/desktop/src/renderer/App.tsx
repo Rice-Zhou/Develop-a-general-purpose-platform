@@ -1,3 +1,4 @@
+import {DeleteTaskButton} from "./components/DeleteTaskButton";
 import { useCallback, useEffect, useState } from "react";
 import type {
   AppInfo,
@@ -181,12 +182,12 @@ export function App() {
                 <td>
                   <strong>{task.projectName}</strong>
                   <span className="table-sub">
-                    {["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(task.kind) ? "代码更新" : task.kind === "PREPARE_CONTEXT"
+                    {task.kind==="DOWNLOAD_ISSUE_LOGS"?"日志下载":task.kind==="ANALYZE_BUG"?"BUG 预分析":["UPDATE_CODE", "CONTINUE_CODE_UPDATE", "RESOLVE_CODE_CONFLICTS"].includes(task.kind) ? "代码更新" : task.kind === "PREPARE_CONTEXT"
                       ? "上下文准备"
                       : task.kind === "EXTRACT_REQUIREMENTS"
                         ? "需求提取"
                         : "实现核对"}{" "}
-                    · 尝试 {task.attempt}
+                    · {task.issueKey ? `${task.issueKey} · `:""}尝试 {task.attempt}
                   </span>
                 </td>
                 <td>
@@ -201,6 +202,7 @@ export function App() {
                 </td>
                 <td>
                   <div className="row-actions">
+                    <DeleteTaskButton task={task} onDeleted={reload} />
                     {task.error?.code === "GIT_REBASE_CONFLICT" && <button className="text-button" onClick={() => setConflictTaskId(task.id)}>处理冲突</button>}
                     <button
                       className="text-button"

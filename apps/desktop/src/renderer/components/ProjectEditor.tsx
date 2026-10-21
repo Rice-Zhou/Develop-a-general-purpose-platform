@@ -39,6 +39,7 @@ export function ProjectEditor({
           issueBindings: project.issueBindings.filter(b=>b.platform!=="trinity"),
           trinityProjects: project.trinityProjects ?? [],
           aiProfileId: project.usesDefaultAI ? null : project.aiProfileId,
+          usesDefaultAI: project.usesDefaultAI,
         }
       : {
           name: "",
@@ -81,7 +82,7 @@ export function ProjectEditor({
     try {
       if(jiraEnabled&&!draft.issueBindings.some(b=>b.platform!=="trinity"))throw new Error("请选择已配置项目的 Jira 连接");
       const saved = unwrap(
-        linksOnly && project ? await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents: draft.documents, issueBindings: draft.issueBindings, trinityProjects: draft.trinityProjects, aiProfileId: draft.aiProfileId }) : await window.platform.saveProject(draft, project?.revision),
+        linksOnly && project ? await window.platform.saveProjectLinks({ projectId: project.id, expectedRevision: project.revision, documents: draft.documents, issueBindings: draft.issueBindings, trinityProjects: draft.trinityProjects, aiProfileId: draft.aiProfileId, usesDefaultAI: draft.usesDefaultAI }) : await window.platform.saveProject(draft, project?.revision),
       );
       onSaved(saved);
     } catch (err) {
@@ -255,12 +256,13 @@ export function ProjectEditor({
           <label>
             AI 执行连接
             <select
-              value={draft.aiProfileId ?? ""}
+              value={draft.aiProfileId ?? (draft.usesDefaultAI === false ? "none" : "")}
               onChange={(e) =>
-                setDraft({ ...draft, aiProfileId: e.target.value || null })
+                setDraft({ ...draft, aiProfileId: e.target.value && e.target.value !== "none" ? e.target.value : null, usesDefaultAI: e.target.value === "" })
               }
             >
               <option value="">使用默认 AI：{profiles.find(p => p.id === defaultAIId)?.name ?? "未配置"}（无单独覆盖）</option>
+              <option value="none">未配置 AI（解除关联）</option>
               {profiles.map((profile) => (
                 <option value={profile.id} key={profile.id}>
                   {profile.name} ·{" "}

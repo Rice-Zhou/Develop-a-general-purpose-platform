@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { parseRequest, assertTrustedSender } from "./ipc";
 
 describe("IPC contract", () => {
+  it("requires an explicit replacement or unlink decision for AI connection deletion", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const replacementId = "22222222-2222-4222-8222-222222222222";
+    expect(() => parseRequest({ method: "deleteAIProfile", params: { id } })).toThrow();
+    expect(parseRequest({ method: "deleteAIProfile", params: { id, replacementId: null } }).params).toEqual({ id, replacementId: null });
+    expect(parseRequest({ method: "deleteAIProfile", params: { id, replacementId } }).params).toEqual({ id, replacementId });
+    expect(() => parseRequest({ method: "deleteAIProfile", params: { id, replacementId: id } })).toThrow();
+  });
   it("accepts connection-only Jira discovery and rejects multiple Jira selections", () => {
     const id = "11111111-1111-4111-8111-111111111111";
     expect(parseRequest({ method: "getJiraCatalogue", params: { connectionId: id } }).method).toBe("getJiraCatalogue");

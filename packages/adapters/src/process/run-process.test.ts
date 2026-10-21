@@ -42,3 +42,16 @@ it("reports sanitized tool diagnostics and rejects command templates", async () 
   expect(error?.message).toContain("backend-unavailable");
   expect(error?.message).not.toContain("private-value");
 });
+it("retains substantive JSON failure messages ahead of stderr noise without exposing model content or credentials", async () => {
+  const events = [
+    { type: "item.completed", item: { type: "agent_message", text: "private project material" } },
+    { type: "error", message: "Selected model is not supported token=secret-token https://example.test/?key=secret-url sk-1234567890abcdef" },
+    { type: "turn.failed", error: { message: "Selected model is not supported" } },
+  ];
+  const error = await runProcess(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(events.map(event => JSON.stringify(event)).join("\n"))});process.stderr.write('failed to load skill: missing YAML frontmatter\\n'+'noise '.repeat(1000));process.exitCode=1`], { cwd: process.cwd() }).catch((error: Error) => error);
+  expect(error).toBeInstanceOf(Error);
+  const message = (error as Error).message;
+  expect(message).toContain("Selected model is not supported");
+  for (const secret of ["private project material", "secret-token", "secret-url", "sk-1234567890abcdef"])
+    expect(message).not.toContain(secret);
+});

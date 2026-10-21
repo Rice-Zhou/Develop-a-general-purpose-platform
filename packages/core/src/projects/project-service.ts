@@ -39,12 +39,12 @@ export class ProjectService {
     this.store.saveProject(project, update.expectedRevision);
     return this.store.getProject(project.id);
   }
-  saveLinks(input: { projectId: string; documents: Project["documents"]; issueBindings: Project["issueBindings"]; aiProfileId: string | null; trinityProjects?: Project["trinityProjects"]; expectedRevision: number }): Project {
+  saveLinks(input: { projectId: string; documents: Project["documents"]; issueBindings: Project["issueBindings"]; aiProfileId: string | null; usesDefaultAI?: boolean; trinityProjects?: Project["trinityProjects"]; expectedRevision: number }): Project {
     const update = ProjectLinksUpdateSchema.parse(input);
     const resources = this.store.documentResources();
     if (update.documents.some(d => !resources.some(r => r.id === d.id && r.kind === d.kind && r.locator === d.locator))) throw new AppError("DOCUMENT_RESOURCE_CHANGED", "需求文档资源不存在或已修改，请重新选择");
     const previous = this.store.getProject(update.projectId);
-    const project = { ...previous, documents: update.documents, issueBindings: update.issueBindings, aiProfileId: update.aiProfileId, trinityProjects: update.trinityProjects ?? previous.trinityProjects, usesDefaultAI: false, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
+    const project = { ...previous, documents: update.documents, issueBindings: update.issueBindings, aiProfileId: update.aiProfileId, trinityProjects: update.trinityProjects ?? previous.trinityProjects, usesDefaultAI: update.usesDefaultAI ?? !update.aiProfileId, revision: previous.revision + 1, updatedAt: new Date().toISOString() };
     this.store.saveProject(project, update.expectedRevision);
     return this.store.getProject(project.id);
   }
@@ -91,6 +91,7 @@ export class ProjectService {
       documents: draft.documents,
       issueBindings: draft.issueBindings,
       aiProfileId: draft.aiProfileId,
+      usesDefaultAI: draft.usesDefaultAI ?? (!draft.aiProfileId && previous?.aiProfileId === null ? previous.usesDefaultAI : undefined),
       trinityProjects: draft.trinityProjects ?? previous?.trinityProjects,
       updatedAt: new Date().toISOString(),
     };

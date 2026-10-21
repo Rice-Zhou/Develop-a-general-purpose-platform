@@ -66,10 +66,11 @@ export const ProjectDraftSchema = z
     issueBindings: z.array(IssueBindingSchema).max(20).refine((items) => items.filter((b) => b.platform !== "trinity").length <= 1, "每个本地项目仅可选择单个 Jira 项目"),
     trinityProjects: z.array(TrinityProjectMappingSchema).max(100).optional(),
     aiProfileId: z.string().nullable(),
+    usesDefaultAI: z.boolean().optional(),
   })
   .strict();
 export type ProjectDraft = z.infer<typeof ProjectDraftSchema>;
-export const ProjectLinksUpdateSchema = z.object({ projectId: z.uuid(), expectedRevision: z.number().int().positive(), documents: ProjectDraftSchema.shape.documents, issueBindings: ProjectDraftSchema.shape.issueBindings, trinityProjects: ProjectDraftSchema.shape.trinityProjects, aiProfileId: ProjectDraftSchema.shape.aiProfileId }).strict();
+export const ProjectLinksUpdateSchema = z.object({ projectId: z.uuid(), expectedRevision: z.number().int().positive(), documents: ProjectDraftSchema.shape.documents, issueBindings: ProjectDraftSchema.shape.issueBindings, trinityProjects: ProjectDraftSchema.shape.trinityProjects, aiProfileId: ProjectDraftSchema.shape.aiProfileId, usesDefaultAI: ProjectDraftSchema.shape.usesDefaultAI }).strict();
 export interface RepositoryBinding {
   id: string;
   canonicalPath: string;
@@ -179,6 +180,9 @@ export type Result<T> =
   | { ok: true; value: T }
   | { ok: false; error: ErrorData };
 export interface Task {
+  deletedAt?:string;
+  issueKey?:string;
+  issueIdentity?:string;
   bugOptions?:import("./issue-materials").BugAnalysisOptions;
   id: string;
   projectId: string;
@@ -192,7 +196,8 @@ export interface Task {
     | "PREPARE_CONTEXT"
     | "EXTRACT_REQUIREMENTS"
     | "CHECK_REQUIREMENTS"
-    | "ANALYZE_BUG";
+    | "ANALYZE_BUG"
+    | "DOWNLOAD_ISSUE_LOGS";
   issueSnapshotId?: string;
   attemptId?: string;
   requirementSetId?: string;
@@ -325,7 +330,7 @@ export interface DesktopAPI {
     secret?: string,
     id?: string,
   ): Promise<Result<PublicAIProfile>>;
-  deleteAIProfile(id: string): Promise<Result<null>>;
+  deleteAIProfile(id: string, replacementId: string | null): Promise<Result<null>>;
   getCliConfiguration(): Promise<
     Result<
       CliConfiguration & {
@@ -371,6 +376,7 @@ export interface DesktopAPI {
   listTasks(projectId?: string): Promise<Result<Task[]>>;
   getTaskEvents(taskId: string): Promise<Result<TaskEvent[]>>;
   getContext(snapshotId: string): Promise<Result<ContextSnapshot>>;
+  deleteTask(taskId:string):Promise<Result<null>>;
   cancelTask(taskId: string): Promise<Result<Task>>;
   retryTask(taskId: string): Promise<Result<Task>>;
   chooseRepositoryDirectory(): Promise<Result<string | null>>;

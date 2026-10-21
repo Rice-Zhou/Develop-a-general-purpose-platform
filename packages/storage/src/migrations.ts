@@ -9,9 +9,9 @@ export async function migrateDatabase(
   backupDirectory = dirname(path),
 ): Promise<void> {
   const version = db.pragma("user_version", { simple: true }) as number;
-  if (version > 9)
+  if (version > 10)
     throw new AppError("DATABASE_NEWER", "数据库版本比当前应用新");
-  if (version >= 1 && version < 9) {
+  if (version >= 1 && version < 10) {
     await mkdir(backupDirectory, { recursive: true });
     await db.backup(
       join(
@@ -20,8 +20,10 @@ export async function migrateDatabase(
       ),
     );
   }
-  if (version === 9) return;
-  const materialSql = `CREATE TABLE IF NOT EXISTS issue_materials(id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,generation INTEGER NOT NULL,status TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(scope_key,generation)); CREATE INDEX IF NOT EXISTS material_scope ON issue_materials(scope_key,generation); PRAGMA user_version=9;`;
+  if (version === 10) return;
+  // v10 adds standalone log tasks, removed task history, and explicit no-AI selections.
+  if(version === 9){db.transaction(()=>db.pragma("user_version=10"))();return;}
+  const materialSql = `CREATE TABLE IF NOT EXISTS issue_materials(id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,generation INTEGER NOT NULL,status TEXT NOT NULL,json TEXT NOT NULL,UNIQUE(scope_key,generation)); CREATE INDEX IF NOT EXISTS material_scope ON issue_materials(scope_key,generation); PRAGMA user_version=10;`;
   if(version === 8) {db.transaction(()=>{db.exec(materialSql);})();return;}
   db.transaction(() => {
     if (version === 0)

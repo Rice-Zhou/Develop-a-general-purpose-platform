@@ -44,7 +44,30 @@ export class DataStore extends AnalysisRepository {
     if (id === this.getDefaultAIProfile()) return;
     this.db.transaction(() => {
       this.setSetting("default-ai-profile", id);
-      this.touchProjects(p => !p.aiProfileId);
+      this.touchProjects(p => !p.aiProfileId && p.usesDefaultAI !== false);
+    })();
+  }
+  deleteAIProfile(id: string, replacementId: string | null): void {
+    this.db.transaction(() => {
+      const profiles = this.getSetting<{ id: string }[]>("profiles") ?? [];
+      if (!profiles.some(p => p.id === id)) throw new AppError("MODEL_NOT_CONFIGURED", "AI 连接不存在");
+      if (replacementId === id || (replacementId !== null && !profiles.some(p => p.id === replacementId)))
+        throw new AppError("MODEL_REPLACEMENT_INVALID", "请选择其他有效 AI 连接，或明确解除关联");
+      const deletingDefault = this.getDefaultAIProfile() === id;
+      const projects = (this.db.prepare("SELECT json FROM projects").all() as JsonRow[]).map(row => JSON.parse(row.json) as Project);
+      const affected = projects.filter(p => p.aiProfileId === id || (deletingDefault && !p.aiProfileId && p.usesDefaultAI !== false));
+      const independentKinds: readonly Task["kind"][] = ["DOWNLOAD_ISSUE_LOGS", "PREPARE_CONTEXT", "UPDATE_CODE", "CONTINUE_CODE_UPDATE"];
+      const active = this.db.prepare(`SELECT 1 FROM tasks WHERE project_id=? AND status IN (${ACTIVE_TASK_STATUSES.map(() => "?").join(",")}) AND COALESCE(json_extract(json,'$.kind'),'') NOT IN (${independentKinds.map(() => "?").join(",")}) LIMIT 1`);
+      if (affected.some(p => active.get(p.id, ...ACTIVE_TASK_STATUSES, ...independentKinds)))
+        throw new AppError("MODEL_TASK_ACTIVE", "该 AI 连接关联的项目仍有活动任务，请先取消任务并等待取消完成，再删除连接");
+      for (const project of affected) {
+        const explicit = project.aiProfileId === id;
+        const updated = { ...project, ...(explicit || replacementId === null ? { aiProfileId: replacementId, usesDefaultAI: false } : {}), revision: project.revision + 1, updatedAt: new Date().toISOString() };
+        this.db.prepare("UPDATE projects SET revision=?,json=? WHERE id=?").run(updated.revision, JSON.stringify(updated), updated.id);
+      }
+      if (deletingDefault) this.setSetting("default-ai-profile", replacementId);
+      this.setSetting("profiles", profiles.filter(p => p.id !== id));
+      this.setSetting(`ai-protocol:${id}`, null);
     })();
   }
   private touchProjects(
@@ -93,7 +116,7 @@ export class DataStore extends AnalysisRepository {
     }
     project.issueBindings = resolveIssueBindings(project, this.getSetting<IssueConnection[]>("issue-connections") ?? []);
     const defaultId = this.getDefaultAIProfile();
-    if (!project.aiProfileId && defaultId) { project.aiProfileId = defaultId; project.usesDefaultAI = true; }
+    if (!project.aiProfileId && project.usesDefaultAI !== false) { project.aiProfileId = defaultId; project.usesDefaultAI = true; }
     return project;
   }
   private constructor(
@@ -184,7 +207,7 @@ export class DataStore extends AnalysisRepository {
       this.setSetting("document-resources", resources);
       const { usesDefaultAI, ...persisted } = project;
       const trinityProjects = project.trinityProjects ?? project.issueBindings.filter(b => b.platform === "trinity" && b.scopeMode !== "account").map(b => ({ instanceUrl: b.instanceUrl, projectId: b.projectKey }));
-      const json = { ...persisted, ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
+      const json = { ...persisted, ...(usesDefaultAI === false ? { usesDefaultAI: false } : {}), ...(trinityProjects.length || project.trinityProjects ? { trinityProjects } : {}), issueBindings: project.issueBindings.filter(b => b.platform !== "trinity"), aiProfileId: usesDefaultAI ? null : project.aiProfileId, documents: [], documentRefs: project.documents.map(d => ({ id: d.id, required: d.required })) };
       this.db
         .prepare(
           "INSERT INTO projects VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, json=excluded.json",
@@ -230,7 +253,7 @@ export class DataStore extends AnalysisRepository {
   }
   listTasks(projectId?: string): Task[] {
     const query =
-      "SELECT t.json FROM tasks t JOIN projects p ON p.id=t.project_id WHERE json_extract(p.json,'$.deletedAt') IS NULL" +
+      "SELECT t.json FROM tasks t JOIN projects p ON p.id=t.project_id WHERE json_extract(p.json,'$.deletedAt') IS NULL AND json_extract(t.json,'$.deletedAt') IS NULL" +
       (projectId ? " AND t.project_id=?" : "") +
       " ORDER BY t.created_at DESC,t.rowid DESC";
     const rows = this.db

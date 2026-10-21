@@ -1,3 +1,4 @@
+import {migrateDatabase} from "./migrations";
 import { afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -44,7 +45,7 @@ it("backs up v4 before enabling the new issue snapshot contract and preserves ex
     expect((await readdir(root)).some(name => name.includes("backup-v4"))).toBe(true);
   } finally { store.close(); }
   const upgraded = new Database(path);
-  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(9); }
+  try { expect(upgraded.pragma("user_version", { simple: true })).toBe(10); }
   finally { upgraded.close(); }
 });
 it("backs up v1 before migrating and preserves projects", async () => {
@@ -70,7 +71,7 @@ it("backs up v1 before migrating and preserves projects", async () => {
   }
   const upgraded = new Database(f.path);
   try {
-    expect(upgraded.pragma("user_version", { simple: true })).toBe(9);
+    expect(upgraded.pragma("user_version", { simple: true })).toBe(10);
   } finally {
     upgraded.close();
   }
@@ -192,4 +193,7 @@ it("backs up v7 and preserves explicit remote project mappings while moving Trin
   expect(store.getSetting<[{jiraProject:unknown}]>("issue-connections")![0].jiraProject).toMatchObject({key:"A",owner:"alice",issueTypeIds:["1"]});
   expect((await readdir(f.root)).some(name=>name.includes("backup-v7"))).toBe(true);
  }finally{store.close();}
+});
+it("upgrades v9 with a backup so older clients cannot process log tasks or resurrect removed history",async()=>{
+ const root=await mkdtemp(join(tmpdir(),"task-contract-migration-"));roots.push(root);const path=join(root,"db.sqlite");const db=new Database(path);try{await migrateDatabase(db,path);db.pragma("user_version=9");await migrateDatabase(db,path);expect(db.pragma("user_version",{simple:true})).toBe(10);expect((await readdir(root)).some(p=>p.includes("backup-v9-"))).toBe(true);}finally{db.close();}
 });

@@ -99,6 +99,7 @@ async function dispatch(request: Request): Promise<unknown> {
       return store.taskEvents(request.params.taskId);
     case "getContext":
       return store.getContext(request.params.snapshotId);
+    case "deleteTask": tasks.delete(request.params.taskId);return null;
     case "cancelTask":
       return tasks.cancel(request.params.taskId);
     case "retryTask":
@@ -250,9 +251,8 @@ parent.on("message", (event) => {
             z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
           );
         else if (envelope.action === "delete-profile") {
-          workbench.deleteProfile(
-            z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
-          );
+          const payload = z.object({ id: z.uuid(), replacementId: z.uuid().nullable() }).strict().parse(envelope.payload);
+          workbench.deleteProfile(payload.id, payload.replacementId);
           value = null;
         } else if (envelope.action === "export-report") {
           const payload = z
@@ -265,9 +265,7 @@ parent.on("message", (event) => {
         return;
       }
       if (envelope.type === "shutdown") {
-        await workbench.monitor.shutdown();
-        await tasks.shutdown();
-        await workbench.logs.shutdown();
+        await Promise.all([workbench.monitor.shutdown(),tasks.shutdown(),workbench.logs.shutdown()]);
         store?.close();
         parent.postMessage({
           id: envelope.id,

@@ -49,6 +49,8 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
+  cancelIssueLogTask?(id:string):Promise<void>;
+  retryIssueLogTask?(task:Task):Promise<Task>;
   prepareIssueMaterials?(task:Task,issueSnapshotId:string,signal:AbortSignal):Promise<import("../../../contracts/src/issue-materials").IssueLogSetRef|undefined>;
   captureCurrentCode?(binding:RepositoryBinding,signal:AbortSignal):Promise<import("../../../contracts/src/models").WorktreeRepositorySnapshot>;
   resolveCodeConflicts?(project: Project, binding: RepositoryBinding, signal: AbortSignal): Promise<void>;
@@ -88,7 +90,7 @@ export class TaskService {
     private readonly runtime?: TaskRuntime,
   ) {
     for (const task of store.listTasks()) {
-      if (
+      if ((task.kind === "DOWNLOAD_ISSUE_LOGS" && task.status === "QUEUED") ||
         ["PREPARING", "RUNNING", "VALIDATING", "CANCELLING"].includes(
           task.status,
         )
@@ -102,10 +104,12 @@ export class TaskService {
     this.schedule();
   }
   get(id: string): Task {
-    return this.store.getTask(id);
+    const task=this.store.getTask(id);
+    if(task.deletedAt)throw new AppError("TASK_NOT_FOUND","任务记录已删除");
+    return task;
   }
   list(projectId?: string): Task[] {
-    return this.store.listTasks(projectId);
+    return this.store.listTasks(projectId).filter(t=>!t.deletedAt);
   }
   async enqueue(
     projectId: string,
@@ -114,12 +118,14 @@ export class TaskService {
     requirementSetId?: string,
     issueSnapshotId?: string,
     bugOptions?:import("../../../contracts/src/issue-materials").BugAnalysisOptions,
+    issue?:{key:string;identity:string},
   ): Promise<Task> {
     if (this.stopping)
       throw new AppError("SERVICE_STOPPING", "应用正在退出，请重新启动后操作");
     const project = this.projects.get(projectId);
     if (!project.enabled)
       throw new AppError("PROJECT_DISABLED", "项目已停用，请先启用项目");
+    if(issue){const existing=this.list().find(t=>t.projectId===projectId&&t.kind===kind&&t.issueIdentity===issue.identity&&["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(t.status));if(existing)return existing;}
     const now = new Date().toISOString();
     const task: Task = {
       id: randomUUID(),
@@ -135,6 +141,7 @@ export class TaskService {
           }
         : {}),
       kind,
+      ...(issue?{issueKey:issue.key,issueIdentity:issue.identity}:{}),
       ...(kind === "ANALYZE_BUG" ? {bugOptions:bugOptions??{logPolicy:"required" as const}} : {}),
       attemptId: randomUUID(),
       ...(requirementSetId ? { requirementSetId } : {}),
@@ -171,8 +178,19 @@ export class TaskService {
         "项目或 AI 连接配置已改变，请重新运行",
       );
   }
+  delete(id:string):void {
+    const task=this.get(id);
+    if(["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(task.status))throw new AppError("TASK_ACTIVE","请先取消任务，等待停止后再删除记录");
+    this.store.saveTask({...task,deletedAt:new Date().toISOString()});
+  }
   async cancel(id: string): Promise<Task> {
     const task = this.get(id);
+    if(task.kind === "DOWNLOAD_ISSUE_LOGS"){
+      if(!this.runtime?.cancelIssueLogTask)throw new AppError("ANALYSIS_UNAVAILABLE","日志任务服务未装配");
+      if(!["QUEUED","PREPARING","RUNNING","VALIDATING","CANCELLING"].includes(task.status))return task;
+      this.transition(task,"CANCELLING","正在取消独立日志下载任务");
+      await this.runtime.cancelIssueLogTask(id);return this.get(id);
+    }
     if (task.status === "QUEUED")
       return this.transition(task, "CANCELLED", "排队任务已取消");
     if (
@@ -192,6 +210,10 @@ export class TaskService {
         "TASK_NOT_RETRYABLE",
         "只有失败、等待处理、中断或取消的任务可以重试",
       );
+    if(task.kind === "DOWNLOAD_ISSUE_LOGS"){
+      if(!this.runtime?.retryIssueLogTask)throw new AppError("ANALYSIS_UNAVAILABLE","日志任务服务未装配");
+      return this.runtime.retryIssueLogTask(task);
+    }
     return this.enqueue(
       task.projectId,
       task.kind,
@@ -199,6 +221,7 @@ export class TaskService {
       task.requirementSetId,
       task.issueSnapshotId,
       task.bugOptions,
+      task.issueIdentity&&task.issueKey?{identity:task.issueIdentity,key:task.issueKey}:undefined,
     );
   }
   private schedule(): void {
@@ -209,7 +232,7 @@ export class TaskService {
         this.running = null;
         if (
           !this.stopping &&
-          this.list().some((task) => task.status === "QUEUED")
+          this.list().some((task) => task.status === "QUEUED" && task.kind !== "DOWNLOAD_ISSUE_LOGS")
         )
           this.schedule();
       });
@@ -217,7 +240,7 @@ export class TaskService {
   private async pump(): Promise<void> {
     while (!this.stopping) {
       const task = this.list()
-        .filter((item) => item.status === "QUEUED")
+        .filter((item) => item.status === "QUEUED" && item.kind !== "DOWNLOAD_ISSUE_LOGS")
         .at(-1);
       if (!task) return;
       this.activeTaskId = task.id;
@@ -262,7 +285,7 @@ export class TaskService {
         let issueLogs:import("../../../contracts/src/issue-materials").IssueLogSetRef|undefined;
         if(task.kind === "ANALYZE_BUG") {
           if(!this.runtime?.prepareIssueMaterials||!this.runtime.captureCurrentCode)throw new AppError("ANALYSIS_UNAVAILABLE","日志和当前代码捕获服务未装配");
-          this.store.event(task.id,"ISSUE_LOGS",task.bugOptions?.logPolicy === "code-only" ? "用户明确选择仅按代码和问题描述分析，跳过日志" : "正在下载并解析问题日志");
+          this.store.event(task.id,"ISSUE_LOGS",task.bugOptions?.logPolicy === "code-only" ? "用户明确选择仅按代码和问题描述分析，跳过日志" : "等待独立日志下载任务完成，随后读取日志材料");
           issueLogs=await this.runtime.prepareIssueMaterials(task,issueSnapshotId!,this.controller.signal);
         }
         const previous = this.store.latestContext(project.id);

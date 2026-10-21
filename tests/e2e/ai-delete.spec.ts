@@ -1,0 +1,15 @@
+import {test,expect,_electron as electron} from "@playwright/test";
+import {mkdtemp,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {gitFixture} from "../../packages/testkit/src/git-fixture";
+test("deletes a referenced AI with explicit replacement or unlink without silently changing billing",async()=>{
+ test.setTimeout(90000);const root=await mkdtemp(join(tmpdir(),"ai-delete-ui-"));const f=await gitFixture();let app:Awaited<ReturnType<typeof electron.launch>>|undefined;
+ try{
+  app=await electron.launch({executablePath:process.env.PLATFORM_EXECUTABLE!,args:[],env:{...process.env,PLATFORM_E2E:"1",PLATFORM_DATA_DIR:root,HOME:root,USERPROFILE:root,APPDATA:root}});const page=await app.firstWindow();
+  const ids=await page.evaluate(async path=>{const take=<T,>(r:{ok:true;value:T}|{ok:false;error:{message:string}}):T=>{if(!r.ok)throw new Error(r.error.message);return r.value;};const a=take(await window.platform.saveAIProfile({kind:"api",name:"Old Billing",model:"fixture",baseUrl:"http://127.0.0.1:1/v1",outboundEnabled:false}));const b=take(await window.platform.saveAIProfile({kind:"api",name:"Replacement Billing",model:"fixture",baseUrl:"http://127.0.0.1:2/v1",outboundEnabled:false}));const p=take(await window.platform.saveProject({name:"Affected Code",enabled:true,repositories:[{path,branch:"main",remoteName:"origin",role:"main"}],documents:[],issueBindings:[],aiProfileId:null}));return {a:a.id,b:b.id,p:p.id};},f.analysis);
+  await page.reload();await page.getByRole("button",{name:"设置",exact:true}).click();const card=(name:string)=>page.locator(".connection-item").filter({has:page.getByText(name,{exact:false})});await card("Old Billing").getByRole("button",{name:"删除",exact:true}).click();const dialog=()=>page.getByRole("dialog",{name:"删除 AI 连接",exact:true});await expect(dialog()).toContainText("Affected Code");await expect(dialog().getByRole("button",{name:"确认删除",exact:true})).toBeDisabled();await dialog().getByLabel("删除后的 AI 配置").selectOption(ids.b);await dialog().getByRole("button",{name:"确认删除",exact:true}).click();await expect(dialog()).toHaveCount(0);
+  const project=()=>page.evaluate(async id=>{const r=await window.platform.listProjects();if(!r.ok)throw new Error(r.error.message);return r.value.find(p=>p.id===id)!;},ids.p);expect((await project()).aiProfileId).toBe(ids.b);await card("Replacement Billing").getByRole("button",{name:"删除",exact:true}).click();await dialog().getByLabel("删除后的 AI 配置").selectOption("unlink");await dialog().getByRole("button",{name:"确认删除",exact:true}).click();await expect(dialog()).toHaveCount(0);expect((await project()).aiProfileId).toBeNull();
+  await page.evaluate(async()=>{const r=await window.platform.saveAIProfile({kind:"api",name:"Later Billing",model:"fixture",baseUrl:"http://127.0.0.1:3/v1",outboundEnabled:false});if(!r.ok)throw new Error(r.error.message);});expect((await project()).aiProfileId).toBeNull();await page.screenshot({path:test.info().outputPath("ai-delete-explicit-choice.png")});
+ }finally{await app?.close();await f.dispose();await rm(root,{recursive:true,force:true});}
+});

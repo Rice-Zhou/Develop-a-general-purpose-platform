@@ -70,7 +70,7 @@ const api: DesktopAPI = {
   discoverCodex: (proxyUrl) => invoke("discoverCodex", {proxyUrl}),
   saveAIProfile: (draft, secret, id) =>
     invoke("saveAIProfile", { draft, secret, id }),
-  deleteAIProfile: (id) => invoke("deleteAIProfile", { id }),
+  deleteAIProfile: (id, replacementId) => invoke("deleteAIProfile", { id, replacementId }),
   getCliConfiguration: () => invoke("getCliConfiguration"),
   saveCliConfiguration: (configuration) =>
     invoke("saveCliConfiguration", { configuration }),
@@ -93,6 +93,7 @@ const api: DesktopAPI = {
   listTasks: (projectId) => invoke("listTasks", { projectId }),
   getTaskEvents: (taskId) => invoke("getTaskEvents", { taskId }),
   getContext: (snapshotId) => invoke("getContext", { snapshotId }),
+  deleteTask: (taskId) => invoke("deleteTask", {taskId}),
   cancelTask: (taskId) => invoke("cancelTask", { taskId }),
   retryTask: (taskId) => invoke("retryTask", { taskId }),
   chooseRepositoryDirectory: () => invoke("chooseRepositoryDirectory"),

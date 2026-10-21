@@ -88,19 +88,19 @@ test("saves independent Jira project connections and auto-links one Trinity acco
   await expect(mapped.getByLabel("预分析代码项目",{exact:true})).toHaveValue(ids[0]);
   let saved=(await state()).find(p=>p.id===ids[0])!;expect(saved.trinityProjects?.map(m=>m.projectId).sort()).toEqual(["P2","UNMATCHED"]);
   expect((await state()).find(p=>p.id===ids[1])!.trinityProjects?.map(m=>m.projectId)).toEqual(["P2"]);
-  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value.length:-1;})).toBe(0);expect(modelCalls).toBe(0);
+  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value.filter(t=>t.kind==="ANALYZE_BUG").length:-1;})).toBe(0);expect(modelCalls).toBe(0);
   // Restarted UI retains both sides of the mapping; removing one mapping makes that issue unavailable again.
   await page.reload();await page.getByRole("button",{name:"项目管理",exact:true}).click();await page.locator("section").filter({has:page.getByRole("heading",{name:"Code A",exact:true})}).getByRole("button",{name:"管理关联",exact:true}).click();
   await links.getByLabel("已关联 Trinity 项目").locator(".report-list-item").filter({hasText:"UNMATCHED"}).getByRole("button",{name:"移除映射",exact:true}).click();await links.getByRole("button",{name:"保存关联",exact:true}).click();await expect(links).toHaveCount(0);
   saved=(await state()).find(p=>p.id===ids[0])!;expect(saved.trinityProjects?.map(m=>m.projectId)).toEqual(["P2"]);
   await page.getByRole("button",{name:"BUG 工作台",exact:true}).click();await page.getByLabel("当前 BUG 项目").selectOption(ids[0]);await expect(unmatched.getByRole("button",{name:"基于当前代码预分析",exact:true})).toBeDisabled();
   await mapped.getByLabel("预分析代码项目",{exact:true}).selectOption(ids[1]);await expect(mapped).toContainText("匹配代码项目：Code B");await mapped.screenshot({path:test.info().outputPath("trinity-project-mapping.png")});
-  const oldSnapshot=await page.evaluate(async id=>{const r=await window.platform.getBugWorkspace(id);if(!r.ok)throw new Error(r.error.message);const item=r.value.issues.find(i=>i.key==="T-2")!;const rejected=await window.platform.analyzeBug({projectId:id,issueSnapshotId:item.id});const tasks=await window.platform.listTasks();if(!tasks.ok)throw new Error(tasks.error.message);return {rejected,tasks:tasks.value,snapshot:r.value.issues.find(i=>i.key==="T-1")!.id};},ids[0]);
+  const oldSnapshot=await page.evaluate(async id=>{const r=await window.platform.getBugWorkspace(id);if(!r.ok)throw new Error(r.error.message);const item=r.value.issues.find(i=>i.key==="T-2")!;const rejected=await window.platform.analyzeBug({projectId:id,issueSnapshotId:item.id});const tasks=await window.platform.listTasks();if(!tasks.ok)throw new Error(tasks.error.message);return {rejected,tasks:tasks.value.filter(t=>t.kind==="ANALYZE_BUG"),snapshot:r.value.issues.find(i=>i.key==="T-1")!.id};},ids[0]);
   expect(oldSnapshot.rejected.ok).toBe(false);expect(oldSnapshot.tasks).toEqual([]);
   const head=()=>execFileSync("git",["rev-parse","HEAD"],{cwd:f.seed,encoding:"utf8",windowsHide:true}).trim();const before=head();
   remoteProject="changed-after-list";await mapped.getByRole("button",{name:"基于当前代码预分析",exact:true}).click();
-  await expect.poll(async()=>page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value[0]?.error?.code:"failed";}),{timeout:20000}).toBe("ISSUE_PROJECT_UNMATCHED");
-  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value[0]?.projectId:null;})).toBe(ids[1]);
+  await expect.poll(async()=>page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value.find(t=>t.kind==="ANALYZE_BUG")?.error?.code:"failed";}),{timeout:20000}).toBe("ISSUE_PROJECT_UNMATCHED");
+  expect(await page.evaluate(async()=>{const r=await window.platform.listTasks();return r.ok?r.value.find(t=>t.kind==="ANALYZE_BUG")?.projectId:null;})).toBe(ids[1]);
   expect(head()).toBe(before);expect(modelCalls).toBe(0);
   await page.evaluate(async base=>{const r=await window.platform.saveIssueConnection({kind:"trinity",platform:"trinity",name:"Replacement Trinity",baseUrl:base,username:"bob",bypassProxy:true},"fixture-password");if(!r.ok)throw new Error(r.error.message);},base);
   expect((await state()).every(p=>p.issueBindings.some(b=>b.platform==="trinity"&&b.owner==="uid-bob"))).toBe(true);

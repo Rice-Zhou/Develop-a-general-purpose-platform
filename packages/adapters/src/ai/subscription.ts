@@ -9,7 +9,7 @@ import type {
   ModelReply,
   ToolSpec,
 } from "../../../core/src/analysis/ports";
-import { runProcess } from "../process/run-process";
+import { runProcess, processFailureDiagnostic } from "../process/run-process";
 import { executorIdentity } from "./identity";
 import { aiEnvironment } from "../network/policy";
 const envelope = z
@@ -46,7 +46,7 @@ const disabled = [
   "memories",
 ];
 export class SubscriptionTransport implements ModelTransport {
-  readonly version = "subscription-input-only-1";
+  readonly version = "subscription-input-only-2";
   readonly identity;
   private selection: Promise<{ api?: EndpointSelection; proxy?: EndpointSelection }> | undefined;
   constructor(
@@ -100,6 +100,12 @@ export class SubscriptionTransport implements ModelTransport {
             "read-only",
             "--ignore-user-config",
             "--ignore-rules",
+            "-c",
+            "project_doc_max_bytes=0",
+            "-c",
+            "skills.include_instructions=false",
+            "-c",
+            "skills.bundled.enabled=false",
             "--ephemeral",
             "--skip-git-repo-check",
             "--json",
@@ -153,7 +159,7 @@ export class SubscriptionTransport implements ModelTransport {
         if (value.type === "error" || value.type === "turn.failed")
           throw new AppError(
             "SUBSCRIPTION_FAILED",
-            "Codex 订阅工具执行失败，请检查登录与额度",
+            `Codex 订阅工具执行失败。${processFailureDiagnostic(output) || "未提供错误详情，请检查工具登录、权限及版本"}`,
           );
         if (
           value.item &&

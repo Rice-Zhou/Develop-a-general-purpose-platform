@@ -6,9 +6,12 @@ import type {
   PublicAIProfile,
 } from "../../../../../packages/contracts/src/analysis";
 import { unwrap, message } from "../api";
+import type { Project } from "../../../../../packages/contracts/src/models";
+import { DeleteAIProfileDialog } from "../components/DeleteAIProfileDialog";
 export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
   const [editingId, setEditingId] = useState<string>();
   const [profiles, setProfiles] = useState<PublicAIProfile[]>([]);
+  const [deleting, setDeleting] = useState<{ profile: PublicAIProfile; projects: Project[] } | null>(null);
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [kind, setKind] = useState<AIProfileDraft["kind"]>("api");
   const [name, setName] = useState("");
@@ -289,14 +292,8 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
                     disabled={busy}
                     onClick={() =>
                       void act(async () => {
-                        unwrap(
-                          await window.platform.deleteAIProfile(profile.id),
-                        );
-                        setProfiles(
-                          unwrap(await window.platform.getAIProfiles()),
-                        );
-                        setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
-                        setNotice("连接已删除，关联项目需要重新选择。");
+                        const projects = unwrap(await window.platform.listProjects());
+                        setDeleting({ profile, projects: projects.filter(project => project.aiProfileId === profile.id) });
                       })
                     }
                   >
@@ -352,6 +349,12 @@ export function ConnectionsPage({ onChanged }: { onChanged: () => void }) {
           保存并检查飞书 CLI
         </button>
       </section>
+      {deleting && <DeleteAIProfileDialog profile={deleting.profile} profiles={profiles} projects={deleting.projects} isDefault={deleting.profile.id === defaultId} onClose={() => setDeleting(null)} onDeleted={async () => {
+        setProfiles(unwrap(await window.platform.getAIProfiles()));
+        setDefaultId(unwrap(await window.platform.getDefaultAIProfile()));
+        setNotice("连接已删除，受影响项目和默认 AI 已按所选方式更新。");
+        onChanged();
+      }} />}
     </div>
   );
 }

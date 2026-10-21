@@ -4,7 +4,7 @@ import type { Project } from "./models";
 export const ISSUE_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
 const JIRA_COMPLETED_STATUSES = new Set(["完成", "已完成", "done", "completed"]);
 export function isIssueStatusIndexed(platform: IssueConnectionDraft["platform"], status: string): boolean {
-  return platform === "trinity" || !JIRA_COMPLETED_STATUSES.has(status.trim().toLowerCase());
+  return platform === "trinity" ? status.trim().toLowerCase() !== "closed" : !JIRA_COMPLETED_STATUSES.has(status.trim().toLowerCase());
 }
 export const JIRA_DISCOVERY_TIMEOUT_MS = 120000;
 export interface JiraCatalogue {

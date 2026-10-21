@@ -33,7 +33,7 @@ export function bindingFingerprint(scope: IssueScope): string {
 export class ScopePolicy {
   static assertActiveStatus(scope: IssueScope, status: string): void {
     if (!isIssueStatusIndexed(scope.connection.platform, status))
-      throw new AppError("ISSUE_STATUS_INACTIVE", `Jira 当前状态为“${status}”，已完成的问题不再展示或预分析，请刷新问题列表。`);
+      throw new AppError("ISSUE_STATUS_INACTIVE", `当前状态为“${status}”，已结束的问题不再展示或预分析，请刷新问题列表。`);
   }
   static validate(scope: IssueScope): void {
     if (!scope.enabled) throw new AppError("PROJECT_DISABLED", "项目已停用");

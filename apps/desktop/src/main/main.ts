@@ -244,7 +244,7 @@ else {
             const removed = await service.control(
               issueConnection ? "delete-issue-connection" : "delete-profile",
               {
-                id: request.params.id,
+                ...request.params,
               },
             );
             if (!removed.ok) return removed;
