@@ -1,3 +1,4 @@
+import { BugAnalysisOptionsSchema } from "./issue-materials";
 import { z } from "zod";
 import { AppError } from "./error";
 import { ProjectDraftSchema, ProjectDocumentsUpdateSchema, ProjectLinksUpdateSchema, DocumentResourceDraftSchema } from "./models";
@@ -108,9 +109,11 @@ const request = z.discriminatedUnion("method", [
   z
     .object({
       method: z.literal("analyzeBug"),
-      params: z.object({ projectId: id, issueSnapshotId: id, targetProjectId: id.optional() }).strict(),
+      params: z.object({ projectId: id, issueSnapshotId: id, targetProjectId: id.optional(), options:BugAnalysisOptionsSchema.optional() }).strict(),
     })
     .strict(),
+  z.object({method:z.literal("retryIssueLogs"),params:z.object({projectId:id,issueSnapshotId:id}).strict()}).strict(),
+  ...(["readIssueLog","openIssueMaterial"] as const).map(method=>z.object({method:z.literal(method),params:z.object({projectId:id,issueSnapshotId:id,fileId:z.string().min(1).max(200)}).strict()}).strict()),
   ...(["getBugReport", "exportBugReport"] as const).map((method) =>
     z
       .object({

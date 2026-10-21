@@ -1,3 +1,4 @@
+import {IssueLogMaterials} from "../components/IssueLogMaterials";
 import { useEffect, useRef, useState } from "react";
 import type {
   DesktopAPI,
@@ -36,6 +37,7 @@ export function BugsPage({
     sources: IssueSourceState[];
     reports: BugReport[];
   }>({ scope: "", issues: [], reports: [], sources: [] });
+  const [logPreview,setLogPreview]=useState<string>();
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
@@ -166,7 +168,7 @@ export function BugsPage({
     return <BugReportPage {...detail} onClose={() => setDetail(null)} />;
   return (
     <div className="workspace-stack">
-      {associating&&<TrinityIssueAssociationDialog issue={associating} projects={projects} onClose={()=>setAssociating(null)} onSaved={async saved=>{await onChanged();setAssociating(null);setProjectId(saved.id);setNotice(`已关联代码项目“${saved.name}”，可点击更新代码并预分析。`);}} />}
+      {associating&&<TrinityIssueAssociationDialog issue={associating} projects={projects} onClose={()=>setAssociating(null)} onSaved={async saved=>{await onChanged();setAssociating(null);setProjectId(saved.id);setNotice(`已关联代码项目“${saved.name}”，可点击基于当前代码预分析。`);}} />}
       <section className="panel work-panel">
         <div className="section-heading">
           <div>
@@ -267,6 +269,7 @@ export function BugsPage({
         {allRefreshed && issues.length === 0 && (
           <p className="muted">当前配置项目及负责人范围内无任何问题</p>
         )}
+        {logPreview!==undefined&&<div className="evidence-reader"><button className="secondary" onClick={()=>setLogPreview(undefined)}>关闭日志预览</button><pre>{logPreview}</pre></div>}
         {issues.map((issue) => { const analysisUnavailable=unavailableFor(issue); const analysisProjectName=projects.find(p=>p.id===targetIdFor(issue))?.name; return (
           <article className="finding-card" key={issue.id}>
             <div className="section-heading">
@@ -283,6 +286,7 @@ export function BugsPage({
               来源项目：{issue.remoteProjectName ? `${issue.remoteProjectName}（${issue.remoteProjectId}）` : issue.remoteProjectId} · {analysisProjectName ? `匹配代码项目：${analysisProjectName} · ` : ""}{issue.ownerId} · 问题版本 {issue.versions.join("、") || "未提供"}{" "}
               · 更新 {issue.updatedAt}
             </p>
+            <IssueLogMaterials issue={issue} projectId={projectId} busy={busy} onAction={act} onPreview={setLogPreview} />
             <p style={{ whiteSpace: "pre-wrap" }}>{issue.description}</p>
             <details>
               <summary>已读取评论与材料缺口</summary>
@@ -308,12 +312,13 @@ export function BugsPage({
               aria-describedby={analysisUnavailable ? `analysis-reason-${issue.id}` : undefined}
               onClick={() =>
                 void act(async () => {
-                  unwrap(await window.platform.analyzeBug(projectId, issue.id, targetIdFor(issue)));
-                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将重新校验问题并更新代码。`)
+                  unwrap(await window.platform.analyzeBug({projectId, issueSnapshotId:issue.id,targetProjectId:targetIdFor(issue)}));
+                }, `预分析任务已加入代码项目“${projects.find(p=>p.id===targetIdFor(issue))?.name??project?.name}”，将先准备日志，再使用当前代码预分析。`)
               }
             >
-              更新代码并预分析
+              基于当前代码预分析
             </button>
+            <button className="secondary" disabled={!!analysisUnavailable} onClick={()=>void act(async()=>unwrap(await window.platform.analyzeBug({projectId,issueSnapshotId:issue.id,targetProjectId:targetIdFor(issue),options:{logPolicy:"code-only"}})),"已明确跳过日志，任务将只使用当前代码和问题描述。")}>仅按代码和问题描述分析</button>
             {analysisUnavailable && (
               <p id={`analysis-reason-${issue.id}`} className="coverage-warning">{analysisUnavailable}</p>
             )}

@@ -9,6 +9,7 @@ export function parseAIAddress(input: string, kind: AIAddressKind) {
   catch { throw new AppError("AI_ADDRESS_INVALID", "AI 地址无效，请检查主机和端口"); }
   if (!url.hostname || url.username || url.password || (kind === "proxy" && url.pathname !== "/"))
     throw new AppError("AI_ADDRESS_INVALID", "代理仅接受主机与端口，不能包含业务路径或凭据");
-  const normalized = `${url.host}${url.pathname.replace(/\/+$/, "")}`;
+  const explicitPort=address.split("/")[0].match(/:(\d+)$/)?.[1];
+  const normalized = `${url.hostname}${explicitPort ? `:${Number(explicitPort)}` : ""}${url.pathname.replace(/\/+$/, "")}`;
   return { address: normalized, httpsUrl: `https://${normalized}`, httpUrl: `http://${normalized}` };
 }

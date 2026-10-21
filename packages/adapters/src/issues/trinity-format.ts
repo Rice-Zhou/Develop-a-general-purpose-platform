@@ -39,7 +39,7 @@ export function normalizeTrinity(scope: IssueScope, key: string, raw: unknown): 
     remoteId: value.id, ...(value.workitemId === undefined ? {} : { workitemId: value.workitemId }), key: value.bugId,
     instanceUrl: instanceUrl(scope.connection.baseUrl), remoteProjectId: value.projectId, ...(value.projectName?{remoteProjectName:value.projectName}:{}), ownerId: value.assigneeId, typeId: "BUG", title: value.title,
     description, status: value.status, updatedAt: "modifyTime" in value ? value.modifyTime : value.updateTime,
-    versions: [], comments: [], attachments: [], warnings: ["Trinity 评论、附件及问题版本字段尚无已验证契约，未读取；仅依据详情文本预分析"],
+    versions: [], comments: [], attachments: [], warnings: ["Trinity 评论及问题版本字段尚无已验证契约，未读取"],
   });
   if (!result.success) throw trinityContractError("规范化详情", result.error);
   const issue = result.data;

@@ -1,3 +1,9 @@
+import { captureWorktree,assertWorktreeCurrent } from "../../../../packages/adapters/src/git/worktree-snapshot";
+import { IssueLogService,logScope } from "../../../../packages/core/src/issues/issue-log-service";
+import { LOG_BUDGET } from "../../../../packages/contracts/src/issue-materials";
+import { parseLogAttachment } from "../../../../packages/adapters/src/logs/zip-reader";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { evidenceLabel } from "../../../../packages/contracts/src/analysis";
 import { resolveAIConnection, resolveAIEndpoint } from "../../../../packages/adapters/src/network/ai-endpoint";
 import { join, delimiter } from "node:path";
@@ -51,6 +57,7 @@ const publicProfile = (profile: AIProfile): PublicAIProfile => {
   return { ...draft, hasCredential: Boolean(credentialRef) };
 };
 export class Workbench implements TaskRuntime {
+  readonly logs:IssueLogService;
   async resolveCodeConflicts(project: Project, binding: Project["repositories"][number], signal: AbortSignal): Promise<void> {
     if (!project.aiProfileId) throw new AppError("MODEL_NOT_CONFIGURED", "请配置并关联 AI 后再选择 AI 解决冲突");
     const profile = this.profile(project.aiProfileId);
@@ -89,6 +96,8 @@ export class Workbench implements TaskRuntime {
       ref: string,
     ) => Promise<string>,
   ) {
+    this.content = new SnapshotStore(join(dataPath, "content"));
+    store.materials.recoverInterrupted();
     this.issues = new IssueService(store, (connection) => {
       if (connection.kind === "jira-cli") return new JiraCliAdapter(dataPath);
       const credential = () => {
@@ -99,9 +108,28 @@ export class Workbench implements TaskRuntime {
       return connection.kind === "jira-http"
         ? new JiraHttpAdapter(credential)
         : new TrinityAdapter(credential);
-    });
+    },async(scope,issues)=>{for(const issue of issues)await this.logs.enqueue(scope,issue);});
+    this.logs=new IssueLogService(store.materials,scope=>this.issues.adapter(scope.connection),async(scope,issue,attachments,signal,progress)=>{
+      const base=join(dataPath,"log-downloads");await mkdir(base,{recursive:true});const temporary=await mkdtemp(join(base,"job-"));
+      const files:import("../../../../packages/contracts/src/issue-materials").LogFile[]=[];let total=0;const extractionBudget={bytes:0,files:0};
+      try {
+        const adapter=this.issues.adapter(scope.connection);if(!adapter.downloadAttachment)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","当前连接不支持附件下载");
+        for(const attachment of attachments){
+          this.issues.assertCurrent(scope);if(attachment.size!==null&&attachment.size>LOG_BUDGET.attachment)throw new AppError("MATERIAL_SIZE_LIMIT","附件超过 512 MiB");
+          const destination=join(temporary,createHash("sha256").update(attachment.id).digest("hex"));
+          const downloaded=await adapter.downloadAttachment(scope,issue,attachment.id,destination,signal,LOG_BUDGET.issue-total);
+          total+=downloaded.size;if(total>LOG_BUDGET.issue)throw new AppError("MATERIAL_SIZE_LIMIT","问题日志总量超过 2 GiB");
+          const original=await this.content.putStream(createReadStream(destination),LOG_BUDGET.attachment,signal);
+          if(original.hash!==downloaded.sha256||original.size!==downloaded.size||(attachment.size!==null&&attachment.size!==downloaded.size))throw new AppError("ISSUE_DOWNLOAD_INVALID","附件大小或哈希不匹配");
+          files.push({id:createHash("sha256").update(`original:${attachment.id}:${original.hash}`).digest("hex"),attachmentId:attachment.id,path:attachment.name,originalHash:original.hash,contentHash:null,size:original.size,encoding:null,lineCount:0,status:"UNSUPPORTED",error:"附件原件"});
+          progress(files);
+          files.push(...await parseLogAttachment(destination,{...attachment,size:original.size},original.hash,this.content,signal,extractionBudget));
+          progress(files);
+        }
+        return files;
+      }finally {await rm(temporary,{recursive:true,force:true});}
+    },scope=>this.issues.assertCurrent(scope));
     this.monitor = new IssueMonitor(store, this.issues, new FeishuIssueNotifier(() => this.cliConfiguration()));
-    this.content = new SnapshotStore(join(dataPath, "content"));
     this.search = new SearchService(store);
     this.requirements = new RequirementService(store);
     const local = new LocalDocumentSource();
@@ -119,6 +147,9 @@ export class Workbench implements TaskRuntime {
       this.content,
       store,
     );
+  }
+  private withLogs(workspace:import("../../../../packages/contracts/src/issue-monitor").IssueWorkspace) {
+    return {...workspace,issues:workspace.issues.map(issue=>({...issue,logs:this.store.materials.latest(logScope(this.issues.scope(issue.projectId,issue.bindingId),issue))??undefined}))};
   }
   reader(projectId: string, contextId: string): ContextReader {
     const context = this.store.getContext(contextId);
@@ -199,6 +230,11 @@ export class Workbench implements TaskRuntime {
       )
       .digest("hex");
   }
+  captureCurrentCode(binding:Project["repositories"][number],signal:AbortSignal) {return captureWorktree(binding,this.content,signal);}
+  async prepareIssueMaterials(task:Task,issueSnapshotId:string,signal:AbortSignal) {
+    const issue=this.store.issues.get(task.projectId,issueSnapshotId);
+    return this.logs.prepare(this.issues.scope(task.projectId,issue.bindingId),issue,task.bugOptions?.logPolicy??"required",signal);
+  }
   prepareIssue(task: Task, signal: AbortSignal) {
     return this.issues.prepare(task, signal);
   }
@@ -265,6 +301,8 @@ export class Workbench implements TaskRuntime {
       );
       await this.issues.validateFresh(issue, signal);
       const report = await pipeline.preanalyze(task, issue, signal);
+      for(const repository of context.repositories)if(repository.kind === "worktree")await assertWorktreeCurrent(repository,signal);
+      if(context.issueLogs){const current=this.store.materials.get(context.issueLogs.id);if(current.manifestHash!==context.issueLogs.manifestHash||this.store.materials.latest(current.scope)?.id!==current.id)throw new AppError("ISSUE_LOG_CHANGED","分析期间日志版本已变化");}
       await this.issues.validateFresh(issue, signal);
       return { kind: "bug" as const, report };
     }
@@ -313,13 +351,21 @@ export class Workbench implements TaskRuntime {
       jiraConfigFile: join(user, ".config/.jira/.config.yml"),
     };
   }
+  async materialPath(projectId:string,issueSnapshotId:string,fileId:string):Promise<string> {
+    const issue=this.store.issues.get(projectId,issueSnapshotId);const scope=this.issues.scope(projectId,issue.bindingId);this.issues.assertCurrent(scope);
+    const set=this.store.materials.latest(logScope(scope,issue));const file=set?.files.find(file=>file.id===fileId);
+    if(!file)throw new AppError("LOG_DENIED","附件不属于当前账号和问题");
+    return this.content.verifiedPath(file.originalHash);
+  }
   issueUrl(projectId: string, issueSnapshotId: string): string {
     const issue = this.store.issues.get(projectId, issueSnapshotId);
     return issueWebUrl(this.issues.scope(projectId, issue.bindingId), issue);
   }
   private recordProtocol(id:string, detail:string) {
     const existing=this.store.getSetting<string>(`ai-protocol:${id}`);
-    this.store.setSetting(`ai-protocol:${id}`, existing ? existing + "；" + detail : detail);
+    const prefix=detail.split("：")[0]+"：";
+    const retained=(existing??"").split(" | ").filter(value=>value&&!value.startsWith(prefix));
+    this.store.setSetting(`ai-protocol:${id}`, [...retained,detail].join(" | "));
   }
   async probe(id: string) {
     const profile = this.profile(id);
@@ -397,11 +443,11 @@ export class Workbench implements TaskRuntime {
         return this.issues.publicConnections();
       case "getBugWorkspace":
         return {
-          ...this.monitor.workspace(request.params.projectId),
+          ...this.withLogs(this.monitor.workspace(request.params.projectId)),
           reports: this.store.issues.reports(request.params.projectId),
         };
       case "refreshBugWorkspace":
-        return this.monitor.refreshProject(request.params.projectId);
+        return this.withLogs(await this.monitor.refreshProject(request.params.projectId));
       case "getIssueMonitor":
         return this.monitor.status();
       case "saveIssueMonitor":
@@ -452,9 +498,20 @@ export class Workbench implements TaskRuntime {
           detail: "来源连接已验证；问题项目和负责人仍在每次读取时验证",
         };
       }
+      case "retryIssueLogs": {
+        const issue=this.store.issues.get(request.params.projectId,request.params.issueSnapshotId);const scope=this.issues.scope(issue.projectId,issue.bindingId);
+        const latest=await this.issues.adapter(scope.connection).get(scope,issue.key,AbortSignal.timeout(30000));
+        return this.logs.enqueue(scope,latest,true);
+      }
+      case "readIssueLog": {
+        const issue=this.store.issues.get(request.params.projectId,request.params.issueSnapshotId);const scope=this.issues.scope(issue.projectId,issue.bindingId);this.issues.assertCurrent(scope);
+        const set=this.store.materials.latest(logScope(scope,issue));const file=set?.files.find(file=>file.id===request.params.fileId&&file.status==="PARSED"&&file.contentHash);
+        if(!file)throw new AppError("LOG_DENIED","当前账号问题没有此可读日志");
+        const excerpt=await this.content.readLines(file.contentHash!,1,Math.min(file.lineCount||1,100));return {text:excerpt.text,truncated:file.lineCount>100};
+      }
       case "analyzeBug": {
         const input = this.issues.analysisInput(request.params.projectId, request.params.issueSnapshotId, request.params.targetProjectId);
-        return tasks.enqueue(input.projectId, "ANALYZE_BUG", 1, undefined, input.issueSnapshotId);
+        return tasks.enqueue(input.projectId, "ANALYZE_BUG", 1, undefined, input.issueSnapshotId,request.params.options);
       }
       case "getBugReport": {
         const { projectId, reportId } = request.params;
@@ -533,7 +590,7 @@ export class Workbench implements TaskRuntime {
         await new EvidenceValidator().validate([p.evidence], reader);
         return p.evidence.kind === "document"
           ? reader.readBlock(p.evidence.documentSnapshotId, p.evidence.blockId)
-          : reader.readCode(
+          : p.evidence.kind === "log" ? reader.readLog(p.evidence.logSetId,p.evidence.fileId,p.evidence.startLine,p.evidence.endLine) : reader.readCode(
               p.evidence.bindingId,
               p.evidence.path,
               p.evidence.startLine,
@@ -582,7 +639,7 @@ export class Workbench implements TaskRuntime {
       "静态预分析，未运行验证，候选原因未确认为根因。",
       `问题快照：${issue.id} / ${issue.contentHash}`,
       `问题版本：${issue.versions.map(esc).join("、") || "未提供"}`,
-      `代码：${context.repositories.map((repo) => `${esc(repo.branch ?? "detached/unborn")} @ ${repo.commit}`).join("；")}`,
+      `代码：${context.repositories.map((repo) => `${esc(repo.branch ?? "detached/unborn")} @ ${repo.commit ?? "尚无提交"}${repo.kind === "worktree" ? `；工作区快照 ${repo.manifestHash}；${repo.dirty ? "包含未提交修改" : "干净"}` : ""}`).join("；")}`,
       `执行器：${esc(r.executorConfiguration.name)} / ${esc(r.executorConfiguration.configuredModel ?? "CLI 默认模型")}`,
       "## 复现条件",
       ...r.reproduction.map((s) => "- " + esc(s)),

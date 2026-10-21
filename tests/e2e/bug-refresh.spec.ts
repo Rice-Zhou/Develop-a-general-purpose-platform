@@ -181,7 +181,7 @@ test("refreshes selected Jira project, distinguishes empty and failed refresh, a
       page.getByRole("link", { name: "A-1", exact: true }),
     ).toHaveAttribute("href", base + "/browse/A-1");
     await expect(page.getByRole("link", { name: "B-1", exact: true })).toHaveCount(0);
-    const analyze = page.getByRole("button", { name: "更新代码并预分析", exact: true });
+    const analyze = page.getByRole("button", { name: "基于当前代码预分析", exact: true });
     await expect(analyze).toBeDisabled();
     await expect(analyze).toHaveAttribute("title", "预分析不可用：匹配的代码项目未配置可用 AI 执行连接。");
     await expect(page.getByText("预分析不可用：匹配的代码项目未配置可用 AI 执行连接。", { exact: true })).toBeVisible();

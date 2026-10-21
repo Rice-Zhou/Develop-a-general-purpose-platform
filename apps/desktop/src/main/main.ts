@@ -92,6 +92,13 @@ else {
             event.senderFrame === window!.webContents.mainFrame,
           );
           const request = parseRequest(input);
+          if(request.method === "openIssueMaterial") {
+            const result=await service.control("get-issue-material-path",request.params);
+            if(!result.ok)return result;
+            if(typeof result.value!=="string")throw new AppError("LOG_DENIED","无法定位附件原件");
+            shell.showItemInFolder(result.value);
+            return {ok:true,value:undefined};
+          }
           if (request.method === "openIssue") {
             const result = await service.control(
               "get-issue-url",

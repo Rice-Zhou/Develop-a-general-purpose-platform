@@ -146,7 +146,7 @@ export const BugProposalSchema = z
   })
   .strict();
 export const BugReportSchema = BugProposalSchema.extend({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1),z.literal(2)]),
   id: z.uuid(),
   projectId: z.string(),
   taskId: z.string(),
@@ -156,7 +156,7 @@ export const BugReportSchema = BugProposalSchema.extend({
   createdAt: z.string(),
   executorVersion: z.string(),
   executorConfiguration: ExecutorIdentitySchema,
-  templateVersion: z.literal("bugs-1"),
+  templateVersion: z.enum(["bugs-1","bugs-2-current-code-logs"]),
   evidenceRefs: z.array(EvidenceRefSchema),
   checkedScope: z.array(z.string()),
   limitations: z.array(z.string()),

@@ -81,6 +81,8 @@ test("missing local CLI offers Jira and Trinity account login and never exposes 
   let trinityLogins = 0;
   let rejectIdentity = true;
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD"){res.writeHead(405).end();return;}
+
     if (req.url === "/") {
       res.end("<script src=static/js/app.js></script>");
       return;

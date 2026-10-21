@@ -16,6 +16,8 @@ test("aggregates both platforms, isolates failures and periodically notifies the
   let jiraCount = 1;
   const requests: string[] = [];
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD"){res.writeHead(405).end();return;}
+
     res.setHeader("content-type", "application/json");
     const url = new URL(req.url!, "http://localhost");
     requests.push(url.pathname);

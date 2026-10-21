@@ -59,7 +59,8 @@ export function BugReportPage({
       </p>
       {context.repositories.map((repo) => (
         <p key={repo.bindingId} className="small">
-          分析代码：{repo.branch} @ <code>{repo.commit}</code>
+          分析代码：{repo.branch ?? "detached / unborn"} @ <code>{repo.commit ?? "尚无提交"}</code>
+          {repo.kind === "worktree" && <> · 当前工作区 {repo.dirty ? "包含未提交修改" : "干净"} · 快照 <code>{repo.manifestHash}</code></>}
         </p>
       ))}
       {error && (

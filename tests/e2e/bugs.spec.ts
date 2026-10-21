@@ -13,6 +13,8 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
   let transferred = false;
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD"){res.writeHead(405).end();return;}
+
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/trinity/sys/user/userinfo") {
       res.end(JSON.stringify({ code: 200, data: { uid:"alice", apiVersion: "Trinity V7.5.0", isGray: false } }));
@@ -255,7 +257,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       page.getByRole("heading", { name: "A-1 · Jira test bug" }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "更新代码并预分析", exact: true })
+      .getByRole("button", { name: "基于当前代码预分析", exact: true })
       .first()
       .click();
     await expect(
@@ -288,7 +290,7 @@ test("scoped Jira CLI intake updates code and reports evidence; transferred Trin
       }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "更新代码并预分析", exact: true })
+      .getByRole("button", { name: "基于当前代码预分析", exact: true })
       .nth(1)
       .click();
     await expect(page.getByText(/ISSUE_OUT_OF_SCOPE/)).toBeVisible({

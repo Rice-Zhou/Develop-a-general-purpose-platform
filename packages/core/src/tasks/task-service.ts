@@ -19,6 +19,7 @@ import type { TaskRepository, RepositoryAdapter } from "../ports";
 import type { ProjectService } from "../projects/project-service";
 
 const humanActionCodes = new Set([
+  "ISSUE_LOG_REQUIRED", "ISSUE_LOG_CHANGED", "WORKTREE_CHANGED",
   "GIT_REBASE_CONFLICT", "GIT_NO_REBASE", "CONFLICT_UNSUPPORTED", "CONFLICT_CHANGED",
   "BUG_EVIDENCE_INSUFFICIENT",
   "ISSUE_NOT_CONFIGURED",
@@ -48,6 +49,8 @@ const humanActionCodes = new Set([
   "PROJECT_CHANGED",
 ]);
 export interface TaskRuntime {
+  prepareIssueMaterials?(task:Task,issueSnapshotId:string,signal:AbortSignal):Promise<import("../../../contracts/src/issue-materials").IssueLogSetRef|undefined>;
+  captureCurrentCode?(binding:RepositoryBinding,signal:AbortSignal):Promise<import("../../../contracts/src/models").WorktreeRepositorySnapshot>;
   resolveCodeConflicts?(project: Project, binding: RepositoryBinding, signal: AbortSignal): Promise<void>;
   configurationHash(project: Project, kind?: Task["kind"]): string;
   prepareIssue?(task: Task, signal: AbortSignal): Promise<string>;
@@ -110,6 +113,7 @@ export class TaskService {
     attempt = 1,
     requirementSetId?: string,
     issueSnapshotId?: string,
+    bugOptions?:import("../../../contracts/src/issue-materials").BugAnalysisOptions,
   ): Promise<Task> {
     if (this.stopping)
       throw new AppError("SERVICE_STOPPING", "应用正在退出，请重新启动后操作");
@@ -131,6 +135,7 @@ export class TaskService {
           }
         : {}),
       kind,
+      ...(kind === "ANALYZE_BUG" ? {bugOptions:bugOptions??{logPolicy:"required" as const}} : {}),
       attemptId: randomUUID(),
       ...(requirementSetId ? { requirementSetId } : {}),
       ...(issueSnapshotId ? { issueSnapshotId } : {}),
@@ -193,6 +198,7 @@ export class TaskService {
       task.attempt + 1,
       task.requirementSetId,
       task.issueSnapshotId,
+      task.bugOptions,
     );
   }
   private schedule(): void {
@@ -253,13 +259,19 @@ export class TaskService {
             this.controller.signal,
           );
         }
+        let issueLogs:import("../../../contracts/src/issue-materials").IssueLogSetRef|undefined;
+        if(task.kind === "ANALYZE_BUG") {
+          if(!this.runtime?.prepareIssueMaterials||!this.runtime.captureCurrentCode)throw new AppError("ANALYSIS_UNAVAILABLE","日志和当前代码捕获服务未装配");
+          this.store.event(task.id,"ISSUE_LOGS",task.bugOptions?.logPolicy === "code-only" ? "用户明确选择仅按代码和问题描述分析，跳过日志" : "正在下载并解析问题日志");
+          issueLogs=await this.runtime.prepareIssueMaterials(task,issueSnapshotId!,this.controller.signal);
+        }
         const previous = this.store.latestContext(project.id);
         const bindings: RepositoryBinding[] = project.repositories.map(binding => {
           const prior = previous?.repositories.find(repo=>repo.bindingId===binding.id);
           return {...binding,remoteUrlFingerprint:binding.remoteUrlFingerprint ?? (prior?.kind !== "worktree" ? prior?.remoteUrlFingerprint : null) ?? null};
         });
         // Global serial execution is the first-release lock: no two tasks can touch a repository at once.
-        for (const binding of bindings)
+        if(task.kind !== "ANALYZE_BUG")for (const binding of bindings)
           this.git.assertReady(
             await this.git.inspect(binding, this.controller.signal),
           );
@@ -267,11 +279,11 @@ export class TaskService {
         for (const binding of bindings) {
           this.store.event(
             task.id,
-            "GIT_SYNC",
-            `正在更新 ${binding.role || "代码仓库"}：${binding.branch}`,
+            task.kind === "ANALYZE_BUG" ? "CODE_SNAPSHOT" : "GIT_SYNC",
+            task.kind === "ANALYZE_BUG" ? `正在捕获当前代码（包含未提交修改）：${binding.role}` : `正在更新 ${binding.role || "代码仓库"}：${binding.branch}`,
           );
           snapshots.push(
-            await this.git.synchronize(binding, this.controller.signal),
+            task.kind === "ANALYZE_BUG" ? await this.runtime!.captureCurrentCode!(binding,this.controller.signal) : await this.git.synchronize(binding, this.controller.signal),
           );
         }
         if (this.controller.signal.aborted)
@@ -292,11 +304,13 @@ export class TaskService {
           projectId: project.id,
           configRevision: project.revision,
           ...(issueSnapshotId ? { issueSnapshotId } : {}),
+          ...(issueLogs ? {issueLogs} : {}),
           repositories: snapshots,
           documents: captured.documents,
           sourceGaps: captured.sourceGaps,
           createdAt: new Date().toISOString(),
           limitations: [
+            ...(task.bugOptions?.logPolicy === "code-only" ? ["用户明确选择仅按代码和问题描述分析，未读取问题日志"] : []),
             ...(task.kind === "PREPARE_CONTEXT"
               ? ["本任务准备代码和文档快照，不代表完成需求核对或 BUG 分析"]
               : []),
@@ -355,7 +369,7 @@ export class TaskService {
         else this.store.completeTask(this.get(task.id), context);
       } catch (error) {
         const data = errorData(
-          analysisDeadline?.aborted && !this.controller.signal.aborted
+          this.controller.signal.aborted && !(error instanceof AppError && error.code === "PROCESS_STOP_UNCONFIRMED") ? new AppError("CANCELLED","任务已取消") : analysisDeadline?.aborted && !this.controller.signal.aborted
             ? new AppError(
                 "ANALYSIS_TIMEOUT",
                 "分析超过 20 分钟上限，未提交成功结果",

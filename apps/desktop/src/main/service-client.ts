@@ -191,6 +191,7 @@ export class ServiceClient {
       | "get-issue-connection"
       | "delete-issue-connection"
       | "get-issue-url"
+      | "get-issue-material-path"
       | "export-bug-report",
     payload: unknown,
   ): Promise<Result<unknown>> {

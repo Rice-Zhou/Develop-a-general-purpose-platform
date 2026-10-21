@@ -11,6 +11,8 @@ test("updates code independently and offers manual or configured AI conflict res
   const data = await mkdtemp(join(tmpdir(), "code-update-desktop-")); const f = await gitFixture();
   let calls = 0;
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD"){res.writeHead(405).end();return;}
+
     let body = ""; for await (const chunk of req) body += chunk;
     const request = JSON.parse(body) as { messages: { role: string; content: string }[] };
     expect(request.messages.some(m => m.role === "user" && m.content.includes("feature.txt"))).toBe(true);

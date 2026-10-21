@@ -29,7 +29,7 @@ async function readStable(root:string,path:string) {
     const opened=await handle.stat();
     if(before.ino!==opened.ino||before.dev!==opened.dev||before.ctimeMs!==opened.ctimeMs)throw changed();
     // Bound the read even when another process grows the file after stat.
-    const buffer=Buffer.alloc(MAX_FILE+1); let length=0;
+    const buffer=Buffer.alloc(Math.min(before.size+1,MAX_FILE+1)); let length=0;
     while(length<buffer.length) {const part=await handle.read(buffer,length,buffer.length-length,null);if(!part.bytesRead)break;length+=part.bytesRead;}
     if(length>MAX_FILE)throw new AppError("FILE_SIZE_LIMIT",`代码文件超过 4 MiB：${path}`);
     const after=await handle.stat(); const current=await lstat(location);
@@ -74,8 +74,13 @@ export async function captureWorktree(binding:RepositoryBinding, content:{put(by
   const headFiles=first.commit ? (await runGit(root,["ls-tree","-r","-z",first.commit],signal)).stdout.toString("utf8").split("\0").filter(Boolean) : [];
   const tree=new Map(headFiles.map(row=>{const [meta,path]=row.split("\t");return [path,meta.split(" ")[2]];}));
   let dirty=!first.commit;
+  for(const row of first.index.split("\0").filter(Boolean)) {
+    const [meta,path]=row.split("\t");const [,blob,stage]=meta.split(" ");
+    if(stage!=="0"||tree.get(path)!==blob)dirty=true;
+  }
   for(const file of first.files) {const {bytes}=await readStable(root,file.path);if(digest(bytes)!==file.contentHash)throw changed();const blob=createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");if(tree.get(file.path)!==blob)dirty=true;tree.delete(file.path);}
   if([...tree.keys()].some(path=>readablePath(path)&&!generated.test(path)))dirty=true;
+  if((await scan(root,signal)).manifestHash!==first.manifestHash)throw changed();
   return {kind:"worktree",bindingId:binding.id,canonicalPath:root,branch:first.branch,commit:first.commit,capturedAt:new Date().toISOString(),manifestHash:first.manifestHash,dirty,files:first.files,excluded:first.excluded};
 }
 export async function assertWorktreeCurrent(snapshot:WorktreeRepositorySnapshot,signal:AbortSignal) {

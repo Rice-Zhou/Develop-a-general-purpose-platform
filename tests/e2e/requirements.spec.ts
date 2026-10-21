@@ -11,6 +11,8 @@ test("desktop reads real documents, versions requirements and validates a report
   const data = await mkdtemp(join(tmpdir(), "requirements-desktop-"));
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
   const server = createServer(async (req, res) => {
+    if(req.method === "HEAD"){res.writeHead(405).end();return;}
+
     let text = "";
     for await (const part of req) text += part;
     const body = JSON.parse(text) as {

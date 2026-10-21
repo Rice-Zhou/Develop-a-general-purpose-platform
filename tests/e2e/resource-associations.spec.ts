@@ -73,7 +73,7 @@ test("associates a configured Jira project connection and independent documents 
     expect((await state()).aiProfileId).toBe(profileIds[0]); expect((await state()).usesDefaultAI).not.toBe(true);
     offline = false;
     await page.getByRole("button", { name: "BUG 工作台", exact: true }).click(); await page.getByRole("button", { name: "刷新问题单", exact: true }).click();
-    await expect(page.getByRole("link", { name: "A-1", exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "更新代码并预分析", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "A-1", exact: true })).toBeVisible(); await expect(page.getByRole("button", { name: "基于当前代码预分析", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();
     await page.getByRole("button", { name: "添加项目", exact: true }).click();
     await create.getByLabel("项目名称").fill("代码项目 C"); await create.getByLabel("分析目录", { exact: true }).fill(f.seed); await create.getByLabel("分析分支").fill("main");

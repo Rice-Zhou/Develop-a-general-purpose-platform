@@ -32,8 +32,10 @@ const api: DesktopAPI = {
     invoke("refreshIssues", { projectId, bindingId }),
   readIssueByKey: (projectId, bindingId, key) =>
     invoke("readIssueByKey", { projectId, bindingId, key }),
-  analyzeBug: (projectId, issueSnapshotId, targetProjectId) =>
-    invoke("analyzeBug", { projectId, issueSnapshotId, targetProjectId }),
+  analyzeBug: input=>invoke("analyzeBug",input),
+  retryIssueLogs:(projectId,issueSnapshotId)=>invoke("retryIssueLogs",{projectId,issueSnapshotId}),
+  openIssueMaterial:(projectId,issueSnapshotId,fileId)=>invoke("openIssueMaterial",{projectId,issueSnapshotId,fileId}),
+  readIssueLog:(projectId,issueSnapshotId,fileId)=>invoke("readIssueLog",{projectId,issueSnapshotId,fileId}),
   getBugReport: (projectId, reportId) =>
     invoke("getBugReport", { projectId, reportId }),
   exportBugReport: (projectId, reportId) =>

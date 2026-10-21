@@ -45,7 +45,8 @@ export class IssueService {
   private readonly accountReads = new Map<string, { key: string | undefined; promise: Promise<IssueSnapshot[]> }>();
   constructor(
     private readonly store: IssueStore,
-    private readonly adapter: (connection: IssueConnection) => IssueAdapter,
+    readonly adapter: (connection: IssueConnection) => IssueAdapter,
+    private readonly onRead?: (scope:IssueScope,issues:IssueSnapshot[])=>Promise<void>,
   ) {}
   connections(): IssueConnection[] {
     return this.store.getSetting<IssueConnection[]>("issue-connections") ?? [];
@@ -251,9 +252,10 @@ export class IssueService {
       return {projectId:target.projectId,bindingId,scopeHash:bindingFingerprint(target),snapshots:key?[...this.store.issues.batch(target.projectId,bindingId,bindingFingerprint(target)).filter(previous=>!next.some(issue=>issue.remoteId===previous.remoteId)),...next]:next};
     });
     this.store.issues.replaceBatches(batches);
+    await this.onRead?.(scope,indexed);
     return indexed;
   }
-  private assertCurrent(scope: IssueScope): void {
+  assertCurrent(scope: IssueScope): void {
     if (
       bindingFingerprint(this.scope(scope.projectId, scope.binding.id)) !==
       bindingFingerprint(scope)

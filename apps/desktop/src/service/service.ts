@@ -225,6 +225,9 @@ parent.on("message", (event) => {
             z.object({ id: z.uuid() }).strict().parse(envelope.payload).id,
           );
           value = null;
+        } else if(envelope.action === "get-issue-material-path") {
+          const p=z.object({projectId:z.uuid(),issueSnapshotId:z.uuid(),fileId:z.string().min(1).max(200)}).strict().parse(envelope.payload);
+          value=await workbench.materialPath(p.projectId,p.issueSnapshotId,p.fileId);
         } else if (envelope.action === "get-issue-url") {
           const p = z
             .object({ projectId: z.uuid(), issueSnapshotId: z.uuid() })
@@ -261,6 +264,7 @@ parent.on("message", (event) => {
       if (envelope.type === "shutdown") {
         await workbench.monitor.shutdown();
         await tasks.shutdown();
+        await workbench.logs.shutdown();
         store?.close();
         parent.postMessage({
           id: envelope.id,

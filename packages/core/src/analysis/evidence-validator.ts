@@ -22,6 +22,7 @@ export class EvidenceValidator {
       const actual =
         ref.kind === "document"
           ? reader.readBlock(ref.documentSnapshotId, ref.blockId).evidence
+          : ref.kind === "log" ? (await reader.readLog(ref.logSetId,ref.fileId,ref.startLine,ref.endLine,signal)).evidence
           : (
               await reader.readCode(
                 ref.bindingId,

@@ -22,6 +22,8 @@ import {
   type IssueSnapshot,
 } from "../../../contracts/src/issues";
 const toolSchemas = {
+  searchLogs:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20)}).strict(),
+  readLog:z.object({logSetId:z.string(),fileId:z.string(),startLine:z.number().int().positive(),endLine:z.number().int().positive()}).strict(),
   searchEvidence: z
     .object({
       query: z.string().min(1).max(200),
@@ -124,6 +126,7 @@ export class AnalysisPipeline {
       }
     return {
       contextId: this.reader.context.id,
+      logs:this.reader.context.issueLogs ? {id:this.reader.logs().id,manifestHash:this.reader.logs().manifestHash,status:this.reader.logs().status,files:this.reader.logs().files.map(file=>({fileId:file.id,path:file.path,status:file.status,lineCount:file.lineCount,error:file.error})),searchCoverage:"搜索仅前 150 个文件前 100 行；readLog 可继续读取每次最多 400 行"} : null,
       blocks,
       paths: this.reader.context.repositories
         .flatMap((repo) =>
@@ -146,7 +149,11 @@ export class AnalysisPipeline {
   ): Promise<unknown> {
     const value = JSON.parse(args) as unknown;
     let result: unknown;
-    if (name === "searchEvidence") {
+    if(name === "readLog") {
+      const input=toolSchemas.readLog.parse(value);const excerpt=await this.reader.readLog(input.logSetId,input.fileId,input.startLine,input.endLine,signal);this.remember(excerpt.evidence);this.trace.push(`读取日志 ${input.fileId}:${input.startLine}-${input.endLine}`);result=excerpt;
+    }else if(name === "searchLogs") {
+      const input=toolSchemas.searchLogs.parse(value);const found=await this.reader.searchLogs(input.query,input.limit,signal);for(const row of found.results)this.remember(row.evidence);this.trace.push(`日志搜索 ${input.query}（受限范围，${found.results.length} 条）`);result=found;
+    }else if (name === "searchEvidence") {
       const input = toolSchemas.searchEvidence.parse(value);
       const found = this.search.search(
         this.reader.context,
@@ -340,7 +347,7 @@ export class AnalysisPipeline {
     )
       throw new AppError("CONTEXT_MISMATCH", "BUG 材料不属于当前分析上下文");
     const goal =
-      "BUG 预分析：只基于本次 issue 与 materials 取证。输出 JSON {reproduction:string[], facts:[{text:string,evidenceIds:string[]}], hypotheses:[{text:string,supportEvidenceIds:string[],counterEvidenceIds:string[],nextSteps:string[]}], missingInformation:string[]}。facts 只描述有代码证据的事实；hypotheses 是待验证原因，不能宣称已确定根因。需通过工具读取代码，不能将零搜索命中当作历史 BUG 无效。说明调用路径和可执行排查步骤。";
+      "BUG 预分析：只基于本次 issue 与 materials 取证。输出 JSON {reproduction:string[], facts:[{text:string,evidenceIds:string[]}], hypotheses:[{text:string,supportEvidenceIds:string[],counterEvidenceIds:string[],nextSteps:string[]}], missingInformation:string[]}。facts 只描述有代码证据的事实；hypotheses 是待验证原因，不能宣称已确定根因。需通过工具读取代码；存在可解析日志时必须使用 readLog 或 searchLogs 取证并说明覆盖范围，不能将零搜索命中当作历史 BUG 无效。说明调用路径和可执行排查步骤。";
     return this.corrected(goal, { issue }, signal, async (value) => {
       const proposal = BugProposalSchema.parse(value);
       if (!proposal.facts.length && !proposal.hypotheses.length) {
@@ -387,9 +394,10 @@ export class AnalysisPipeline {
             "BUG 候选原因必须引用本次取得的代码依据；没有代码依据时只报告缺失信息",
           );
       await new EvidenceValidator().validate(refs, this.reader, signal);
+      if(this.reader.context.issueLogs&&this.reader.logs().status==="READY"&&!refs.some(ref=>ref.kind==="log"))throw new AppError("OUTPUT_INVALID","已准备日志，报告必须引用本次实际读取的日志证据；不能只依据问题描述生成结论");
       return BugReportSchema.parse({
         ...proposal,
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: randomUUID(),
         projectId: task.projectId,
         taskId: task.id,
@@ -399,7 +407,7 @@ export class AnalysisPipeline {
         createdAt: new Date().toISOString(),
         executorVersion: this.model.version,
         executorConfiguration: this.model.identity,
-        templateVersion: "bugs-1",
+        templateVersion: "bugs-2-current-code-logs",
         evidenceRefs: refs,
         checkedScope: this.trace.length
           ? [...this.trace]
@@ -409,10 +417,10 @@ export class AnalysisPipeline {
           ...this.reader.context.limitations,
           ...issue.warnings,
           "静态预分析，未运行项目或确认根因；候选原因需人工验证",
-          `问题版本：${issue.versions.join("、") || "未提供"}；本次使用配置分支最新提交，未证明与故障版本一致，不据当前代码否定历史问题`,
-          ...issue.attachments.map(
+          `问题版本：${issue.versions.join("、") || "未提供"}；本次使用当前工作区快照（包含未提交修改），未证明与故障版本一致，不据当前代码否定历史问题`,
+          ...(this.reader.context.issueLogs ? this.reader.logs().files.filter(file=>file.status!=="PARSED"&&file.error!=="附件原件").map(file=>`未解析材料：${file.path}：${file.error}`) : issue.attachments.map(
             (a) => `未解析附件：${a.name}（${a.mediaType}，${a.size} 字节）`,
-          ),
+          )),
           ...(this.reader.context.sourceGaps ?? []).map((g) => g.message),
           ...this.reader.context.documents.flatMap((d) =>
             this.reader.document(d.id).warnings.map((w) => w.message),

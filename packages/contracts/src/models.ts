@@ -135,6 +135,7 @@ export interface WorktreeRepositorySnapshot {
 }
 export type RepositorySnapshot = GitRepositorySnapshot | WorktreeRepositorySnapshot;
 export interface ContextSnapshot {
+  issueLogs?:import("./issue-materials").IssueLogSetRef;
   issueSnapshotId?: string;
   id: string;
   projectId: string;
@@ -177,6 +178,7 @@ export type Result<T> =
   | { ok: true; value: T }
   | { ok: false; error: ErrorData };
 export interface Task {
+  bugOptions?:import("./issue-materials").BugAnalysisOptions;
   id: string;
   projectId: string;
   projectName: string;
@@ -252,7 +254,10 @@ export interface DesktopAPI {
     bindingId: string,
     key: string,
   ): Promise<Result<IssueSnapshot[]>>;
-  analyzeBug(projectId: string, issueSnapshotId: string, targetProjectId?: string): Promise<Result<Task>>;
+  analyzeBug(input:{projectId:string;issueSnapshotId:string;targetProjectId?:string;options?:import("./issue-materials").BugAnalysisOptions}):Promise<Result<Task>>;
+  retryIssueLogs(projectId:string,issueSnapshotId:string):Promise<Result<import("./issue-materials").IssueLogSet>>;
+  openIssueMaterial(projectId:string,issueSnapshotId:string,fileId:string):Promise<Result<void>>;
+  readIssueLog(projectId:string,issueSnapshotId:string,fileId:string):Promise<Result<{text:string;truncated:boolean}>>;
   getBugReport(
     projectId: string,
     reportId: string,

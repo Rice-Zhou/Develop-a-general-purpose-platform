@@ -21,6 +21,7 @@ export class ContextReader {
     readonly context: ContextSnapshot,
     private readonly store: {
       getDocument(projectId: string, id: string): DocumentSnapshot;
+      getIssueLogSet?(id:string):import("../../../contracts/src/issue-materials").IssueLogSet;
     },
     private readonly git: {
       readFile(
@@ -29,8 +30,33 @@ export class ContextReader {
         signal?: AbortSignal,
       ): Promise<Buffer>;
     },
-    private readonly content: { get(hash: string): Promise<Buffer> },
+    private readonly content: { get(hash: string): Promise<Buffer>;readLines?(hash:string,start:number,end:number,signal?:AbortSignal):Promise<{text:string;endLine:number}> },
   ) {}
+  logs() {
+    const ref=this.context.issueLogs;
+    if(!ref||!this.store.getIssueLogSet)throw new AppError("LOG_DENIED","日志不在当前分析上下文");
+    const set=this.store.getIssueLogSet(ref.id);
+    if(set.manifestHash!==ref.manifestHash||!["READY","NO_LOGS"].includes(set.status))throw new AppError("EVIDENCE_INVALID","日志清单版本不匹配或未就绪");
+    return set;
+  }
+  async readLog(logSetId:string,fileId:string,startLine:number,endLine:number,signal?:AbortSignal):Promise<EvidenceExcerpt> {
+    const set=this.logs();if(set.id!==logSetId)throw new AppError("LOG_DENIED","日志不在当前上下文");
+    const file=set.files.find(file=>file.id===fileId&&file.status==="PARSED"&&file.contentHash);
+    if(!file||!this.content.readLines)throw new AppError("LOG_DENIED","日志文件不可读取");
+    if(!Number.isSafeInteger(startLine)||!Number.isSafeInteger(endLine)||startLine<1||endLine<startLine||endLine-startLine>=400||startLine>file.lineCount)throw new AppError("LINE_RANGE_DENIED","日志读取范围须为 1—400 行且位于文件内");
+    const excerpt=await this.content.readLines(file.contentHash!,startLine,Math.min(endLine,file.lineCount),signal);const snippetHash=textHash(excerpt.text);
+    return {text:excerpt.text,evidence:{kind:"log",id:textHash(`${this.context.id}:${set.id}:${file.id}:${startLine}:${excerpt.endLine}:${snippetHash}`),projectId:this.context.projectId,contextSnapshotId:this.context.id,logSetId:set.id,manifestHash:set.manifestHash,fileId:file.id,contentHash:file.contentHash!,startLine,endLine:excerpt.endLine,snippetHash}};
+  }
+  async searchLogs(query:string,limit=10,signal?:AbortSignal) {
+    const set=this.logs();const results:EvidenceExcerpt[]=[];
+    for(const file of set.files.filter(file=>file.status==="PARSED").slice(0,150)) {
+      if(!file.lineCount)continue;
+      const excerpt=await this.readLog(set.id,file.id,1,Math.min(file.lineCount,100),signal);
+      if(excerpt.text.toLowerCase().includes(query.toLowerCase()))results.push(excerpt);
+      if(results.length>=limit)break;
+    }
+    return {results,limitation:"日志搜索仅覆盖前 150 个文本文件的前 100 行；可按文件 ID 和行号继续读取，不命中不代表无相关记录"};
+  }
   document(id: string): DocumentSnapshot {
     const ref = this.context.documents.find((d) => d.id === id);
     if (!ref) throw new AppError("DOCUMENT_DENIED", "文档不在当前上下文");

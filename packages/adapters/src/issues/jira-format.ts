@@ -72,7 +72,6 @@ export function normalizeJira(scope: IssueScope, input: unknown): RemoteIssue {
   const base = self.origin + self.pathname.slice(0, marker);
   const comments = f.comment?.comments ?? [];
   const warnings = [
-    "附件仅记录元信息，未下载或解析",
     "Jira 富文本转换为文本，图片和复杂排版不作为已解析证据",
   ];
   if (!f.comment || f.comment.total > comments.length)

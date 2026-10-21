@@ -11,7 +11,7 @@ export type IssueMonitorConfiguration = z.infer<typeof IssueMonitorConfiguration
 export const DEFAULT_ISSUE_MONITOR_CONFIGURATION: IssueMonitorConfiguration = {
   enabled: true, intervalMinutes: 5, notificationsEnabled: true,
 };
-export interface IssueListItem extends IssueSnapshot { webUrl: string; analysisProjectId?: string; analysisProjectName?: string; analysisProjects?: {id:string;name:string}[]; analysisUnavailable?: string }
+export interface IssueListItem extends IssueSnapshot { logs?:import("./issue-materials").IssueLogSet; webUrl: string; analysisProjectId?: string; analysisProjectName?: string; analysisProjects?: {id:string;name:string}[]; analysisUnavailable?: string }
 export interface IssueSourceState {
   bindingId: string;
   label: string;

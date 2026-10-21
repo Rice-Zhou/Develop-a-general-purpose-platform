@@ -32,14 +32,14 @@ export class TrinityAdapter implements IssueAdapter {
     if(!parsed.success)throw new AppError("ISSUE_ATTACHMENTS_INVALID","Trinity 附件列表契约不符，未当作无日志处理");
     return parsed.data.map(row=>({id:row.id,name:row.name,mediaType:row.name.toLowerCase().endsWith(".zip")?"application/zip":"application/octet-stream",size:row.fileSize??row.size??null,version:fingerprint({row,issueVersion:issue.updatedAt})}));
   }
-  async downloadAttachment(scope:IssueScope,issue:RemoteIssue,attachmentId:string,destination:string,signal:AbortSignal) {
+  async downloadAttachment(scope:IssueScope,issue:RemoteIssue,attachmentId:string,destination:string,signal:AbortSignal,maxBytes?:number) {
     const current=await this.get(scope,issue.key,signal);ScopePolicy.assert(scope,current);
     if(current.updatedAt!==issue.updatedAt)throw new AppError("ISSUE_CHANGED","问题在下载前已变化，请刷新");
     const files=await this.listAttachments(scope,current,signal);
     if(!files.some(file=>file.id===attachmentId))throw new AppError("ISSUE_ATTACHMENT_DENIED","附件不属于当前问题");
     const protocol=await this.protocol!;
     const base=instanceUrl(scope.connection.baseUrl);
-    return downloadAttachmentFile(base+"/storage/attachments/download?"+new URLSearchParams({id:attachmentId}),base,{"X-Token":await this.resolveToken(),"X-Platform":"trinity",...protocol},destination,signal,"POST");
+    return downloadAttachmentFile(base+"/storage/attachments/download?"+new URLSearchParams({id:attachmentId}),base,{"X-Token":await this.resolveToken(),"X-Platform":"trinity",...protocol},destination,signal,"POST",maxBytes);
   }
   async list(scope: IssueScope, signal: AbortSignal): Promise<RemoteIssue[]> {
     ScopePolicy.validate(scope);
