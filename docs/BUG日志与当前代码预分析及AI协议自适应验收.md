@@ -66,3 +66,7 @@ Forge 最终 make 退出 0；ZIP 共 83 个文件，与便携目录逐项文件�
 | `make\squirrel.windows\x64\LocalDevPlatformSetup.exe` | 195,276,800 | `5850298a87fd88af5bab6674067be0af10b8327839b1af16c8210ec5179028a2` |
 | `make\squirrel.windows\x64\LocalDevPlatform-0.8.0-full.nupkg` | 194,633,496 | `1e8f04c8e831cb46a3647051b891f642515df43579941eb9be5b5b298e432ddb` |
 | `make\zip\win32\x64\本地研发辅助平台-win32-x64-0.8.0.zip` | 201,444,494 | `1e7e7977dee7876363c97dffe8663d8ccf7cb3c49c65386baff4122db1af5666` |
+
+## 指定模型重试（13:28—13:30）
+
+用户明确指定 `gpt-6.1-sol` 后，通过最终版设置页编辑原 ChatGPT 订阅连接，保存成功并保留默认关系及代理。重试目标 BUG，第二次任务为 `8df817e6-9ea6-4ee3-942e-1bebdc43ea4d`。日志复用成功；13:28:16 捕获当前代码，13:29:53 完成文档与索引并进入分析。13:30:04 任务失败：服务端 HTTP 400 明确提示当前 Codex CLI 的 ChatGPT 账号不支持 `gpt-6.1-sol`。没有生成成功报告，也没有自动切换模型、账号或协议重发。分析前后 HEAD 和工作区状态仍相同。完整预分析成功验收仍受当前账号的模型可用性阻塞。
