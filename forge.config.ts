@@ -8,6 +8,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     electronZipDir: process.env.ELECTRON_ZIP_DIR || undefined,
     asar: true,
+    extraResource:[".vite/build/update-helper.cjs"],
     executableName: "LocalDevPlatform",
     appBundleId: "local.dev.platform",
     // Vite leaves native modules external; keep their production dependency tree.
@@ -30,6 +31,7 @@ const config: ForgeConfig = {
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
+        {entry:"apps/desktop/src/main/update-helper.ts",config:"vite.update-helper.config.ts",target:"main"},
         {
           entry: "packages/adapters/src/documents/parser-worker.ts",
           config: "vite.parser.config.ts",

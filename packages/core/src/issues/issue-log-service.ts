@@ -1,3 +1,4 @@
+import {WorkGate} from "../runtime/work-gate";
 import {createHash,randomUUID} from "node:crypto";
 import {AppError} from "../../../contracts/src/error";
 import {LOG_BUDGET,type IssueLogSet,type IssueLogScope,type IssueLogSetRef,type AttachmentDescriptor,type LogFile} from "../../../contracts/src/issue-materials";
@@ -12,9 +13,10 @@ export class IssueLogService {
  private readonly jobs=new Map<string,Job>();private readonly controller=new AbortController();
  private readonly discoveries=new Map<string,object>();
  private readonly pending=new Map<string,Promise<IssueLogSet>>();
- constructor(private readonly repository:MaterialRepository,private readonly adapter:(scope:IssueScope)=>Pick<IssueAdapter,"listAttachments">,private readonly download:(scope:IssueScope,issue:RemoteIssue,attachments:AttachmentDescriptor[],signal:AbortSignal,progress:(files:LogFile[])=>void)=>Promise<LogFile[]>,private readonly assertCurrent:(scope:IssueScope)=>void,private readonly changed?:(set:IssueLogSet,scope:IssueScope,issue:RemoteIssue)=>void){}
+ constructor(private readonly repository:MaterialRepository,private readonly adapter:(scope:IssueScope)=>Pick<IssueAdapter,"listAttachments">,private readonly download:(scope:IssueScope,issue:RemoteIssue,attachments:AttachmentDescriptor[],signal:AbortSignal,progress:(files:LogFile[])=>void)=>Promise<LogFile[]>,private readonly assertCurrent:(scope:IssueScope)=>void,private readonly changed?:(set:IssueLogSet,scope:IssueScope,issue:RemoteIssue)=>void,private readonly workGate=new WorkGate()){}
  private update(set:IssueLogSet,scope:IssueScope,issue:RemoteIssue){if(this.repository.update(set))this.changed?.(set,scope,issue);}
  enqueue(scope:IssueScope,issue:RemoteIssue,force=false):Promise<IssueLogSet> {
+  this.workGate.assertAccepting();
   const key=hash(logScope(scope,issue));const pending=this.discover(scope,issue,force);
   this.pending.set(key,pending);const finished=()=>{if(this.pending.get(key)===pending)this.pending.delete(key);};
   void pending.then(finished,finished);return pending;
@@ -25,12 +27,12 @@ export class IssueLogService {
   try {const adapter=this.adapter(scope);if(!adapter.listAttachments)throw new AppError("ISSUE_ATTACHMENTS_UNSUPPORTED","当前 Jira CLI 不支持附件下载；请使用账号密码连接读取日志，或明确选择仅按代码分析");attachments=await adapter.listAttachments(scope,issue,AbortSignal.any([this.controller.signal,AbortSignal.timeout(60000)]));}
   catch(error){failure=error;}
   if(this.discoveries.get(key)!==request)throw new AppError("ISSUE_LOG_CHANGED","较新的日志发现请求已开始，请使用最新刷新结果");
-  this.assertCurrent(scope);
+  this.workGate.assertAccepting();this.assertCurrent(scope);
   const version=hash({issue:issue.updatedAt,attachments,adapterKind:scope.connection.kind});const previous=this.repository.latest(source);
   if(!force&&!failure&&previous?.issueVersion===version){this.discoveries.delete(key);return previous;}
   if(previous&&this.jobs.has(previous.id))await this.cancel(previous.id);
   if(this.discoveries.get(key)!==request)throw new AppError("ISSUE_LOG_CHANGED","较新的日志请求已开始，未覆盖最新下载任务");
-  this.discoveries.delete(key);this.assertCurrent(scope);
+  this.discoveries.delete(key);this.workGate.assertAccepting();this.assertCurrent(scope);
   const now=new Date().toISOString();
   const set:IssueLogSet={id:randomUUID(),scope:source,issueVersion:version,generation:(previous?.generation??0)+1,status:failure?(failure instanceof AppError&&failure.code==="ISSUE_ATTACHMENTS_UNSUPPORTED"?"UNSUPPORTED":"FAILED"):attachments.length?"QUEUED":"NO_LOGS",attachments,files:[],manifestHash:hash({attachments,files:[]}),error:failure?this.failure(failure):null,updatedAt:now};
   this.repository.create(set);this.changed?.(set,scope,issue);

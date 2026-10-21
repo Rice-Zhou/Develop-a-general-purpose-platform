@@ -1,3 +1,5 @@
+import {WorkGate} from "../../../../packages/core/src/runtime/work-gate";
+import {ACTIVE_TASK_STATUSES} from "../../../../packages/contracts/src/models";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -27,6 +29,7 @@ let store: DataStore | null = null;
 let projects: ProjectService;
 let tasks: TaskService;
 let workbench: Workbench;
+const workGate=new WorkGate();
 const credentials = new Map<
   string,
   {
@@ -207,8 +210,9 @@ parent.on("message", (event) => {
           dataPath,
           join(__dirname, "parser-worker.cjs"),
           resolveCredential,
+          workGate,
         );
-        tasks = new TaskService(store, projects, git, workbench);
+        tasks = new TaskService(store, projects, git, workbench,workGate);
         if(envelope.startMonitor)workbench.monitor.start();
         parent.postMessage({ type: "ready" });
         return;
@@ -216,7 +220,9 @@ parent.on("message", (event) => {
       if (envelope.type === "control") {
         if (!store) throw new AppError("SERVICE_NOT_READY", "本地服务尚未就绪");
         let value: unknown;
-        if(envelope.action === "start-issue-monitor") {workbench.monitor.start();value=null;}
+        if(envelope.action === "freeze-for-update"){workGate.freezeIfIdle(()=>store!.listTasks().some(t=>ACTIVE_TASK_STATUSES.includes(t.status)));value=null;}
+        else if(envelope.action === "release-update-freeze"){workGate.release();value=null;}
+        else if(envelope.action === "start-issue-monitor") {workbench.monitor.start();value=null;}
         else if(envelope.action === "get-issue-connections")value=workbench.issues.connections();
         else if (envelope.action === "save-issue-connection")
           value = workbench.issues.saveConnection(envelope.payload);

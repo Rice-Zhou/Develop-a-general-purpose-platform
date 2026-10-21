@@ -1,3 +1,4 @@
+import {WorkGate} from "../../../../packages/core/src/runtime/work-gate";
 import {ScopePolicy} from "../../../../packages/core/src/issues/scope-policy";
 import { captureWorktree,assertWorktreeCurrent } from "../../../../packages/adapters/src/git/worktree-snapshot";
 import {discoverCodexCli} from "../../../../packages/adapters/src/ai/codex-discovery";
@@ -100,6 +101,7 @@ export class Workbench implements TaskRuntime {
       profileId: string,
       ref: string,
     ) => Promise<string>,
+    workGate=new WorkGate(),
   ) {
     this.content = new SnapshotStore(join(dataPath, "content"));
     store.materials.recoverInterrupted();
@@ -133,7 +135,7 @@ export class Workbench implements TaskRuntime {
         }
         return files;
       }finally {await rm(temporary,{recursive:true,force:true});}
-    },scope=>this.issues.assertCurrent(scope),(set,scope,issue)=>this.recordLogTask(set,scope,issue));
+    },scope=>this.issues.assertCurrent(scope),(set,scope,issue)=>this.recordLogTask(set,scope,issue),workGate);
     this.monitor = new IssueMonitor(store, this.issues, new FeishuIssueNotifier(() => this.cliConfiguration()));
     this.search = new SearchService(store);
     this.requirements = new RequirementService(store);

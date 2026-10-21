@@ -190,6 +190,8 @@ export class ServiceClient {
   }
   async control(
     action:
+      | "freeze-for-update"
+      | "release-update-freeze"
       | "save-profile"
       | "get-profile"
       | "delete-profile"
@@ -223,7 +225,9 @@ export class ServiceClient {
       this.child!.postMessage({ ...envelope, id });
     });
   }
-  async stop(): Promise<void> {
+  private stopFlight:Promise<void>|null=null;
+  stop():Promise<void>{return this.stopFlight??(this.stopFlight=this.stopOnce());}
+  private async stopOnce(): Promise<void> {
     if (this.child) {
       await this.ready;
       this.stopping = true;

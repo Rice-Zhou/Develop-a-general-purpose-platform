@@ -37,7 +37,8 @@ else if (!app.isPackaged)
     "userData",
     join(app.getPath("appData"), "local-dev-platform-development"),
   );
-const single = app.requestSingleInstanceLock();
+const squirrelEvent=process.argv.some(arg=>["--squirrel-install","--squirrel-updated","--squirrel-uninstall","--squirrel-obsolete"].includes(arg));
+const single = !squirrelEvent && app.requestSingleInstanceLock();
 if (!single) app.quit();
 else {
   app.on("second-instance", () => {

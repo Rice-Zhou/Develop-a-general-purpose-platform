@@ -1,3 +1,4 @@
+import {WorkGate} from "../runtime/work-gate";
 import { randomUUID } from "node:crypto";
 import { AppError, errorData } from "../../../contracts/src/error";
 import type {
@@ -88,6 +89,7 @@ export class TaskService {
     private readonly projects: ProjectService,
     private readonly git: RepositoryAdapter,
     private readonly runtime?: TaskRuntime,
+    private readonly workGate=new WorkGate(),
   ) {
     for (const task of store.listTasks()) {
       if ((task.kind === "DOWNLOAD_ISSUE_LOGS" && task.status === "QUEUED") ||
@@ -120,6 +122,7 @@ export class TaskService {
     bugOptions?:import("../../../contracts/src/issue-materials").BugAnalysisOptions,
     issue?:{key:string;identity:string},
   ): Promise<Task> {
+    this.workGate.assertAccepting();
     if (this.stopping)
       throw new AppError("SERVICE_STOPPING", "应用正在退出，请重新启动后操作");
     const project = this.projects.get(projectId);
