@@ -2,6 +2,8 @@
 
 更新仓库：https://github.com/Rice-Zhou/Develop-a-general-purpose-platform 。
 
+当前正式版为 [v1.0.3](https://github.com/Rice-Zhou/Develop-a-general-purpose-platform/releases/tag/v1.0.3)，2026-10-22 发布，修复已删除项目历史资料关联引发的数据库迁移失败。安装包与清单位于 `out/releases/1.0.3/make/squirrel.windows/x64/`，发布验证见 [1.0.3 联调验收](1.0.3GitHubRelease发布与在线更新联调验收.md)。
+
 1.0.2 曾于 2026-10-21 发布，随后因真实历史数据迁移失败撤回草稿，附件保留，禁止将其视为通过验收的升级包。源码和迁移修复已记录，完整自动升级暂未通过；详见 [1.0.2 发布联调验收](1.0.2GitHubRelease发布与在线更新联调验收.md)。后续修复版应使用新版本，保留 v1.0.2 标签与原始产物的一致性。
 
 1.0.1 已于 2026-10-21 正式发布：[v1.0.1 Release](https://github.com/Rice-Zhou/Develop-a-general-purpose-platform/releases/tag/v1.0.1)。安装包及清单均已上传并核对 GitHub SHA-256。实际安装和当前网络限制见 [发布联调验收](1.0.1GitHubRelease发布与在线更新联调验收.md)。
@@ -11,7 +13,7 @@
 - `LocalDevPlatformSetup.exe`
 - `platform-update.json`
 
-当前两文件位于 `out/releases/1.0.2/make/squirrel.windows/x64/`。清单由 Forge postMake 从最终安装包生成，含版本、win32/x64、精确字节数、SHA-256；请勿手改或混用旧包。可选上传便携 ZIP、RELEASES、nupkg，本客户端在线更新只使用完整 Setup.exe。
+当前两文件位于 `out/releases/1.0.3/make/squirrel.windows/x64/`。清单由 Forge postMake 从最终安装包生成，含版本、win32/x64、精确字节数、SHA-256；请勿手改或混用旧包。可选上传便携 ZIP、RELEASES、nupkg，本客户端在线更新只使用完整 Setup.exe。
 
 运行 `npm run make` 默认输出当前版本目录。指定 PLATFORM_BUILD_DIR 时，最终版本目录须以当前版本号命名。客户端无需 GitHub Token；发布权限只用于发布者上传。
 
