@@ -143,16 +143,19 @@ export async function runHandoff(
     if (parentExited) ports.relaunch(request.previousClientPath);
   }
 }
-function spawnDetached(
+export function spawnDetached(
   path: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
+  // Node mode belongs to this helper, never to the installer or its desktop children.
+  const desktopEnv = { ...env };
+  delete desktopEnv.ELECTRON_RUN_AS_NODE;
   return new Promise((resolve, reject) => {
     const child = spawn(path, [], {
       detached: true,
       windowsHide: true,
       stdio: "ignore",
-      env,
+      env: desktopEnv,
     });
     child.once("error", reject);
     child.once("spawn", () => {
@@ -186,9 +189,7 @@ async function cli() {
     wait: (ms) => new Promise((r) => setTimeout(r, ms)),
     spawn: (path) => spawnDetached(path),
     relaunch: (path) => {
-      const env = { ...process.env };
-      delete env.ELECTRON_RUN_AS_NODE;
-      void spawnDetached(path, env).catch((e) => {
+      void spawnDetached(path).catch((e) => {
         console.error(
           "previous client restart failed",
           (e as NodeJS.ErrnoException).code,
